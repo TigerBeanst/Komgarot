@@ -1,0 +1,46 @@
+<resources>
+    <string name="app_name">Komgarot</string>
+
+    <!-- 作者角色 -->
+    <string name="author_role_writer">作者</string>
+    <string name="author_role_penciller">线稿师</string>
+    <string name="author_role_inker">上墨师</string>
+    <string name="author_role_colorist">上色师</string>
+    <string name="author_role_letterer">嵌字师</string>
+    <string name="author_role_cover">封面</string>
+    <string name="author_role_editor">主编</string>
+    <string name="author_role_translator">翻译者</string>
+
+    <!-- 通用 -->
+    <string name="search_hint">搜索…</string>
+    <string name="back">返回</string>
+    <string name="edit">编辑</string>
+
+    <!-- 系列 -->
+    <string name="series_books">系列书籍</string>
+    <string name="books_count">共 %d 本</string>
+    <string name="publisher">出版社: %s</string>
+    <string name="status">状态: %s</string>
+    <string name="summary">简介</string>
+    <string name="tags">标签: %s</string>
+
+    <!-- 书籍 -->
+    <string name="author">作者: %s</string>
+    <string name="read">阅读</string>
+    <string name="continue_reading">继续阅读</string>
+    <string name="incognito_reading">无痕阅读</string>
+    <string name="pages_count">%d 页</string>
+    <string name="pages_remaining">剩余 %d 页</string>
+    <string name="file_size">文件大小</string>
+    <string name="file_format">文件格式</string>
+    <string name="file_source">文件来源</string>
+    <string name="created_at">创建于</string>
+    <string name="last_modified">最后修改时间</string>
+    <string name="unknown">未知</string>
+
+    <!-- 阅读器 -->
+    <string name="page_indicator">%1$d / %2$d</string>
+    <string name="previous">上一页</string>
+    <string name="next">下一页</string>
+    <string name="toggle_mode">切换模式</string>
+</resources>

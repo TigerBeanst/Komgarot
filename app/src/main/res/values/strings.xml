@@ -1,0 +1,46 @@
+<resources>
+    <string name="app_name">Komgarot</string>
+
+    <!-- Author roles -->
+    <string name="author_role_writer">Writer</string>
+    <string name="author_role_penciller">Penciller</string>
+    <string name="author_role_inker">Inker</string>
+    <string name="author_role_colorist">Colorist</string>
+    <string name="author_role_letterer">Letterer</string>
+    <string name="author_role_cover">Cover</string>
+    <string name="author_role_editor">Editor</string>
+    <string name="author_role_translator">Translator</string>
+
+    <!-- Common -->
+    <string name="search_hint">Search…</string>
+    <string name="back">Back</string>
+    <string name="edit">Edit</string>
+
+    <!-- Series -->
+    <string name="series_books">Series Books</string>
+    <string name="books_count">%d books</string>
+    <string name="publisher">Publisher: %s</string>
+    <string name="status">Status: %s</string>
+    <string name="summary">Summary</string>
+    <string name="tags">Tags: %s</string>
+
+    <!-- Books -->
+    <string name="author">Author: %s</string>
+    <string name="read">Read</string>
+    <string name="continue_reading">Continue Reading</string>
+    <string name="incognito_reading">Incognito Reading</string>
+    <string name="pages_count">%d pages</string>
+    <string name="pages_remaining">%d pages remaining</string>
+    <string name="file_size">File Size</string>
+    <string name="file_format">File Format</string>
+    <string name="file_source">File Source</string>
+    <string name="created_at">Created At</string>
+    <string name="last_modified">Last Modified</string>
+    <string name="unknown">Unknown</string>
+
+    <!-- Reader -->
+    <string name="page_indicator">%1$d / %2$d</string>
+    <string name="previous">Previous</string>
+    <string name="next">Next</string>
+    <string name="toggle_mode">Toggle Mode</string>
+</resources>
