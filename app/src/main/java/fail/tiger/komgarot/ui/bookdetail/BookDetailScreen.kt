@@ -10,11 +10,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -23,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.AuthPreferences
 import java.time.Instant
@@ -59,9 +61,24 @@ fun BookDetailScreen(
         },
         containerColor = Color.Transparent
     ) { padding ->
+        val serverUrl = prefs.serverUrlBlocking
+        val pullState = rememberPullToRefreshState()
+        PullToRefreshBox(
+            isRefreshing = vm.loading,
+            onRefresh = { vm.refresh() },
+            state = pullState,
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = pullState,
+                    isRefreshing = vm.loading,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
+                )
+            },
+            modifier = Modifier.fillMaxSize()
+        ) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             AsyncImage(
-                model = "${prefs.serverUrlBlocking}/api/v1/books/$bookId/thumbnail",
+                model = ImageRequest.Builder(LocalContext.current).data("$serverUrl/api/v1/books/$bookId/thumbnail").crossfade(true).build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxWidth().height(330.dp)
@@ -91,36 +108,35 @@ fun BookDetailScreen(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Box {
-                    AsyncImage(
-                        model = "${prefs.serverUrlBlocking}/api/v1/books/$bookId/thumbnail",
-                        contentDescription = null,
-                        modifier = Modifier.width(100.dp).aspectRatio(0.7f).clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                    book?.readProgress?.let { progress ->
-                        if (!progress.completed && progress.page > 0) {
-                            Column(
-                                Modifier
-                                    .align(Alignment.BottomStart)
-                                    .width(100.dp)
-                                    .background(
-                                        Brush.verticalGradient(
-                                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))
+                Card(shape = RoundedCornerShape(6.dp), modifier = Modifier.width(120.dp)) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current).data("$serverUrl/api/v1/books/$bookId/thumbnail").crossfade(true).build(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        Box(
+                            Modifier.fillMaxWidth().align(Alignment.BottomStart)
+                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.75f))))
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        ) {
+                            Column {
+                                book?.readProgress?.let { progress ->
+                                    if (!progress.completed && progress.page > 0) {
+                                        Text(
+                                            stringResource(R.string.pages_remaining, pageCount - progress.page),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.7f)
                                         )
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                LinearProgressIndicator(
-                                    progress = { progress.page.toFloat() / pageCount },
-                                    modifier = Modifier.fillMaxWidth().height(4.dp),
-                                )
-                                Text(
-                                    stringResource(R.string.pages_remaining, pageCount - progress.page),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
+                                        LinearProgressIndicator(
+                                            progress = { progress.page.toFloat() / pageCount },
+                                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp).height(2.dp),
+                                            color = Color.White,
+                                            trackColor = Color.White.copy(alpha = 0.3f)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -151,42 +167,41 @@ fun BookDetailScreen(
 
             HorizontalDivider()
 
-            meta?.authors?.let { authors ->
-                if (authors.isNotEmpty()) {
-                    val context = LocalContext.current
-                    authors.forEach { author ->
-                        ClickableInfoRow(
-                            label = translateAuthorRole(context, author.role),
-                            value = author.name,
-                            onClick = { onAuthorClick(author.name) }
+            val context = LocalContext.current
+            if (!meta?.authors.isNullOrEmpty()) {
+                for (author in meta!!.authors) {
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(translateAuthorRole(context, author.role), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            author.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { onAuthorClick(author.name) }
                         )
                     }
                 }
             }
 
-            meta?.tags?.let { tags ->
-                if (tags.isNotEmpty()) {
-                    InfoRow(stringResource(R.string.tags, "").dropLast(2), tags.joinToString(", "))
-                }
+            if (!meta?.tags.isNullOrEmpty()) {
+                InfoRow(stringResource(R.string.tags, "").dropLast(2), meta!!.tags.joinToString(", "))
             }
 
             HorizontalDivider()
 
-            book?.let { b ->
-                InfoRow(stringResource(R.string.file_size), formatFileSize(b.sizeBytes))
-                InfoRow(stringResource(R.string.file_format), b.media.mediaType ?: stringResource(R.string.unknown))
-                InfoRow(stringResource(R.string.file_source), b.url ?: stringResource(R.string.unknown))
-                b.created?.let { InfoRow(stringResource(R.string.created_at), formatDateTime(it)) }
-                b.fileLastModified?.let { InfoRow(stringResource(R.string.last_modified), formatDateTime(it)) }
+            if (book != null) {
+                InfoRow(stringResource(R.string.file_size), formatFileSize(book.sizeBytes))
+                InfoRow(stringResource(R.string.file_format), book.media.mediaType ?: stringResource(R.string.unknown))
+                InfoRow(stringResource(R.string.file_source), book.url ?: stringResource(R.string.unknown))
+                if (book.created != null) InfoRow(stringResource(R.string.created_at), formatDateTime(book.created))
+                if (book.fileLastModified != null) InfoRow(stringResource(R.string.last_modified), formatDateTime(book.fileLastModified))
             }
-            meta?.let { m ->
-                if (m.summary.isNotEmpty()) {
-                    Text(stringResource(R.string.summary), style = MaterialTheme.typography.titleMedium)
-                    Text(m.summary, style = MaterialTheme.typography.bodyMedium)
-                }
+            if (meta != null && meta.summary.isNotEmpty()) {
+                Text(stringResource(R.string.summary), style = MaterialTheme.typography.titleMedium)
+                Text(meta.summary, style = MaterialTheme.typography.bodyMedium)
             }
         }
-        }
+        } // Box
+        } // PullToRefreshBox
     }
 }
 

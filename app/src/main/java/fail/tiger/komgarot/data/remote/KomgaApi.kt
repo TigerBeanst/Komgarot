@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.data.remote
 
 import fail.tiger.komgarot.data.remote.dto.*
+import okhttp3.MultipartBody
 import retrofit2.http.*
 
 interface KomgaApi {
@@ -44,4 +45,20 @@ interface KomgaApi {
 
     @PATCH("api/v1/books/{bookId}/read-progress")
     suspend fun updateReadProgress(@Path("bookId") bookId: String, @Body progress: Map<String, @JvmSuppressWildcards Any?>)
+
+    @Multipart
+    @POST("api/v1/books/{bookId}/thumbnails")
+    suspend fun uploadBookThumbnail(
+        @Path("bookId") bookId: String,
+        @Part file: MultipartBody.Part,
+        @Query("selected") selected: Boolean = true
+    )
+
+    @Multipart
+    @POST("api/v1/series/{seriesId}/thumbnails")
+    suspend fun uploadSeriesThumbnail(
+        @Path("seriesId") seriesId: String,
+        @Part file: MultipartBody.Part,
+        @Query("selected") selected: Boolean = true
+    )
 }

@@ -11,6 +11,8 @@ import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.repository.BookRepository
 import kotlinx.coroutines.launch
 
+data class PageImageInfo(val bookId: String, val seriesId: String, val pageUrl: String)
+
 enum class ReadingMode { PAGER, SCROLL }
 
 class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferences) : ViewModel() {
@@ -19,13 +21,19 @@ class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferenc
     var mode by mutableStateOf(ReadingMode.PAGER)
     var showControls by mutableStateOf(true)
     var trackProgress by mutableStateOf(true)
-    private var currentBookId: String = ""
+    var currentBookId: String = ""
+        private set
+    var currentSeriesId: String = ""
+        private set
 
     fun load(bookId: String, startPage: Int, trackProgress: Boolean = true) {
         this.trackProgress = trackProgress
         this.currentBookId = bookId
         viewModelScope.launch {
             val base = prefs.serverUrlBlocking
+            runCatching { repo.getBookById(bookId).getOrThrow() }.onSuccess { book ->
+                currentSeriesId = book.seriesId
+            }
             runCatching { repo.getPages(bookId) }.onSuccess { pages ->
                 pageUrls = pages.map { "$base/api/v1/books/$bookId/pages/${it.number}" }
                 currentPage = (startPage - 1).coerceIn(0, pageUrls.size - 1)
@@ -55,6 +63,20 @@ class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferenc
                     repo.updateReadProgress(currentBookId, currentPage + 1, currentPage == pageUrls.size - 1)
                 }
             }
+        }
+    }
+
+    fun uploadBookThumbnail(imageBytes: ByteArray, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = runCatching { repo.uploadBookThumbnail(currentBookId, imageBytes, "image/jpeg") }.isSuccess
+            onDone(ok)
+        }
+    }
+
+    fun uploadSeriesThumbnail(imageBytes: ByteArray, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = runCatching { repo.uploadSeriesThumbnail(currentSeriesId, imageBytes, "image/jpeg") }.isSuccess
+            onDone(ok)
         }
     }
 

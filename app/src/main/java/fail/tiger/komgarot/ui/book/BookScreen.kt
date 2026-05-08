@@ -7,8 +7,10 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,9 +18,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import fail.tiger.komgarot.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,6 +36,7 @@ fun BookScreen(
     vm: BookViewModel
 ) {
     var hasNavigated by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LaunchedEffect(seriesId) { vm.init(seriesId) }
 
@@ -71,10 +76,28 @@ fun BookScreen(
         },
         containerColor = Color.Transparent
     ) { padding ->
+        var isRefreshing by remember { mutableStateOf(false) }
+
+        val pullState = rememberPullToRefreshState()
+        PullToRefreshBox(
+            isRefreshing = isRefreshing || vm.loading,
+            onRefresh = { isRefreshing = true; vm.refresh(); isRefreshing = false },
+            state = pullState,
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = pullState,
+                    isRefreshing = isRefreshing || vm.loading,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
+                )
+            },
+            modifier = Modifier.fillMaxSize()
+        ) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             vm.series?.let { series ->
                 AsyncImage(
-                    model = "$serverUrl/api/v1/series/${series.id}/thumbnail",
+                    model = ImageRequest.Builder(context)
+                        .data("$serverUrl/api/v1/series/${series.id}/thumbnail")
+                        .crossfade(true).build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(330.dp)
@@ -92,93 +115,98 @@ fun BookScreen(
                     )
                 )
             }
-
             LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            state = listState,
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(padding)
-        ) {
-            item(span = { GridItemSpan(3) }) {
-                vm.series?.let { series ->
-                    Column(Modifier.fillMaxWidth().padding(top = 200.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            AsyncImage(
-                                model = "$serverUrl/api/v1/series/${series.id}/thumbnail",
-                                contentDescription = null,
-                                modifier = Modifier.width(100.dp).aspectRatio(0.7f).clip(RoundedCornerShape(8.dp)),
-                                contentScale = ContentScale.Crop
-                            )
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(series.metadata.title.ifEmpty { series.name }, style = MaterialTheme.typography.titleLarge)
-                                Text(stringResource(R.string.books_count, series.booksCount), style = MaterialTheme.typography.bodyMedium)
-                                if (series.metadata.publisher.isNotEmpty()) {
-                                    Text(stringResource(R.string.publisher, series.metadata.publisher), style = MaterialTheme.typography.bodyMedium)
-                                }
-                                if (series.metadata.status.isNotEmpty()) {
-                                    Text(stringResource(R.string.status, series.metadata.status), style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
-                        }
-                        if (series.metadata.summary.isNotEmpty()) {
-                            Text(stringResource(R.string.summary), style = MaterialTheme.typography.titleMedium)
-                            Text(series.metadata.summary, style = MaterialTheme.typography.bodyMedium)
-                        }
-                        if (series.metadata.tags.isNotEmpty()) {
-                            Text(stringResource(R.string.tags, series.metadata.tags.joinToString(", ")), style = MaterialTheme.typography.bodyMedium)
-                        }
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    }
-                }
-            }
-            items(vm.books, key = { it.id }) { book ->
-                Card(modifier = Modifier.fillMaxWidth().clickable {
-                    onBookClick(book.id, book.metadata.title.ifEmpty { book.name }, book.media.pagesCount, false)
-                }) {
-                    Box {
-                        Column {
-                            AsyncImage(
-                                model = "$serverUrl/api/v1/books/${book.id}/thumbnail",
-                                contentDescription = book.name,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxWidth().aspectRatio(0.7f)
-                            )
-                            Column(Modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(
-                                        book.metadata.title.ifEmpty { book.name },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        modifier = Modifier.weight(1f)
+                    columns = GridCells.Fixed(3),
+                    state = listState,
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    item(span = { GridItemSpan(3) }) {
+                        vm.series?.let { series ->
+                            Column(Modifier.fillMaxWidth().padding(top = padding.calculateTopPadding() + 180.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data("$serverUrl/api/v1/series/${series.id}/thumbnail")
+                                            .crossfade(true).build(),
+                                        contentDescription = null,
+                                        modifier = Modifier.width(120.dp).aspectRatio(0.7f).clip(RoundedCornerShape(6.dp)),
+                                        contentScale = ContentScale.Crop
                                     )
-                                    IconButton(onClick = { onMetadataClick(book.id) }, modifier = Modifier.size(20.dp)) {
-                                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(14.dp))
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(series.metadata.title.ifEmpty { series.name }, style = MaterialTheme.typography.titleLarge)
+                                        Text(stringResource(R.string.books_count, series.booksCount), style = MaterialTheme.typography.bodyMedium)
+                                        if (series.metadata.publisher.isNotEmpty()) {
+                                            Text(stringResource(R.string.publisher, series.metadata.publisher), style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                        if (series.metadata.status.isNotEmpty()) {
+                                            Text(stringResource(R.string.status, series.metadata.status), style = MaterialTheme.typography.bodyMedium)
+                                        }
                                     }
                                 }
-                                Text(
-                                    "#${book.metadata.number.toInt()} · ${book.media.pagesCount}页",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                if (series.metadata.summary.isNotEmpty()) {
+                                    Text(stringResource(R.string.summary), style = MaterialTheme.typography.titleMedium)
+                                    Text(series.metadata.summary, style = MaterialTheme.typography.bodyMedium)
+                                }
+                                if (series.metadata.tags.isNotEmpty()) {
+                                    Text(stringResource(R.string.tags, series.metadata.tags.joinToString(", ")), style = MaterialTheme.typography.bodyMedium)
+                                }
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                            }
+                        }
+                    }
+                    items(vm.books, key = { it.id }) { book ->
+                        Card(
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                onBookClick(book.id, book.metadata.title.ifEmpty { book.name }, book.media.pagesCount, false)
+                            }
+                        ) {
+                            Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data("$serverUrl/api/v1/books/${book.id}/thumbnail")
+                                        .crossfade(true).build(),
+                                    contentDescription = book.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
                                 )
-                                book.readProgress?.let { progress ->
-                                    if (progress.page > 0 && !progress.completed) {
-                                        LinearProgressIndicator(
-                                            progress = { progress.page.toFloat() / book.media.pagesCount },
-                                            modifier = Modifier.fillMaxWidth().height(2.dp)
+                                Box(
+                                    Modifier.fillMaxWidth().align(Alignment.BottomStart)
+                                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.75f))))
+                                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            book.metadata.title.ifEmpty { book.name },
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.White,
+                                            maxLines = 1
                                         )
+                                        Text(
+                                            "#${book.metadata.number.toInt()} · ${book.media.pagesCount}页",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.7f)
+                                        )
+                                        book.readProgress?.let { progress ->
+                                            if (progress.page > 0 && !progress.completed) {
+                                                LinearProgressIndicator(
+                                                    progress = { progress.page.toFloat() / book.media.pagesCount },
+                                                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp).height(2.dp),
+                                                    color = Color.White,
+                                                    trackColor = Color.White.copy(alpha = 0.3f)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-            }
-        }
+        } // Box
+        } // PullToRefreshBox
     }
 }

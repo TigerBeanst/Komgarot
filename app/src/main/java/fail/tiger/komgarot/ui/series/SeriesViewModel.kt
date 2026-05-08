@@ -57,6 +57,13 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         loadMore()
     }
 
+    fun refresh() {
+        series.clear()
+        page = 0
+        hasMore = true
+        loadMore()
+    }
+
     fun loadMore() {
         if (!hasMore || loading) return
         viewModelScope.launch {

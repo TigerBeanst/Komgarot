@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,6 +22,7 @@ fun LibraryScreen(
     onSettings: () -> Unit = {}
 ) {
     val libraries by vm.libraries.collectAsState()
+    var isRefreshing by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -37,18 +39,20 @@ fun LibraryScreen(
             )
         }
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(160.dp),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { isRefreshing = true; vm.load(); isRefreshing = false },
             modifier = Modifier.padding(padding)
         ) {
-            item {
-                LibraryCard(name = "All Series") { onLibraryClick(null) }
-            }
-            items(libraries) { lib ->
-                LibraryCard(name = lib.name) { onLibraryClick(lib.id) }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(160.dp),
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                item { LibraryCard(name = "All Series") { onLibraryClick(null) } }
+                items(libraries) { lib -> LibraryCard(name = lib.name) { onLibraryClick(lib.id) } }
             }
         }
     }
@@ -56,9 +60,7 @@ fun LibraryScreen(
 
 @Composable
 private fun LibraryCard(name: String, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().aspectRatio(1.5f).clickable(onClick = onClick)
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().aspectRatio(1.5f).clickable(onClick = onClick)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(name, style = MaterialTheme.typography.titleMedium)
         }

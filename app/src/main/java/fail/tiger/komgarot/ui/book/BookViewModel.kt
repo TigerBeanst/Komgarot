@@ -37,6 +37,13 @@ class BookViewModel(
         if (books.isEmpty()) loadMore()
     }
 
+    fun refresh() {
+        books.clear()
+        page = 0
+        hasMore = true
+        loadMore()
+    }
+
     fun loadMore() {
         if (!hasMore || loading) return
         viewModelScope.launch {

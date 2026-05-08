@@ -42,6 +42,7 @@ fun AppNavGraph(app: KomgarotApp) {
         factory = LibraryViewModel.Factory(app.libraryRepository, app.authRepository, app.authPreferences)
     )
     val serverUrl by libraryVm.prefs.serverUrl.collectAsState(initial = "")
+    val startDest = if (app.authPreferences.serverUrlBlocking.isNotEmpty()) Screen.Library.route else Screen.Login.route
 
     LaunchedEffect(serverUrl) {
         if (serverUrl.isNotEmpty()) {
@@ -53,12 +54,12 @@ fun AppNavGraph(app: KomgarotApp) {
 
     NavHost(
         navController = navController,
-        startDestination = Screen.Login.route,
+        startDestination = startDest,
         modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
-        enterTransition = { slideInVertically(tween(300)) { it / 8 } + fadeIn(tween(300)) },
+        enterTransition = { fadeIn(tween(300)) },
         exitTransition = { fadeOut(tween(200)) },
         popEnterTransition = { fadeIn(tween(200)) },
-        popExitTransition = { slideOutVertically(tween(300)) { it / 8 } + fadeOut(tween(300)) }
+        popExitTransition = { fadeOut(tween(300)) }
     ) {
         composable(Screen.Login.route) {
             val vm: LoginViewModel = viewModel(factory = LoginViewModel.Factory(app.authRepository))
@@ -170,8 +171,9 @@ fun AppNavGraph(app: KomgarotApp) {
                     }
                 },
                 onReadClick = { id, trackProgress ->
-                    val startPage = if (trackProgress) vm.book?.readProgress?.page ?: 1 else 1
-                    navController.navigate("reader/$id/$startPage?trackProgress=$trackProgress")
+                    val effectiveTrack = trackProgress && !app.authPreferences.alwaysIncognitoBlocking
+                    val startPage = if (effectiveTrack) vm.book?.readProgress?.page ?: 1 else 1
+                    navController.navigate("reader/$id/$startPage?trackProgress=$effectiveTrack")
                 },
                 onAuthorClick = { authorName ->
                     navController.navigate(Screen.Series.go(null, "author:$authorName"))
@@ -210,7 +212,7 @@ fun AppNavGraph(app: KomgarotApp) {
         }
 
         composable(Screen.Settings.route) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(onBack = { navController.popBackStack() }, prefs = app.authPreferences)
         }
     }
 }

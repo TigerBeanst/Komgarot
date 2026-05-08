@@ -20,15 +20,20 @@ class BookDetailViewModel(
     var book by mutableStateOf<BookDto?>(null)
     var series by mutableStateOf<SeriesDto?>(null)
     var metadata by mutableStateOf<BookMetadataDto?>(null)
+    var loading by mutableStateOf(false)
+    private var currentBookId = ""
 
     fun load(bookId: String) {
+        currentBookId = bookId
         viewModelScope.launch {
+            loading = true
             book = bookRepo.getBookById(bookId).getOrNull()
-            book?.let {
-                metadata = it.metadata
-            }
+            book?.let { metadata = it.metadata }
+            loading = false
         }
     }
+
+    fun refresh() = load(currentBookId)
 
     class Factory(
         private val bookRepo: BookRepository,
