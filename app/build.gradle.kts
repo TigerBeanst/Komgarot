@@ -63,4 +63,6 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     implementation("net.engawapg.lib:zoomable:1.6.2")
+    implementation(libs.biometric)
+    implementation(libs.appcompat)
 }

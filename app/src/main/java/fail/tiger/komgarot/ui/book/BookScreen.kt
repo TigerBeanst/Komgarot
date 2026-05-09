@@ -22,8 +22,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import fail.tiger.komgarot.R
+import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.ui.components.LazyGridScrollbar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,10 +97,14 @@ fun BookScreen(
         ) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             vm.series?.let { series ->
+                val seriesThumbnailUrl = remember(series.id) {
+                    "$serverUrl/api/v1/series/${series.id}/thumbnail?v=${ThumbnailVersion.get(series.id)}"
+                }
                 AsyncImage(
                     model = ImageRequest.Builder(context)
-                        .data("$serverUrl/api/v1/series/${series.id}/thumbnail")
-                        .crossfade(true).build(),
+                        .data(seriesThumbnailUrl)
+                        .crossfade(true)
+                        .build(),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(330.dp)
@@ -115,22 +122,27 @@ fun BookScreen(
                     )
                 )
             }
-            LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    state = listState,
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        state = listState,
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                     item(span = { GridItemSpan(3) }) {
                         vm.series?.let { series ->
+                            val seriesThumbnailUrl = remember(series.id) {
+                                "$serverUrl/api/v1/series/${series.id}/thumbnail?v=${ThumbnailVersion.get(series.id)}"
+                            }
                             Column(Modifier.fillMaxWidth().padding(top = padding.calculateTopPadding() + 180.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     AsyncImage(
                                         model = ImageRequest.Builder(context)
-                                            .data("$serverUrl/api/v1/series/${series.id}/thumbnail")
-                                            .crossfade(true).build(),
+                                            .data(seriesThumbnailUrl)
+                                            .crossfade(true)
+                                            .build(),
                                         contentDescription = null,
                                         modifier = Modifier.width(120.dp).aspectRatio(0.7f).clip(RoundedCornerShape(6.dp)),
                                         contentScale = ContentScale.Crop
@@ -153,11 +165,24 @@ fun BookScreen(
                                 if (series.metadata.tags.isNotEmpty()) {
                                     Text(stringResource(R.string.tags, series.metadata.tags.joinToString(", ")), style = MaterialTheme.typography.bodyMedium)
                                 }
+                                val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                                Text(
+                                    "ID: ${series.id}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.clickable {
+                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("id", series.id))
+                                        android.widget.Toast.makeText(context, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                )
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                             }
                         }
                     }
                     items(vm.books, key = { it.id }) { book ->
+                        val thumbnailUrl = remember(book.id) {
+                            "$serverUrl/api/v1/books/${book.id}/thumbnail?v=${ThumbnailVersion.get(book.id)}"
+                        }
                         Card(
                             shape = RoundedCornerShape(6.dp),
                             modifier = Modifier.fillMaxWidth().clickable {
@@ -167,8 +192,9 @@ fun BookScreen(
                             Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
-                                        .data("$serverUrl/api/v1/books/${book.id}/thumbnail")
-                                        .crossfade(true).build(),
+                                        .data(thumbnailUrl)
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = book.name,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -206,6 +232,15 @@ fun BookScreen(
                         }
                     }
                 }
+
+                LazyGridScrollbar(
+                    state = listState,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .padding(end = 2.dp)
+                )
+            }
         } // Box
         } // PullToRefreshBox
     }

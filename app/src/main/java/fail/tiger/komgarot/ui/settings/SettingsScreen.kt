@@ -25,6 +25,9 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
     val alwaysIncognito by prefs.alwaysIncognito.collectAsState(initial = false)
     val preloadPages by prefs.preloadPages.collectAsState(initial = 5)
     var showPreloadDialog by remember { mutableStateOf(false) }
+    val appLockEnabled by prefs.appLockEnabled.collectAsState(initial = false)
+    val appLockTimeout by prefs.appLockTimeout.collectAsState(initial = 0)
+    var showLockTimeoutDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         cacheSize = getCacheSize(context)
@@ -64,7 +67,54 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
                 supportingContent = { Text("阅读时向后预加载 $preloadPages 页") },
                 modifier = Modifier.clickable { showPreloadDialog = true }
             )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("应用锁定") },
+                supportingContent = { Text("进入应用时需要验证身份") },
+                trailingContent = {
+                    Switch(
+                        checked = appLockEnabled,
+                        onCheckedChange = { scope.launch { prefs.setAppLockEnabled(it) } }
+                    )
+                },
+                modifier = Modifier.clickable { scope.launch { prefs.setAppLockEnabled(!appLockEnabled) } }
+            )
+            if (appLockEnabled) {
+                ListItem(
+                    headlineContent = { Text("锁定宽限时间") },
+                    supportingContent = { Text(if (appLockTimeout == 0) "每次回到应用都锁定" else "离开 $appLockTimeout 分钟后锁定") },
+                    modifier = Modifier.clickable { showLockTimeoutDialog = true }
+                )
+            }
         }
+    }
+
+    if (showLockTimeoutDialog) {
+        var sliderValue by remember { mutableFloatStateOf(appLockTimeout.toFloat()) }
+        AlertDialog(
+            onDismissRequest = { showLockTimeoutDialog = false },
+            title = { Text("锁定宽限时间") },
+            text = {
+                Column {
+                    Text(if (sliderValue.toInt() == 0) "每次回到应用都锁定" else "离开 ${sliderValue.toInt()} 分钟后锁定")
+                    Slider(
+                        value = sliderValue,
+                        onValueChange = { sliderValue = it },
+                        valueRange = 0f..60f,
+                        steps = 11
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { prefs.setAppLockTimeout(sliderValue.toInt()) }
+                    showLockTimeoutDialog = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLockTimeoutDialog = false }) { Text("取消") }
+            }
+        )
     }
 
     if (showPreloadDialog) {

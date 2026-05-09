@@ -24,8 +24,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import fail.tiger.komgarot.R
+import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
 import java.time.Instant
 import java.time.ZoneId
@@ -62,6 +64,7 @@ fun BookDetailScreen(
         containerColor = Color.Transparent
     ) { padding ->
         val serverUrl = prefs.serverUrlBlocking
+        val thumbnailUrl = "$serverUrl/api/v1/books/$bookId/thumbnail?v=${ThumbnailVersion.get(bookId)}"
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = vm.loading,
@@ -78,7 +81,10 @@ fun BookDetailScreen(
         ) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data("$serverUrl/api/v1/books/$bookId/thumbnail").crossfade(true).build(),
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(thumbnailUrl)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxWidth().height(330.dp)
@@ -111,7 +117,10 @@ fun BookDetailScreen(
                 Card(shape = RoundedCornerShape(6.dp), modifier = Modifier.width(120.dp)) {
                     Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
                         AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current).data("$serverUrl/api/v1/books/$bookId/thumbnail").crossfade(true).build(),
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(thumbnailUrl)
+                                .crossfade(true)
+                                .build(),
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -168,6 +177,16 @@ fun BookDetailScreen(
             HorizontalDivider()
 
             val context = LocalContext.current
+            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+            Text(
+                "ID: $bookId",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.clickable {
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("id", bookId))
+                    android.widget.Toast.makeText(context, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            )
             if (!meta?.authors.isNullOrEmpty()) {
                 for (author in meta!!.authors) {
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {

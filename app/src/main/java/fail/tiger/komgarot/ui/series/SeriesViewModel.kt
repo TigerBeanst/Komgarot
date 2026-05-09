@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.SeriesRepository
 import kotlinx.coroutines.launch
@@ -20,6 +21,7 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
     var currentSort by mutableStateOf(loadSortPreference())
     private var page = 0
     private var libraryId: String? = null
+    private var initialized = false
 
     private fun loadSortPreference(): String {
         val prefs = context.getSharedPreferences("komgarot_prefs", Context.MODE_PRIVATE)
@@ -32,8 +34,17 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
     }
 
     fun init(id: String?) {
-        if (libraryId != id) { libraryId = id; series.clear(); page = 0; hasMore = true }
-        if (series.isEmpty()) loadMore()
+        if (libraryId != id) {
+            libraryId = id
+            series.clear()
+            page = 0
+            hasMore = true
+            initialized = false
+        }
+        if (!initialized) {
+            initialized = true
+            loadMore()
+        }
     }
 
     fun search(query: String) {

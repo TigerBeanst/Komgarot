@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
+import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.data.repository.SeriesRepository
 import kotlinx.coroutines.launch
@@ -33,7 +34,12 @@ class BookDetailViewModel(
         }
     }
 
-    fun refresh() = load(currentBookId)
+    fun refresh() {
+        book = null
+        metadata = null
+        ThumbnailVersion.bump(currentBookId)
+        load(currentBookId)
+    }
 
     class Factory(
         private val bookRepo: BookRepository,

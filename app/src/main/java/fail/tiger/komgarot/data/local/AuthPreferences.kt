@@ -46,5 +46,21 @@ class AuthPreferences(private val context: Context) {
         context.dataStore.edit { it[PRELOAD_PAGES] = value }
     }
 
+    private val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
+    private val APP_LOCK_TIMEOUT = intPreferencesKey("app_lock_timeout_minutes")
+
+    val appLockEnabled: Flow<Boolean> = context.dataStore.data.map { it[APP_LOCK_ENABLED] ?: false }
+    val appLockTimeout: Flow<Int> = context.dataStore.data.map { it[APP_LOCK_TIMEOUT] ?: 0 }
+    val appLockEnabledBlocking: Boolean get() = runBlocking { appLockEnabled.first() }
+    val appLockTimeoutBlocking: Int get() = runBlocking { appLockTimeout.first() }
+
+    suspend fun setAppLockEnabled(value: Boolean) {
+        context.dataStore.edit { it[APP_LOCK_ENABLED] = value }
+    }
+
+    suspend fun setAppLockTimeout(minutes: Int) {
+        context.dataStore.edit { it[APP_LOCK_TIMEOUT] = minutes }
+    }
+
     suspend fun clear() = context.dataStore.edit { it.clear() }
 }

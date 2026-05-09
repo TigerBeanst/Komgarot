@@ -28,9 +28,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
 import coil.compose.AsyncImage
+import fail.tiger.komgarot.ui.components.LazyGridScrollbar
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import fail.tiger.komgarot.R
+import fail.tiger.komgarot.ThumbnailVersion
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,7 +101,14 @@ fun SeriesScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        if (searchExpanded) {
+                            searchExpanded = false
+                            searchText = ""
+                        } else {
+                            onBack()
+                        }
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -105,7 +117,7 @@ fun SeriesScreen(
                         IconButton(onClick = { vm.search(searchText) }) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
-                        IconButton(onClick = { searchExpanded = false; searchText = ""; vm.search("") }) {
+                        IconButton(onClick = { searchExpanded = false; searchText = "" }) {
                             Icon(Icons.Default.Clear, contentDescription = "Clear")
                         }
                     } else {
@@ -184,15 +196,19 @@ fun SeriesScreen(
                     Text("无搜索结果", style = MaterialTheme.typography.bodyLarge)
                 }
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    state = listState,
-                    contentPadding = PaddingValues(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(vm.series, key = { it.id }) { series ->
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        state = listState,
+                        contentPadding = PaddingValues(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(vm.series, key = { it.id }) { series ->
+                        val thumbnailUrl = remember(series.id) {
+                            "$serverUrl/api/v1/series/${series.id}/thumbnail?v=${ThumbnailVersion.get(series.id)}"
+                        }
                         Card(
                             shape = RoundedCornerShape(6.dp),
                             modifier = Modifier.fillMaxWidth().clickable { onSeriesClick(series.id, series.booksCount) }
@@ -200,8 +216,9 @@ fun SeriesScreen(
                             Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
-                                        .data("$serverUrl/api/v1/series/${series.id}/thumbnail")
-                                        .crossfade(true).build(),
+                                        .data(thumbnailUrl)
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = series.name,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -213,7 +230,12 @@ fun SeriesScreen(
                                 ) {
                                     Text(
                                         series.metadata.title.ifEmpty { series.name },
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            shadow = Shadow(
+                                                color = Color.Black,
+                                                blurRadius = 4f
+                                            )
+                                        ),
                                         color = Color.White,
                                         maxLines = 2
                                     )
@@ -237,6 +259,15 @@ fun SeriesScreen(
                         }
                     }
                 }
+
+                LazyGridScrollbar(
+                    state = listState,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .padding(end = 2.dp)
+                )
+            }
             }
         }
     }

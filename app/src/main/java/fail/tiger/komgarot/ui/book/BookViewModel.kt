@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.BookRepository
@@ -23,6 +24,7 @@ class BookViewModel(
     var loading by mutableStateOf(false)
     private var page = 0
     private var seriesId: String = ""
+    private var initialized = false
 
     fun init(id: String) {
         if (seriesId != id) {
@@ -30,11 +32,15 @@ class BookViewModel(
             books.clear()
             page = 0
             hasMore = true
+            initialized = false
             viewModelScope.launch {
                 series = seriesRepo.getSeriesById(id).getOrNull()
             }
         }
-        if (books.isEmpty()) loadMore()
+        if (!initialized) {
+            initialized = true
+            loadMore()
+        }
     }
 
     fun refresh() {
