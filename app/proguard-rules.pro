@@ -12,9 +12,11 @@
 -if interface * { @retrofit2.http.* <methods>; }
 -keep,allowobfuscation interface <1>
 
-# Keep data classes for Retrofit
+# Keep Retrofit service interfaces and DTO signatures. Release builds parse suspend
+# Continuation<T> and generic page wrappers reflectively.
 -keep class fail.tiger.komgarot.data.remote.dto.** { *; }
--keep class fail.tiger.komgarot.data.remote.KomgaApi { *; }
+-keep interface fail.tiger.komgarot.data.remote.** { *; }
+-keep class kotlin.coroutines.Continuation { *; }
 
 # Gson
 -keepattributes Signature

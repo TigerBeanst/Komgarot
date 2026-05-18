@@ -49,6 +49,22 @@ class BookDetailViewModel(
         load(currentBookId)
     }
 
+    fun markRead() {
+        val loaded = book ?: return
+        viewModelScope.launch {
+            runCatching { bookRepo.updateReadProgress(loaded.id, loaded.media.pagesCount.coerceAtLeast(1), completed = true) }
+                .onSuccess { load(loaded.id) }
+        }
+    }
+
+    fun markUnread() {
+        val loaded = book ?: return
+        viewModelScope.launch {
+            runCatching { bookRepo.deleteBookReadProgress(loaded.id) }
+                .onSuccess { load(loaded.id) }
+        }
+    }
+
     class Factory(
         private val bookRepo: BookRepository,
         private val seriesRepo: SeriesRepository

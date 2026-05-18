@@ -8,6 +8,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -127,13 +128,18 @@ fun ReaderScreen(
 
     val view = LocalView.current
     val window = (view.context as? android.app.Activity)?.window
+    val keepScreenOn by vm.prefs.keepScreenOn.collectAsState(initial = true)
 
-    DisposableEffect(Unit) {
-        window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
+    DisposableEffect(keepScreenOn) {
+        window?.let {
+            WindowCompat.setDecorFitsSystemWindows(it, false)
+            if (keepScreenOn) it.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
         onDispose {
             vm.flushProgress()
             window?.let {
-                WindowCompat.setDecorFitsSystemWindows(it, true)
+                it.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                WindowCompat.setDecorFitsSystemWindows(it, false)
                 WindowInsetsControllerCompat(it, view).show(WindowInsetsCompat.Type.systemBars())
             }
         }
@@ -187,6 +193,12 @@ fun ReaderScreen(
                     }
                     IconButton(onClick = { vm.toggleMode() }) {
                         Icon(Icons.Default.SwapHoriz, contentDescription = "切换阅读模式（翻页/滚动）", tint = Color.White)
+                    }
+                    TextButton(onClick = { vm.markCurrentBookUnread() }) {
+                        Text("未读", color = Color.White)
+                    }
+                    TextButton(onClick = { vm.markCurrentBookRead() }) {
+                        Text("已读", color = Color.White)
                     }
                     IconButton(
                         onClick = {
@@ -298,6 +310,8 @@ fun PagerReader(vm: ReaderViewModel) {
     val context = LocalContext.current
     var longPressUrl by remember { mutableStateOf<String?>(null) }
     val preloadPages by vm.prefs.preloadPages.collectAsState(initial = 5)
+    val readingDirection by vm.prefs.readingDirection.collectAsState(initial = "LTR")
+    val pageFit by vm.prefs.pageFit.collectAsState(initial = "FIT")
     val imageLoader = coil.Coil.imageLoader(context)
 
     LaunchedEffect(pagerState.currentPage) { vm.updatePage(pagerState.currentPage) }
@@ -319,6 +333,7 @@ fun PagerReader(vm: ReaderViewModel) {
     HorizontalPager(
         state = pagerState,
         beyondViewportPageCount = 0,
+        reverseLayout = readingDirection == "RTL",
         modifier = Modifier.fillMaxSize()
     ) { page ->
         val zoomState = rememberZoomState(maxScale = 5f)
@@ -339,7 +354,7 @@ fun PagerReader(vm: ReaderViewModel) {
             SubcomposeAsyncImage(
                 model = readerPageRequest(context, vm.pageUrls[page]),
                 contentDescription = "Page ${page + 1}",
-                contentScale = ContentScale.Fit,
+                contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
                     .zoomable(zoomState, onTap = { vm.toggleControls() })

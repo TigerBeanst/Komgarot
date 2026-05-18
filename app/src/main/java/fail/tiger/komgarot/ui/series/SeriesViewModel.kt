@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
+import fail.tiger.komgarot.data.repository.SeriesFilters
 import fail.tiger.komgarot.data.repository.SeriesRepository
 import kotlinx.coroutines.launch
 
@@ -21,8 +22,10 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
     var searchQuery by mutableStateOf("")
     var searchByAuthor by mutableStateOf(false)
     var currentSort by mutableStateOf(loadSortPreference())
+    var filters by mutableStateOf(SeriesFilters())
     val displaySearchQuery: String
         get() = searchQuery.stripAuthorPrefix().substringBefore(',').trim()
+    val activeFilterCount: Int get() = filters.activeCount
     private var page = 0
     private var libraryId: String? = null
     private var initialized = false
@@ -79,6 +82,19 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         loadMore()
     }
 
+    fun applyFilters(value: SeriesFilters) {
+        filters = value
+        series.clear()
+        page = 0
+        hasMore = true
+        error = null
+        loadMore()
+    }
+
+    fun clearFilters() {
+        applyFilters(SeriesFilters())
+    }
+
     fun refresh() {
         series.clear()
         page = 0
@@ -92,7 +108,7 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         viewModelScope.launch {
             loading = true
             error = null
-            runCatching { repo.getSeries(libraryId, page, searchQuery.ifEmpty { null }, currentSort) }
+            runCatching { repo.getSeries(libraryId, page, searchQuery.ifEmpty { null }, currentSort, filters) }
                 .onSuccess {
                     val existingIds = series.map { item -> item.id }.toSet()
                     val newItems = it.content.filter { item -> item.id !in existingIds }

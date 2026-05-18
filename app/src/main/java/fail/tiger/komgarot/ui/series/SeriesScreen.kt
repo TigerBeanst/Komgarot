@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
@@ -33,9 +34,13 @@ import coil.compose.AsyncImage
 import fail.tiger.komgarot.ui.components.LazyGridScrollbar
 import fail.tiger.komgarot.ui.components.EmptyState
 import fail.tiger.komgarot.ui.components.ErrorState
+import fail.tiger.komgarot.ui.components.rememberStableImageRequest
 import coil.request.ImageRequest
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.repository.SeriesFilters
+import fail.tiger.komgarot.ui.components.AutoHideBottomBarOnLazyGridScroll
+import fail.tiger.komgarot.ui.components.topLevelScrollableContentPadding
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -47,7 +52,8 @@ fun SeriesScreen(
     onSeriesClick: (String, Int) -> Unit,
     onMetadataClick: (String) -> Unit,
     onBack: () -> Unit,
-    vm: SeriesViewModel
+    vm: SeriesViewModel,
+    onBottomBarVisibleChange: (Boolean) -> Unit = {}
 ) {
     LaunchedEffect(libraryId) { vm.init(libraryId) }
     var searchExpanded by remember { mutableStateOf(false) }
@@ -55,11 +61,13 @@ fun SeriesScreen(
     var searchByAuthor by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     var sortMenuExpanded by remember { mutableStateOf(false) }
+    var showFilterSheet by remember { mutableStateOf(false) }
 
     val sortField = vm.currentSort.substringBefore(",")
     val sortDirection = vm.currentSort.substringAfter(",")
 
     val listState = rememberLazyGridState()
+    AutoHideBottomBarOnLazyGridScroll(listState, onBottomBarVisibleChange)
     LaunchedEffect(listState, vm) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
             .map { it ?: 0 }
@@ -110,8 +118,8 @@ fun SeriesScreen(
                         val title = when {
                             vm.searchQuery.isNotEmpty() && vm.searchByAuthor -> "作者: ${vm.displaySearchQuery}"
                             vm.searchQuery.isNotEmpty() -> "搜索: ${vm.displaySearchQuery}"
-                            libraryId == null -> "All Series"
-                            else -> "Series"
+                            libraryId == null -> "全部系列"
+                            else -> "系列"
                         }
                         Text(title)
                     }
@@ -188,6 +196,13 @@ fun SeriesScreen(
                             HorizontalDivider()
                             DropdownMenuItem(text = { Text("随机") }, onClick = { vm.setSortBy("random,asc"); sortMenuExpanded = false })
                         }
+                        IconButton(onClick = { showFilterSheet = true }) {
+                            Icon(
+                                Icons.Default.FilterList,
+                                contentDescription = "筛选",
+                                tint = if (vm.activeFilterCount > 0) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                            )
+                        }
                         IconButton(onClick = {
                             searchText = vm.displaySearchQuery
                             searchByAuthor = vm.searchByAuthor
@@ -223,7 +238,12 @@ fun SeriesScreen(
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(120.dp),
                         state = listState,
-                        contentPadding = PaddingValues(8.dp),
+                        contentPadding = topLevelScrollableContentPadding(
+                            start = 8.dp,
+                            top = 8.dp,
+                            end = 8.dp,
+                            bottom = 8.dp
+                        ),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
@@ -238,10 +258,10 @@ fun SeriesScreen(
                         ) {
                             Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
                                 AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(thumbnailUrl)
-                                        .crossfade(true)
-                                        .build(),
+                                    model = rememberStableImageRequest(
+                                        thumbnailUrl,
+                                        "series-thumb:${series.id}:${ThumbnailVersion.get(series.id)}"
+                                    ),
                                     contentDescription = series.name,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -293,5 +313,86 @@ fun SeriesScreen(
             }
             }
         }
+    }
+
+    if (showFilterSheet) {
+        SeriesFilterSheet(
+            filters = vm.filters,
+            onDismiss = { showFilterSheet = false },
+            onApply = {
+                vm.applyFilters(it)
+                showFilterSheet = false
+            },
+            onClear = {
+                vm.clearFilters()
+                showFilterSheet = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun SeriesFilterSheet(
+    filters: SeriesFilters,
+    onDismiss: () -> Unit,
+    onApply: (SeriesFilters) -> Unit,
+    onClear: () -> Unit
+) {
+    var readStatus by remember(filters) { mutableStateOf(filters.readStatus) }
+    var status by remember(filters) { mutableStateOf(filters.status) }
+    var complete by remember(filters) { mutableStateOf(filters.complete) }
+    var oneshot by remember(filters) { mutableStateOf(filters.oneshot) }
+    var recentRelease by remember(filters) { mutableStateOf(filters.releaseDateInLast != null) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("筛选系列", style = MaterialTheme.typography.titleLarge)
+            FilterGroup("阅读状态") {
+                FilterChip(selected = readStatus == null, onClick = { readStatus = null }, label = { Text("全部") })
+                FilterChip(selected = readStatus == "UNREAD", onClick = { readStatus = "UNREAD" }, label = { Text("未读") })
+                FilterChip(selected = readStatus == "IN_PROGRESS", onClick = { readStatus = "IN_PROGRESS" }, label = { Text("阅读中") })
+                FilterChip(selected = readStatus == "READ", onClick = { readStatus = "READ" }, label = { Text("已读") })
+            }
+            FilterGroup("系列状态") {
+                FilterChip(selected = status == null, onClick = { status = null }, label = { Text("全部") })
+                FilterChip(selected = status == "ONGOING", onClick = { status = "ONGOING" }, label = { Text("连载中") })
+                FilterChip(selected = status == "ENDED", onClick = { status = "ENDED" }, label = { Text("已完结") })
+                FilterChip(selected = status == "HIATUS", onClick = { status = "HIATUS" }, label = { Text("暂停") })
+                FilterChip(selected = status == "ABANDONED", onClick = { status = "ABANDONED" }, label = { Text("放弃") })
+            }
+            FilterGroup("内容") {
+                FilterChip(selected = complete == true, onClick = { complete = if (complete == true) null else true }, label = { Text("完整") })
+                FilterChip(selected = complete == false, onClick = { complete = if (complete == false) null else false }, label = { Text("不完整") })
+                FilterChip(selected = oneshot == true, onClick = { oneshot = if (oneshot == true) null else true }, label = { Text("单本") })
+                FilterChip(selected = recentRelease, onClick = { recentRelease = !recentRelease }, label = { Text("最近一年发布") })
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = onClear, modifier = Modifier.weight(1f)) { Text("清除") }
+                Button(
+                    onClick = {
+                        onApply(
+                            filters.copy(
+                                readStatus = readStatus,
+                                status = status,
+                                complete = complete,
+                                oneshot = oneshot,
+                                releaseDateInLast = if (recentRelease) "P365D" else null
+                            )
+                        )
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("应用") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FilterGroup(title: String, content: @Composable FlowRowScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
     }
 }

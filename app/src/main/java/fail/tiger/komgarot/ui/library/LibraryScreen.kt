@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
@@ -25,7 +26,10 @@ import coil.request.ImageRequest
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
+import fail.tiger.komgarot.ui.components.AutoHideBottomBarOnLazyListScroll
 import fail.tiger.komgarot.ui.components.ErrorState
+import fail.tiger.komgarot.ui.components.rememberStableImageRequest
+import fail.tiger.komgarot.ui.components.topLevelScrollableContentPadding
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -36,7 +40,8 @@ fun LibraryScreen(
     serverUrl: String,
     vm: LibraryViewModel,
     onLogout: () -> Unit,
-    onSettings: () -> Unit = {}
+    onSettings: () -> Unit = {},
+    onBottomBarVisibleChange: (Boolean) -> Unit = {}
 ) {
     val libraries by vm.libraries.collectAsState()
     val onDeckBooks by vm.onDeckBooks.collectAsState()
@@ -47,6 +52,8 @@ fun LibraryScreen(
     val error by vm.error.collectAsState()
     val hasAnyContent = libraries.isNotEmpty() || onDeckBooks.isNotEmpty() ||
         latestBooks.isNotEmpty() || updatedSeries.isNotEmpty() || newSeries.isNotEmpty()
+    val listState = rememberLazyListState()
+    AutoHideBottomBarOnLazyListScroll(listState, onBottomBarVisibleChange)
 
     Scaffold(
         topBar = {
@@ -72,7 +79,8 @@ fun LibraryScreen(
                 ErrorState(message = error ?: "连接 Komga 失败", onRetry = vm::load)
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
+                    state = listState,
+                    contentPadding = topLevelScrollableContentPadding(),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
@@ -196,7 +204,7 @@ private fun BookPosterCard(book: BookDto, serverUrl: String, onClick: () -> Unit
         modifier = Modifier.width(112.dp).clickable(onClick = onClick)
     ) {
         PosterImage(
-            model = ImageRequest.Builder(context).data(thumbnailUrl).crossfade(true).build(),
+            model = rememberStableImageRequest(thumbnailUrl, "book-thumb:${book.id}:${ThumbnailVersion.get(book.id)}"),
             title = book.metadata.title.ifEmpty { book.name },
             subtitle = book.seriesTitle ?: book.metadata.number,
             progress = book.readProgress?.takeIf { !it.completed && book.media.pagesCount > 0 }?.let {
@@ -217,7 +225,7 @@ private fun SeriesPosterCard(item: SeriesDto, serverUrl: String, onClick: () -> 
         modifier = Modifier.width(112.dp).clickable(onClick = onClick)
     ) {
         PosterImage(
-            model = ImageRequest.Builder(context).data(thumbnailUrl).crossfade(true).build(),
+            model = rememberStableImageRequest(thumbnailUrl, "series-thumb:${item.id}:${ThumbnailVersion.get(item.id)}"),
             title = item.metadata.title.ifEmpty { item.name },
             subtitle = "${item.booksCount} 本"
         )

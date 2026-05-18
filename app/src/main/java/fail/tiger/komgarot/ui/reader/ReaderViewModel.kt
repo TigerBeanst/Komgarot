@@ -88,6 +88,22 @@ class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferenc
         scheduleProgressUpdate()
     }
 
+    fun markCurrentBookRead() {
+        if (currentBookId.isEmpty() || pageUrls.isEmpty()) return
+        currentPage = pageUrls.lastIndex
+        viewModelScope.launch {
+            runCatching { repo.updateReadProgress(currentBookId, pageUrls.size, completed = true) }
+        }
+    }
+
+    fun markCurrentBookUnread() {
+        if (currentBookId.isEmpty()) return
+        currentPage = 0
+        viewModelScope.launch {
+            runCatching { repo.deleteBookReadProgress(currentBookId) }
+        }
+    }
+
     fun startPageFor(target: BookDto): Int {
         val progress = target.readProgress
         return if (trackProgress && progress != null && !progress.completed) progress.page.coerceAtLeast(1) else 1

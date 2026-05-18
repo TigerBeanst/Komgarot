@@ -3,6 +3,16 @@ package fail.tiger.komgarot.ui.navigation
 sealed class Screen(val route: String) {
     object Login : Screen("login")
     object Library : Screen("library")
+    object Browse : Screen("browse")
+    object Collections : Screen("collections")
+    object CollectionDetail : Screen("collections/{collectionId}") {
+        fun go(id: String) = "collections/$id"
+    }
+    object ReadLists : Screen("readlists")
+    object ReadListDetail : Screen("readlists/{readListId}") {
+        fun go(id: String) = "readlists/$id"
+    }
+    object Admin : Screen("admin")
     object Series : Screen("series/{libraryId}?search={search}") {
         fun go(id: String?, search: String? = null) = if (search != null) {
             "series/${id ?: "all"}?search=${java.net.URLEncoder.encode(search, "UTF-8")}"

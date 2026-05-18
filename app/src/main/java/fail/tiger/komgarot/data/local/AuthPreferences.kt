@@ -19,6 +19,9 @@ class AuthPreferences(private val context: Context) {
     private val PASSWORD = stringPreferencesKey("password")
     private val ALWAYS_INCOGNITO = booleanPreferencesKey("always_incognito")
     private val PRELOAD_PAGES = intPreferencesKey("preload_pages")
+    private val READING_DIRECTION = stringPreferencesKey("reading_direction")
+    private val PAGE_FIT = stringPreferencesKey("page_fit")
+    private val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
 
     @Volatile private var cachedServerUrl = ""
     @Volatile private var cachedUsername = ""
@@ -28,6 +31,9 @@ class AuthPreferences(private val context: Context) {
     val username: Flow<String> = context.dataStore.data.map { it[USERNAME] ?: "" }
     val alwaysIncognito: Flow<Boolean> = context.dataStore.data.map { it[ALWAYS_INCOGNITO] ?: false }
     val preloadPages: Flow<Int> = context.dataStore.data.map { it[PRELOAD_PAGES] ?: 5 }
+    val readingDirection: Flow<String> = context.dataStore.data.map { it[READING_DIRECTION] ?: "LTR" }
+    val pageFit: Flow<String> = context.dataStore.data.map { it[PAGE_FIT] ?: "FIT" }
+    val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { it[KEEP_SCREEN_ON] ?: true }
 
     init {
         runBlocking {
@@ -61,6 +67,18 @@ class AuthPreferences(private val context: Context) {
 
     suspend fun setPreloadPages(value: Int) {
         context.dataStore.edit { it[PRELOAD_PAGES] = value }
+    }
+
+    suspend fun setReadingDirection(value: String) {
+        context.dataStore.edit { it[READING_DIRECTION] = value }
+    }
+
+    suspend fun setPageFit(value: String) {
+        context.dataStore.edit { it[PAGE_FIT] = value }
+    }
+
+    suspend fun setKeepScreenOn(value: Boolean) {
+        context.dataStore.edit { it[KEEP_SCREEN_ON] = value }
     }
 
     private val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")

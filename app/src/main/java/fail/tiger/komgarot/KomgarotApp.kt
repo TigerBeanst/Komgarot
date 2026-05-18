@@ -9,10 +9,14 @@ import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.remote.AuthInterceptor
 import fail.tiger.komgarot.data.remote.KomgaApi
 import fail.tiger.komgarot.data.remote.UrlInterceptor
+import fail.tiger.komgarot.data.repository.AdminRepository
 import fail.tiger.komgarot.data.repository.AuthRepository
 import fail.tiger.komgarot.data.repository.BookRepository
+import fail.tiger.komgarot.data.repository.CollectionRepository
 import fail.tiger.komgarot.data.repository.LibraryRepository
+import fail.tiger.komgarot.data.repository.ReadListRepository
 import fail.tiger.komgarot.data.repository.SeriesRepository
+import fail.tiger.komgarot.data.repository.UserRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -25,6 +29,10 @@ class KomgarotApp : Application(), ImageLoaderFactory {
     lateinit var libraryRepository: LibraryRepository
     lateinit var seriesRepository: SeriesRepository
     lateinit var bookRepository: BookRepository
+    lateinit var userRepository: UserRepository
+    lateinit var collectionRepository: CollectionRepository
+    lateinit var readListRepository: ReadListRepository
+    lateinit var adminRepository: AdminRepository
 
     override fun onCreate() {
         super.onCreate()
@@ -45,6 +53,10 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         libraryRepository = LibraryRepository(api)
         seriesRepository = SeriesRepository(api)
         bookRepository = BookRepository(api)
+        userRepository = UserRepository(api)
+        collectionRepository = CollectionRepository(api)
+        readListRepository = ReadListRepository(api)
+        adminRepository = AdminRepository(api)
 
         clearOldCache()
     }

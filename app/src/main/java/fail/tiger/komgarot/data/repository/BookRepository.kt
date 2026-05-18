@@ -36,14 +36,24 @@ class BookRepository(private val api: KomgaApi) {
 
     suspend fun getBookMetadata(id: String): BookMetadataDto = api.getBookById(id).metadata
 
-    suspend fun updateSeriesMetadata(id: String, metadata: Map<String, Any?>) =
+    suspend fun updateSeriesMetadata(id: String, metadata: SeriesMetadataUpdateDto) =
         api.updateSeriesMetadata(id, metadata)
 
-    suspend fun updateBookMetadata(id: String, metadata: Map<String, Any?>) =
+    suspend fun updateBookMetadata(id: String, metadata: BookMetadataUpdateDto) =
         api.updateBookMetadata(id, metadata)
 
     suspend fun updateReadProgress(bookId: String, page: Int, completed: Boolean = false) =
-        api.updateReadProgress(bookId, mapOf("page" to page, "completed" to completed))
+        api.updateReadProgress(bookId, ReadProgressUpdateDto(page, completed))
+
+    suspend fun deleteBookReadProgress(bookId: String) = api.deleteBookReadProgress(bookId)
+
+    suspend fun markSeriesRead(seriesId: String) = api.markSeriesRead(seriesId)
+
+    suspend fun markSeriesUnread(seriesId: String) = api.markSeriesUnread(seriesId)
+
+    suspend fun refreshBookMetadata(bookId: String) = api.refreshBookMetadata(bookId)
+
+    suspend fun refreshSeriesMetadata(seriesId: String) = api.refreshSeriesMetadata(seriesId)
 
     suspend fun uploadBookThumbnail(bookId: String, imageBytes: ByteArray, mimeType: String) {
         val body = imageBytes.toRequestBody(mimeType.toMediaType())

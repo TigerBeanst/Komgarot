@@ -29,6 +29,7 @@ import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.ui.components.ErrorState
+import fail.tiger.komgarot.ui.components.rememberStableImageRequest
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -85,10 +86,7 @@ fun BookDetailScreen(
         } else {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(thumbnailUrl)
-                    .crossfade(true)
-                    .build(),
+                model = rememberStableImageRequest(thumbnailUrl, "book-thumb:$bookId:${ThumbnailVersion.get(bookId)}"),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxWidth().height(330.dp)
@@ -121,10 +119,7 @@ fun BookDetailScreen(
                 Card(shape = RoundedCornerShape(6.dp), modifier = Modifier.width(120.dp)) {
                     Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
                         AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(thumbnailUrl)
-                                .crossfade(true)
-                                .build(),
+                            model = rememberStableImageRequest(thumbnailUrl, "book-thumb:$bookId:${ThumbnailVersion.get(bookId)}"),
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -178,6 +173,23 @@ fun BookDetailScreen(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(stringResource(R.string.incognito_reading))
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { vm.markUnread() },
+                    enabled = book?.readProgress != null,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("标记未读")
+                }
+                OutlinedButton(
+                    onClick = { vm.markRead() },
+                    enabled = book != null,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("标记已读")
                 }
             }
 

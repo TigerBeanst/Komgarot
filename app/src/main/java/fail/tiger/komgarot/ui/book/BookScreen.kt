@@ -28,6 +28,7 @@ import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.ui.components.EmptyState
 import fail.tiger.komgarot.ui.components.ErrorState
 import fail.tiger.komgarot.ui.components.LazyGridScrollbar
+import fail.tiger.komgarot.ui.components.rememberStableImageRequest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -113,10 +114,10 @@ fun BookScreen(
                     "$serverUrl/api/v1/series/${series.id}/thumbnail?v=${ThumbnailVersion.get(series.id)}"
                 }
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(seriesThumbnailUrl)
-                        .crossfade(true)
-                        .build(),
+                    model = rememberStableImageRequest(
+                        seriesThumbnailUrl,
+                        "series-thumb:${series.id}:${ThumbnailVersion.get(series.id)}"
+                    ),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(330.dp)
@@ -151,10 +152,10 @@ fun BookScreen(
                             Column(Modifier.fillMaxWidth().padding(top = padding.calculateTopPadding() + 180.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(seriesThumbnailUrl)
-                                            .crossfade(true)
-                                            .build(),
+                                        model = rememberStableImageRequest(
+                                            seriesThumbnailUrl,
+                                            "series-thumb:${series.id}:${ThumbnailVersion.get(series.id)}"
+                                        ),
                                         contentDescription = null,
                                         modifier = Modifier.width(120.dp).aspectRatio(0.7f).clip(RoundedCornerShape(6.dp)),
                                         contentScale = ContentScale.Crop
@@ -225,10 +226,10 @@ fun BookScreen(
                         ) {
                             Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
                                 AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(thumbnailUrl)
-                                        .crossfade(true)
-                                        .build(),
+                                    model = rememberStableImageRequest(
+                                        thumbnailUrl,
+                                        "book-thumb:${book.id}:${ThumbnailVersion.get(book.id)}"
+                                    ),
                                     contentDescription = book.name,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()

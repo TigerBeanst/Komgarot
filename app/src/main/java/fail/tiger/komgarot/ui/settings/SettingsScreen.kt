@@ -24,7 +24,12 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
     var showClearDialog by remember { mutableStateOf(false) }
     val alwaysIncognito by prefs.alwaysIncognito.collectAsState(initial = false)
     val preloadPages by prefs.preloadPages.collectAsState(initial = 5)
+    val readingDirection by prefs.readingDirection.collectAsState(initial = "LTR")
+    val pageFit by prefs.pageFit.collectAsState(initial = "FIT")
+    val keepScreenOn by prefs.keepScreenOn.collectAsState(initial = true)
     var showPreloadDialog by remember { mutableStateOf(false) }
+    var showReadingDialog by remember { mutableStateOf(false) }
+    var showFitDialog by remember { mutableStateOf(false) }
     val appLockEnabled by prefs.appLockEnabled.collectAsState(initial = false)
     val appLockTimeout by prefs.appLockTimeout.collectAsState(initial = 0)
     var showLockTimeoutDialog by remember { mutableStateOf(false) }
@@ -66,6 +71,27 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
                 headlineContent = { Text("预加载页数") },
                 supportingContent = { Text("阅读时向后预加载 $preloadPages 页") },
                 modifier = Modifier.clickable { showPreloadDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text("阅读方向") },
+                supportingContent = { Text(if (readingDirection == "RTL") "从右向左翻页" else "从左向右翻页") },
+                modifier = Modifier.clickable { showReadingDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text("页面适配") },
+                supportingContent = { Text(if (pageFit == "WIDTH") "适合宽度" else "完整显示页面") },
+                modifier = Modifier.clickable { showFitDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text("阅读时保持亮屏") },
+                supportingContent = { Text("打开阅读器时不自动息屏") },
+                trailingContent = {
+                    Switch(
+                        checked = keepScreenOn,
+                        onCheckedChange = { scope.launch { prefs.setKeepScreenOn(it) } }
+                    )
+                },
+                modifier = Modifier.clickable { scope.launch { prefs.setKeepScreenOn(!keepScreenOn) } }
             )
             HorizontalDivider()
             ListItem(
@@ -145,6 +171,46 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
         )
     }
 
+    if (showReadingDialog) {
+        AlertDialog(
+            onDismissRequest = { showReadingDialog = false },
+            title = { Text("阅读方向") },
+            text = {
+                Column {
+                    RadioOption("LTR", "从左向右", readingDirection) {
+                        scope.launch { prefs.setReadingDirection(it) }
+                        showReadingDialog = false
+                    }
+                    RadioOption("RTL", "从右向左", readingDirection) {
+                        scope.launch { prefs.setReadingDirection(it) }
+                        showReadingDialog = false
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    if (showFitDialog) {
+        AlertDialog(
+            onDismissRequest = { showFitDialog = false },
+            title = { Text("页面适配") },
+            text = {
+                Column {
+                    RadioOption("FIT", "完整显示页面", pageFit) {
+                        scope.launch { prefs.setPageFit(it) }
+                        showFitDialog = false
+                    }
+                    RadioOption("WIDTH", "适合宽度", pageFit) {
+                        scope.launch { prefs.setPageFit(it) }
+                        showFitDialog = false
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
@@ -168,6 +234,17 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun RadioOption(value: String, label: String, selected: String, onSelect: (String) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onSelect(value) }.padding(vertical = 6.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected == value, onClick = { onSelect(value) })
+        Text(label)
     }
 }
 
