@@ -14,13 +14,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import fail.tiger.komgarot.ui.navigation.AppNavGraph
 import fail.tiger.komgarot.ui.theme.KomgarotTheme
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
     private var backgroundedAt = 0L
     private val locked = mutableStateOf(false)
     private var promptShowing = false
+    private var lockCheckJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,17 +42,28 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (promptShowing) return
+        if (promptShowing || lockCheckJob?.isActive == true) return
         val prefs = (application as KomgarotApp).authPreferences
-        if (!prefs.appLockEnabledBlocking) return
 
-        val timeoutMs = prefs.appLockTimeoutBlocking * 60_000L
-        val elapsed = SystemClock.elapsedRealtime() - backgroundedAt
-        if (backgroundedAt > 0 && timeoutMs > 0 && elapsed < timeoutMs) return
+        lockCheckJob = lifecycleScope.launch {
+            val appLockEnabled = prefs.appLockEnabled.first()
+            val appLockTimeout = prefs.appLockTimeout.first()
+            if (!appLockEnabled || promptShowing) return@launch
 
-        locked.value = true
-        promptShowing = true
-        showBiometricPrompt()
+            val timeoutMs = appLockTimeout * 60_000L
+            val elapsed = SystemClock.elapsedRealtime() - backgroundedAt
+            if (backgroundedAt > 0 && timeoutMs > 0 && elapsed < timeoutMs) return@launch
+
+            locked.value = true
+            promptShowing = true
+            showBiometricPrompt()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        lockCheckJob?.cancel()
+        lockCheckJob = null
     }
 
     override fun onStop() {

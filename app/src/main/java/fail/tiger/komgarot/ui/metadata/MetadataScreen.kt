@@ -5,12 +5,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import fail.tiger.komgarot.data.remote.dto.AuthorDto
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
 import fail.tiger.komgarot.data.remote.dto.SeriesMetadataDto
 
@@ -45,7 +48,21 @@ fun SeriesMetadataContent(id: String, onBack: () -> Unit, vm: MetadataViewModel,
                 actions = {
                     if (editing) {
                         IconButton(onClick = {
-                            vm.saveSeriesMeta(id, SeriesMetadataDto(title, title, status, summary, publisher, meta?.ageRating, language, meta?.genres ?: emptyList(), meta?.tags ?: emptyList()))
+                            vm.saveSeriesMeta(
+                                id,
+                                SeriesMetadataDto(
+                                    title = title,
+                                    titleSort = title,
+                                    status = status,
+                                    summary = summary,
+                                    publisher = publisher,
+                                    ageRating = meta?.ageRating,
+                                    language = language,
+                                    readingDirection = meta?.readingDirection,
+                                    genres = meta?.genres ?: emptyList(),
+                                    tags = meta?.tags ?: emptyList()
+                                )
+                            )
                             onEditToggle()
                         }) { Icon(Icons.Default.Check, null) }
                     } else {
@@ -93,6 +110,8 @@ fun BookMetadataContent(id: String, onBack: () -> Unit, vm: MetadataViewModel, e
     var summary by remember(meta) { mutableStateOf(meta?.summary ?: "") }
     var number by remember(meta) { mutableStateOf(meta?.number ?: "") }
     var releaseDate by remember(meta) { mutableStateOf(meta?.releaseDate ?: "") }
+    var tagsText by remember(meta) { mutableStateOf(meta?.tags?.joinToString(", ") ?: "") }
+    var authors by remember(meta) { mutableStateOf(meta?.authors ?: emptyList()) }
 
     Scaffold(
         topBar = {
@@ -102,7 +121,17 @@ fun BookMetadataContent(id: String, onBack: () -> Unit, vm: MetadataViewModel, e
                 actions = {
                     if (editing) {
                         IconButton(onClick = {
-                            vm.saveBookMeta(id, BookMetadataDto(title, summary, number, releaseDate.ifEmpty { null }, meta?.authors ?: emptyList(), meta?.tags ?: emptyList()))
+                            vm.saveBookMeta(
+                                id,
+                                BookMetadataDto(
+                                    title = title,
+                                    summary = summary,
+                                    number = number,
+                                    releaseDate = releaseDate.ifEmpty { null },
+                                    authors = authors.filter { it.name.isNotBlank() || it.role.isNotBlank() },
+                                    tags = tagsText.toListField()
+                                )
+                            )
                             onEditToggle()
                         }) { Icon(Icons.Default.Check, null) }
                     } else {
@@ -122,6 +151,65 @@ fun BookMetadataContent(id: String, onBack: () -> Unit, vm: MetadataViewModel, e
                 MetaField("Number", number, editing) { number = it }
                 MetaField("Release Date", releaseDate, editing) { releaseDate = it }
                 MetaField("Summary", summary, editing, maxLines = 5) { summary = it }
+                MetaField("Tags", tagsText, editing) { tagsText = it }
+                AuthorsEditor(
+                    authors = authors,
+                    editing = editing,
+                    onAuthorsChange = { authors = it }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuthorsEditor(
+    authors: List<AuthorDto>,
+    editing: Boolean,
+    onAuthorsChange: (List<AuthorDto>) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Authors", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (editing) {
+            val editableAuthors = authors.ifEmpty { listOf(AuthorDto()) }
+            editableAuthors.forEachIndexed { index, author ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = author.name,
+                        onValueChange = { value ->
+                            onAuthorsChange(editableAuthors.updated(index, author.copy(name = value)))
+                        },
+                        label = { Text("Name") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = author.role,
+                        onValueChange = { value ->
+                            onAuthorsChange(editableAuthors.updated(index, author.copy(role = value)))
+                        },
+                        label = { Text("Role") },
+                        singleLine = true,
+                        modifier = Modifier.weight(0.8f)
+                    )
+                    IconButton(
+                        onClick = { onAuthorsChange(editableAuthors.filterIndexed { itemIndex, _ -> itemIndex != index }) },
+                        modifier = Modifier.align(androidx.compose.ui.Alignment.CenterVertically)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete")
+                    }
+                }
+            }
+            OutlinedButton(onClick = { onAuthorsChange(editableAuthors + AuthorDto()) }) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Add author")
+            }
+        } else if (authors.isEmpty()) {
+            Text("—", style = MaterialTheme.typography.bodyMedium)
+        } else {
+            authors.forEach { author ->
+                Text("${author.name} (${author.role})", style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -138,3 +226,11 @@ private fun MetaField(label: String, value: String, editing: Boolean, maxLines: 
         }
     }
 }
+
+private fun String.toListField(): List<String> =
+    split(',')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+
+private fun List<AuthorDto>.updated(index: Int, author: AuthorDto): List<AuthorDto> =
+    mapIndexed { itemIndex, item -> if (itemIndex == index) author else item }

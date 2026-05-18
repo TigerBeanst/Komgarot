@@ -10,18 +10,29 @@ class BookRepository(private val api: KomgaApi) {
     suspend fun getBooks(seriesId: String, page: Int): PagedDto<BookDto> =
         api.getBooks(
             search = BookSearchDto(
-                condition = BookCondition(
-                    seriesId = SeriesIdCondition(value = seriesId)
+                condition = mapOf(
+                    "operator" to "BOOK",
+                    "seriesId" to isCondition(seriesId)
                 )
             ),
             page = page
         )
 
+    suspend fun getLatestBooks(size: Int = 12): List<BookDto> =
+        api.getLatestBooks(size = size).content
+
+    suspend fun getBooksOnDeck(size: Int = 12): List<BookDto> =
+        api.getBooksOnDeck(size = size).content
+
     suspend fun getBookById(id: String): Result<BookDto> = runCatching { api.getBookById(id) }
+
+    suspend fun getNextBook(id: String): Result<BookDto> = runCatching { api.getNextBook(id) }
+
+    suspend fun getPreviousBook(id: String): Result<BookDto> = runCatching { api.getPreviousBook(id) }
 
     suspend fun getPages(bookId: String): List<PageDto> = api.getBookPages(bookId)
 
-    suspend fun getSeriesMetadata(id: String): SeriesMetadataDto = api.getSeriesMetadata(id)
+    suspend fun getSeriesMetadata(id: String): SeriesMetadataDto = api.getSeriesById(id).metadata
 
     suspend fun getBookMetadata(id: String): BookMetadataDto = api.getBookById(id).metadata
 

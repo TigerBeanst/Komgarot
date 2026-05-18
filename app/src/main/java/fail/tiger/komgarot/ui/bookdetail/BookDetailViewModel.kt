@@ -22,14 +22,22 @@ class BookDetailViewModel(
     var series by mutableStateOf<SeriesDto?>(null)
     var metadata by mutableStateOf<BookMetadataDto?>(null)
     var loading by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
     private var currentBookId = ""
 
     fun load(bookId: String) {
         currentBookId = bookId
         viewModelScope.launch {
             loading = true
-            book = bookRepo.getBookById(bookId).getOrNull()
-            book?.let { metadata = it.metadata }
+            error = null
+            bookRepo.getBookById(bookId)
+                .onSuccess {
+                    book = it
+                    metadata = it.metadata
+                }
+                .onFailure {
+                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: "加载书籍详情失败"
+                }
             loading = false
         }
     }

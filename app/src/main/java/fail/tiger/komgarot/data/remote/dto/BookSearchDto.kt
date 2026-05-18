@@ -1,15 +1,13 @@
 package fail.tiger.komgarot.data.remote.dto
 
 data class BookSearchDto(
-    val condition: BookCondition? = null
+    val condition: Map<String, @JvmSuppressWildcards Any?>? = null,
+    val fullTextSearch: String? = null
 )
 
-data class BookCondition(
-    val operator: String = "BOOK",
-    val seriesId: SeriesIdCondition
+data class SeriesSearchDto(
+    val condition: Map<String, @JvmSuppressWildcards Any?>? = null,
+    val fullTextSearch: String? = null
 )
 
-data class SeriesIdCondition(
-    val operator: String = "IS",
-    val value: String
-)
+fun isCondition(value: Any): Map<String, Any> = mapOf("operator" to "IS", "value" to value)

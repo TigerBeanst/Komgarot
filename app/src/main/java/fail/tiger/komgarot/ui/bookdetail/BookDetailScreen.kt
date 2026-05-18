@@ -24,11 +24,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import coil.request.CachePolicy
 import coil.request.ImageRequest
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.ui.components.ErrorState
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -43,7 +43,8 @@ fun BookDetailScreen(
     isOneShot: Boolean = false,
     onBack: () -> Unit,
     onReadClick: (String, Boolean) -> Unit,
-    onAuthorClick: (String) -> Unit = {},
+    onMetadataClick: (String) -> Unit,
+    onAuthorClick: (String, String) -> Unit = { _, _ -> },
     vm: BookDetailViewModel,
     prefs: AuthPreferences
 ) {
@@ -63,7 +64,7 @@ fun BookDetailScreen(
         },
         containerColor = Color.Transparent
     ) { padding ->
-        val serverUrl = prefs.serverUrlBlocking
+        val serverUrl by prefs.serverUrl.collectAsState(initial = "")
         val thumbnailUrl = "$serverUrl/api/v1/books/$bookId/thumbnail?v=${ThumbnailVersion.get(bookId)}"
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
@@ -79,6 +80,9 @@ fun BookDetailScreen(
             },
             modifier = Modifier.fillMaxSize()
         ) {
+        if (book == null && !vm.loading && vm.error != null) {
+            ErrorState(message = vm.error ?: "加载书籍详情失败", onRetry = { vm.load(bookId) })
+        } else {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
@@ -150,7 +154,10 @@ fun BookDetailScreen(
                         }
                     }
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text(bookName, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
                     Text(stringResource(R.string.pages_count, pageCount), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     meta?.authors?.firstOrNull()?.let {
@@ -174,6 +181,13 @@ fun BookDetailScreen(
                 }
             }
 
+            OutlinedButton(
+                onClick = { onMetadataClick(bookId) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("编辑元数据")
+            }
+
             HorizontalDivider()
 
             val context = LocalContext.current
@@ -195,7 +209,7 @@ fun BookDetailScreen(
                             author.name,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable { onAuthorClick(author.name) }
+                            modifier = Modifier.clickable { onAuthorClick(author.name, author.role) }
                         )
                     }
                 }
@@ -220,6 +234,7 @@ fun BookDetailScreen(
             }
         }
         } // Box
+        }
         } // PullToRefreshBox
     }
 }

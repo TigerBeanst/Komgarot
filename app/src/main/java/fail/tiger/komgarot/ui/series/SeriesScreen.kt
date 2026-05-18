@@ -29,13 +29,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.text.TextStyle
 import coil.compose.AsyncImage
 import fail.tiger.komgarot.ui.components.LazyGridScrollbar
-import coil.request.CachePolicy
+import fail.tiger.komgarot.ui.components.EmptyState
+import fail.tiger.komgarot.ui.components.ErrorState
 import coil.request.ImageRequest
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +52,7 @@ fun SeriesScreen(
     LaunchedEffect(libraryId) { vm.init(libraryId) }
     var searchExpanded by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
+    var searchByAuthor by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
@@ -57,13 +60,14 @@ fun SeriesScreen(
     val sortDirection = vm.currentSort.substringAfter(",")
 
     val listState = rememberLazyGridState()
-    val shouldLoadMore by remember {
-        derivedStateOf {
-            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last >= vm.series.size - 4
+    LaunchedEffect(listState, vm) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+            .map { it ?: 0 }
+            .distinctUntilChanged()
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex >= vm.series.size - 4) vm.loadMore()
+            }
         }
-    }
-    LaunchedEffect(shouldLoadMore) { if (shouldLoadMore) vm.loadMore() }
 
     val context = LocalContext.current
 
@@ -75,25 +79,37 @@ fun SeriesScreen(
                 title = {
                     if (searchExpanded) {
                         LaunchedEffect(Unit) { focusRequester.requestFocus() }
-                        TextField(
-                            value = searchText,
-                            onValueChange = { searchText = it },
-                            placeholder = { Text(stringResource(R.string.search_hint)) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { vm.search(searchText) }),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            ),
-                            shape = MaterialTheme.shapes.extraLarge,
-                            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            TextField(
+                                value = searchText,
+                                onValueChange = { searchText = it },
+                                placeholder = { Text(if (searchByAuthor) "搜索作者" else stringResource(R.string.search_hint)) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { vm.search(searchText, searchByAuthor) }),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent
+                                ),
+                                shape = MaterialTheme.shapes.extraLarge,
+                                modifier = Modifier.weight(1f).focusRequester(focusRequester)
+                            )
+                            FilterChip(
+                                selected = searchByAuthor,
+                                onClick = { searchByAuthor = !searchByAuthor },
+                                label = { Text("作者") }
+                            )
+                        }
                     } else {
                         val title = when {
-                            vm.searchQuery.isNotEmpty() -> "搜索: ${vm.searchQuery}"
+                            vm.searchQuery.isNotEmpty() && vm.searchByAuthor -> "作者: ${vm.displaySearchQuery}"
+                            vm.searchQuery.isNotEmpty() -> "搜索: ${vm.displaySearchQuery}"
                             libraryId == null -> "All Series"
                             else -> "Series"
                         }
@@ -105,6 +121,7 @@ fun SeriesScreen(
                         if (searchExpanded) {
                             searchExpanded = false
                             searchText = ""
+                            searchByAuthor = false
                         } else {
                             onBack()
                         }
@@ -114,10 +131,14 @@ fun SeriesScreen(
                 },
                 actions = {
                     if (searchExpanded) {
-                        IconButton(onClick = { vm.search(searchText) }) {
+                        IconButton(onClick = { vm.search(searchText, searchByAuthor) }) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
-                        IconButton(onClick = { searchExpanded = false; searchText = "" }) {
+                        IconButton(onClick = {
+                            searchExpanded = false
+                            searchText = ""
+                            searchByAuthor = false
+                        }) {
                             Icon(Icons.Default.Clear, contentDescription = "Clear")
                         }
                     } else {
@@ -167,7 +188,11 @@ fun SeriesScreen(
                             HorizontalDivider()
                             DropdownMenuItem(text = { Text("随机") }, onClick = { vm.setSortBy("random,asc"); sortMenuExpanded = false })
                         }
-                        IconButton(onClick = { searchExpanded = true }) {
+                        IconButton(onClick = {
+                            searchText = vm.displaySearchQuery
+                            searchByAuthor = vm.searchByAuthor
+                            searchExpanded = true
+                        }) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
                     }
@@ -175,30 +200,28 @@ fun SeriesScreen(
             )
         }
     ) { padding ->
-        var isRefreshing by remember { mutableStateOf(false) }
-
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
-            isRefreshing = isRefreshing || vm.loading,
-            onRefresh = { isRefreshing = true; vm.refresh(); isRefreshing = false },
+            isRefreshing = vm.loading,
+            onRefresh = { vm.refresh() },
             state = pullState,
             indicator = {
                 PullToRefreshDefaults.Indicator(
                     state = pullState,
-                    isRefreshing = isRefreshing || vm.loading,
+                    isRefreshing = vm.loading,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
                 )
             },
             modifier = Modifier.padding(padding)
         ) {
-            if (vm.series.isEmpty() && !vm.loading && vm.searchQuery.isNotEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("无搜索结果", style = MaterialTheme.typography.bodyLarge)
-                }
+            if (vm.series.isEmpty() && !vm.loading && vm.error != null) {
+                ErrorState(message = vm.error ?: "加载系列失败", onRetry = vm::refresh)
+            } else if (vm.series.isEmpty() && !vm.loading && vm.searchQuery.isNotEmpty()) {
+                EmptyState(message = "无搜索结果")
             } else {
                 Box(modifier = Modifier.fillMaxSize()) {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
+                        columns = GridCells.Adaptive(120.dp),
                         state = listState,
                         contentPadding = PaddingValues(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),

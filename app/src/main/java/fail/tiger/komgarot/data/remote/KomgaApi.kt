@@ -8,10 +8,9 @@ interface KomgaApi {
     @GET("api/v1/libraries")
     suspend fun getLibraries(): List<LibraryDto>
 
-    @GET("api/v1/series")
+    @POST("api/v1/series/list")
     suspend fun getSeries(
-        @Query("library_id") libraryId: String? = null,
-        @Query("search") search: String? = null,
+        @Body search: SeriesSearchDto = SeriesSearchDto(),
         @Query("page") page: Int = 0,
         @Query("size") size: Int = 20,
         @Query("sort") sort: List<String> = listOf("metadata.titleSort,asc")
@@ -20,8 +19,26 @@ interface KomgaApi {
     @GET("api/v1/series/{id}")
     suspend fun getSeriesById(@Path("id") id: String): SeriesDto
 
-    @GET("api/v1/series/{id}/metadata")
-    suspend fun getSeriesMetadata(@Path("id") id: String): SeriesMetadataDto
+    @GET("api/v1/series/latest")
+    suspend fun getLatestSeries(
+        @Query("library_id") libraryIds: List<String>? = null,
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20
+    ): PagedDto<SeriesDto>
+
+    @GET("api/v1/series/new")
+    suspend fun getNewSeries(
+        @Query("library_id") libraryIds: List<String>? = null,
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20
+    ): PagedDto<SeriesDto>
+
+    @GET("api/v1/series/updated")
+    suspend fun getUpdatedSeries(
+        @Query("library_id") libraryIds: List<String>? = null,
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20
+    ): PagedDto<SeriesDto>
 
     @POST("api/v1/books/list")
     suspend fun getBooks(
@@ -33,6 +50,25 @@ interface KomgaApi {
 
     @GET("api/v1/books/{id}")
     suspend fun getBookById(@Path("id") id: String): BookDto
+
+    @GET("api/v1/books/latest")
+    suspend fun getLatestBooks(
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20
+    ): PagedDto<BookDto>
+
+    @GET("api/v1/books/ondeck")
+    suspend fun getBooksOnDeck(
+        @Query("library_id") libraryIds: List<String>? = null,
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20
+    ): PagedDto<BookDto>
+
+    @GET("api/v1/books/{id}/next")
+    suspend fun getNextBook(@Path("id") id: String): BookDto
+
+    @GET("api/v1/books/{id}/previous")
+    suspend fun getPreviousBook(@Path("id") id: String): BookDto
 
     @GET("api/v1/books/{id}/pages")
     suspend fun getBookPages(@Path("id") bookId: String): List<PageDto>

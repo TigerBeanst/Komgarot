@@ -16,6 +16,7 @@ datastorePreferences = "1.1.4"
 lifecycleViewmodelCompose = "2.8.7"
 biometric = "1.1.0"
 appcompat = "1.7.0"
+materialMotionCompose = "2.0.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -42,6 +43,7 @@ datastore-preferences = { group = "androidx.datastore", name = "datastore-prefer
 lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleViewmodelCompose" }
 biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+material-motion-compose-core = { group = "io.github.fornewid", name = "material-motion-compose-core", version.ref = "materialMotionCompose" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

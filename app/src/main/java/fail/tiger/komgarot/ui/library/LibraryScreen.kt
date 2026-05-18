@@ -1,8 +1,12 @@
 package fail.tiger.komgarot.ui.library
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Settings
@@ -11,23 +15,43 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.remote.dto.BookDto
+import fail.tiger.komgarot.data.remote.dto.SeriesDto
+import fail.tiger.komgarot.ui.components.ErrorState
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LibraryScreen(
     onLibraryClick: (String?) -> Unit,
+    onBookClick: (BookDto) -> Unit,
+    onSeriesClick: (String, Int) -> Unit,
+    serverUrl: String,
     vm: LibraryViewModel,
     onLogout: () -> Unit,
     onSettings: () -> Unit = {}
 ) {
     val libraries by vm.libraries.collectAsState()
-    var isRefreshing by remember { mutableStateOf(false) }
+    val onDeckBooks by vm.onDeckBooks.collectAsState()
+    val latestBooks by vm.latestBooks.collectAsState()
+    val updatedSeries by vm.updatedSeries.collectAsState()
+    val newSeries by vm.newSeries.collectAsState()
+    val loading by vm.loading.collectAsState()
+    val error by vm.error.collectAsState()
+    val hasAnyContent = libraries.isNotEmpty() || onDeckBooks.isNotEmpty() ||
+        latestBooks.isNotEmpty() || updatedSeries.isNotEmpty() || newSeries.isNotEmpty()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Libraries") },
+                title = { Text("Komgarot") },
                 actions = {
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -40,27 +64,206 @@ fun LibraryScreen(
         }
     ) { padding ->
         PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = { isRefreshing = true; vm.load(); isRefreshing = false },
-            modifier = Modifier.padding(padding)
+            isRefreshing = loading,
+            onRefresh = { vm.load() },
+            modifier = Modifier.padding(padding).fillMaxSize()
         ) {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(160.dp),
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                item { LibraryCard(name = "All Series") { onLibraryClick(null) } }
-                items(libraries) { lib -> LibraryCard(name = lib.name) { onLibraryClick(lib.id) } }
+            if (error != null && !hasAnyContent && !loading) {
+                ErrorState(message = error ?: "连接 Komga 失败", onRetry = vm::load)
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    if (error != null && hasAnyContent) {
+                        item {
+                            Text(
+                                "部分内容加载失败：$error",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (onDeckBooks.isNotEmpty()) {
+                        item {
+                            BookSection(
+                                title = "继续阅读",
+                                books = onDeckBooks,
+                                serverUrl = serverUrl,
+                                onBookClick = onBookClick
+                            )
+                        }
+                    }
+
+                    if (latestBooks.isNotEmpty()) {
+                        item {
+                            BookSection(
+                                title = "最近加入",
+                                books = latestBooks,
+                                serverUrl = serverUrl,
+                                onBookClick = onBookClick
+                            )
+                        }
+                    }
+
+                    if (updatedSeries.isNotEmpty()) {
+                        item {
+                            SeriesSection(
+                                title = "最近更新",
+                                series = updatedSeries,
+                                serverUrl = serverUrl,
+                                onSeriesClick = onSeriesClick
+                            )
+                        }
+                    }
+
+                    if (newSeries.isNotEmpty()) {
+                        item {
+                            SeriesSection(
+                                title = "新系列",
+                                series = newSeries,
+                                serverUrl = serverUrl,
+                                onSeriesClick = onSeriesClick
+                            )
+                        }
+                    }
+
+                    item {
+                        Text("书库", style = MaterialTheme.typography.titleLarge)
+                    }
+                    item {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            LibraryCard(name = "全部系列", modifier = Modifier.width(160.dp)) { onLibraryClick(null) }
+                            libraries.forEach { lib ->
+                                LibraryCard(name = lib.name, modifier = Modifier.width(160.dp)) { onLibraryClick(lib.id) }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun LibraryCard(name: String, onClick: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().aspectRatio(1.5f).clickable(onClick = onClick)) {
+private fun BookSection(
+    title: String,
+    books: List<BookDto>,
+    serverUrl: String,
+    onBookClick: (BookDto) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(title, style = MaterialTheme.typography.titleLarge)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(books, key = { it.id }) { book ->
+                BookPosterCard(book = book, serverUrl = serverUrl, onClick = { onBookClick(book) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesSection(
+    title: String,
+    series: List<SeriesDto>,
+    serverUrl: String,
+    onSeriesClick: (String, Int) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(title, style = MaterialTheme.typography.titleLarge)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(series, key = { it.id }) { item ->
+                SeriesPosterCard(item = item, serverUrl = serverUrl, onClick = { onSeriesClick(item.id, item.booksCount) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookPosterCard(book: BookDto, serverUrl: String, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val thumbnailUrl = remember(book.id, serverUrl) {
+        "$serverUrl/api/v1/books/${book.id}/thumbnail?v=${ThumbnailVersion.get(book.id)}"
+    }
+    Card(
+        shape = RoundedCornerShape(6.dp),
+        modifier = Modifier.width(112.dp).clickable(onClick = onClick)
+    ) {
+        PosterImage(
+            model = ImageRequest.Builder(context).data(thumbnailUrl).crossfade(true).build(),
+            title = book.metadata.title.ifEmpty { book.name },
+            subtitle = book.seriesTitle ?: book.metadata.number,
+            progress = book.readProgress?.takeIf { !it.completed && book.media.pagesCount > 0 }?.let {
+                it.page.toFloat() / book.media.pagesCount
+            }
+        )
+    }
+}
+
+@Composable
+private fun SeriesPosterCard(item: SeriesDto, serverUrl: String, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val thumbnailUrl = remember(item.id, serverUrl) {
+        "$serverUrl/api/v1/series/${item.id}/thumbnail?v=${ThumbnailVersion.get(item.id)}"
+    }
+    Card(
+        shape = RoundedCornerShape(6.dp),
+        modifier = Modifier.width(112.dp).clickable(onClick = onClick)
+    ) {
+        PosterImage(
+            model = ImageRequest.Builder(context).data(thumbnailUrl).crossfade(true).build(),
+            title = item.metadata.title.ifEmpty { item.name },
+            subtitle = "${item.booksCount} 本"
+        )
+    }
+}
+
+@Composable
+private fun PosterImage(
+    model: ImageRequest,
+    title: String,
+    subtitle: String,
+    progress: Float? = null
+) {
+    Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
+        AsyncImage(
+            model = model,
+            contentDescription = title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomStart)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.78f))))
+                .padding(horizontal = 6.dp, vertical = 6.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.bodySmall, color = Color.White, maxLines = 2)
+            if (subtitle.isNotEmpty()) {
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.72f), maxLines = 1)
+            }
+            progress?.let {
+                LinearProgressIndicator(
+                    progress = { it.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 3.dp).height(2.dp),
+                    color = Color.White,
+                    trackColor = Color.White.copy(alpha = 0.3f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryCard(name: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(modifier = modifier.aspectRatio(1.5f).clickable(onClick = onClick)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(name, style = MaterialTheme.typography.titleMedium)
         }

@@ -22,11 +22,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import coil.request.CachePolicy
 import coil.request.ImageRequest
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.ui.components.EmptyState
+import fail.tiger.komgarot.ui.components.ErrorState
 import fail.tiger.komgarot.ui.components.LazyGridScrollbar
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,24 +54,30 @@ fun BookScreen(
         }
     }
 
-    if ((vm.books.size == 1 && !vm.hasMore) || (vm.loading && vm.series == null)) {
+    if ((vm.books.size == 1 && !vm.hasMore) || (vm.loading && vm.series == null && vm.error == null)) {
         Box(Modifier.fillMaxSize())
         return
     }
 
     val listState = rememberLazyGridState()
-    val shouldLoadMore by remember {
-        derivedStateOf {
-            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last >= vm.books.size - 4
+    LaunchedEffect(listState, vm) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+            .map { it ?: 0 }
+            .distinctUntilChanged()
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex >= vm.books.size - 4) vm.loadMore()
+            }
         }
-    }
-    LaunchedEffect(shouldLoadMore) { if (shouldLoadMore) vm.loadMore() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { },
+                title = {
+                    Text(
+                        vm.series?.metadata?.title?.ifEmpty { vm.series?.name.orEmpty() }.orEmpty(),
+                        maxLines = 1
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
@@ -79,22 +88,25 @@ fun BookScreen(
         },
         containerColor = Color.Transparent
     ) { padding ->
-        var isRefreshing by remember { mutableStateOf(false) }
-
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
-            isRefreshing = isRefreshing || vm.loading,
-            onRefresh = { isRefreshing = true; vm.refresh(); isRefreshing = false },
+            isRefreshing = vm.loading,
+            onRefresh = { vm.refresh() },
             state = pullState,
             indicator = {
                 PullToRefreshDefaults.Indicator(
                     state = pullState,
-                    isRefreshing = isRefreshing || vm.loading,
+                    isRefreshing = vm.loading,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
                 )
             },
             modifier = Modifier.fillMaxSize()
         ) {
+        if (vm.books.isEmpty() && !vm.loading && vm.error != null) {
+            ErrorState(message = vm.error ?: "加载书籍失败", onRetry = vm::refresh)
+        } else if (vm.books.isEmpty() && !vm.loading) {
+            EmptyState(message = "这个系列还没有书籍")
+        } else {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             vm.series?.let { series ->
                 val seriesThumbnailUrl = remember(series.id) {
@@ -124,14 +136,14 @@ fun BookScreen(
             }
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
+                        columns = GridCells.Adaptive(104.dp),
                         state = listState,
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                    item(span = { GridItemSpan(3) }) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         vm.series?.let { series ->
                             val seriesThumbnailUrl = remember(series.id) {
                                 "$serverUrl/api/v1/series/${series.id}/thumbnail?v=${ThumbnailVersion.get(series.id)}"
@@ -147,14 +159,36 @@ fun BookScreen(
                                         modifier = Modifier.width(120.dp).aspectRatio(0.7f).clip(RoundedCornerShape(6.dp)),
                                         contentScale = ContentScale.Crop
                                     )
-                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(series.metadata.title.ifEmpty { series.name }, style = MaterialTheme.typography.titleLarge)
-                                        Text(stringResource(R.string.books_count, series.booksCount), style = MaterialTheme.typography.bodyMedium)
+                                    Column(
+                                        Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            series.metadata.title.ifEmpty { series.name },
+                                            style = MaterialTheme.typography.titleLarge,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            stringResource(R.string.books_count, series.booksCount),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
                                         if (series.metadata.publisher.isNotEmpty()) {
-                                            Text(stringResource(R.string.publisher, series.metadata.publisher), style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                stringResource(R.string.publisher, series.metadata.publisher),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
                                         }
                                         if (series.metadata.status.isNotEmpty()) {
-                                            Text(stringResource(R.string.status, series.metadata.status), style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                stringResource(R.string.status, series.metadata.status),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                        TextButton(onClick = { onMetadataClick(series.id) }) {
+                                            Text("编辑系列元数据")
                                         }
                                     }
                                 }
@@ -242,6 +276,7 @@ fun BookScreen(
                 )
             }
         } // Box
+        }
         } // PullToRefreshBox
     }
 }

@@ -65,4 +65,5 @@ dependencies {
     implementation("net.engawapg.lib:zoomable:1.6.2")
     implementation(libs.biometric)
     implementation(libs.appcompat)
+    implementation(libs.material.motion.compose.core)
 }

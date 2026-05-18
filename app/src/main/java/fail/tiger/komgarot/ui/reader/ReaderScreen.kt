@@ -9,6 +9,12 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,7 +24,8 @@ import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +36,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -38,18 +46,72 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import coil.ImageLoader
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import coil.compose.SubcomposeAsyncImageScope
+import coil.compose.AsyncImagePainter
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Size
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.engawapg.lib.zoomable.rememberZoomState
 import net.engawapg.lib.zoomable.zoomable
 import java.io.ByteArrayOutputStream
+
+private fun readerPageMemoryCacheKey(url: String, allowHardware: Boolean): String =
+    "reader-page:${if (allowHardware) "hardware" else "software"}:$url"
+
+private fun readerPageRequest(
+    context: Context,
+    url: String,
+    allowHardware: Boolean = true
+): ImageRequest {
+    val memoryKey = readerPageMemoryCacheKey(url, allowHardware)
+    return ImageRequest.Builder(context)
+        .data(url)
+        .size(Size.ORIGINAL)
+        .memoryCacheKey(memoryKey)
+        .placeholderMemoryCacheKey(memoryKey)
+        .memoryCachePolicy(CachePolicy.ENABLED)
+        .diskCachePolicy(CachePolicy.ENABLED)
+        .networkCachePolicy(CachePolicy.ENABLED)
+        .allowHardware(allowHardware)
+        .build()
+}
+
+@Composable
+private fun SubcomposeAsyncImageScope.CachedPageLoadingContent(
+    state: AsyncImagePainter.State.Loading,
+    modifier: Modifier = Modifier
+) {
+    if (state.painter != null) {
+        SubcomposeAsyncImageContent()
+    } else {
+        PageLoadingPlaceholder(modifier)
+    }
+}
+
+@Composable
+private fun SubcomposeAsyncImageScope.CachedPageErrorContent(
+    state: AsyncImagePainter.State.Error,
+    modifier: Modifier = Modifier,
+    onRetry: () -> Unit
+) {
+    if (state.painter != null) {
+        SubcomposeAsyncImageContent()
+    } else {
+        Box(modifier) {
+            ReaderPageError(onRetry = onRetry)
+        }
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -58,6 +120,7 @@ fun ReaderScreen(
     startPage: Int,
     trackProgress: Boolean = true,
     onBack: () -> Unit,
+    onOpenBook: (String, Int, Boolean) -> Unit,
     vm: ReaderViewModel
 ) {
     LaunchedEffect(bookId) { vm.load(bookId, startPage, trackProgress) }
@@ -68,6 +131,7 @@ fun ReaderScreen(
     DisposableEffect(Unit) {
         window?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
         onDispose {
+            vm.flushProgress()
             window?.let {
                 WindowCompat.setDecorFitsSystemWindows(it, true)
                 WindowInsetsControllerCompat(it, view).show(WindowInsetsCompat.Type.systemBars())
@@ -93,87 +157,135 @@ fun ReaderScreen(
             ReadingMode.SCROLL -> ScrollReader(vm)
         }
 
-        if (vm.showControls) {
-            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars), verticalArrangement = Arrangement.SpaceBetween) {
-                Surface(color = Color.Black.copy(alpha = 0.6f)) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+        if (vm.pageUrls.isEmpty()) {
+            ReaderStatusOverlay(
+                loading = vm.loading,
+                error = vm.error,
+                onRetry = { vm.load(bookId, startPage, trackProgress) }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = vm.showControls,
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
+            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.systemBars)
+        ) {
+            Surface(color = Color.Black.copy(alpha = 0.6f), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(
+                        onClick = {
+                            vm.previousBook?.let { onOpenBook(it.id, vm.startPageFor(it), vm.trackProgress) }
+                        },
+                        enabled = vm.previousBook != null
                     ) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                        }
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "${vm.currentPage + 1} / ${vm.pageUrls.size}",
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { vm.toggleMode() }) {
-                            Icon(Icons.Default.SwapHoriz, contentDescription = "切换阅读模式（翻页/滚动）", tint = Color.White)
-                        }
+                        Icon(Icons.Default.SkipPrevious, contentDescription = "上一册", tint = Color.White)
+                    }
+                    IconButton(onClick = { vm.toggleMode() }) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = "切换阅读模式（翻页/滚动）", tint = Color.White)
+                    }
+                    IconButton(
+                        onClick = {
+                            vm.nextBook?.let { onOpenBook(it.id, vm.startPageFor(it), vm.trackProgress) }
+                        },
+                        enabled = vm.nextBook != null
+                    ) {
+                        Icon(Icons.Default.SkipNext, contentDescription = "下一册", tint = Color.White)
                     }
                 }
+            }
+        }
 
-                Surface(color = Color.Black.copy(alpha = 0.8f)) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        if (vm.pageUrls.isNotEmpty()) {
-                            Text(
-                                "${vm.currentPage + 1} / ${vm.pageUrls.size}",
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp)
-                            )
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        AnimatedVisibility(
+            visible = vm.showControls,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
+        ) {
+            Surface(color = Color.Black.copy(alpha = 0.8f), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    if (vm.pageUrls.isNotEmpty()) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            IconButton(
+                                onClick = { if (vm.currentPage > 0) vm.goToPage(vm.currentPage - 1) },
+                                enabled = vm.currentPage > 0
                             ) {
-                                IconButton(
-                                    onClick = { if (vm.currentPage > 0) vm.goToPage(vm.currentPage - 1) },
-                                    enabled = vm.currentPage > 0
-                                ) {
-                                    Icon(Icons.Default.NavigateBefore, contentDescription = "Previous", tint = Color.White)
-                                }
-                                Slider(
-                                    value = vm.currentPage.toFloat(),
-                                    onValueChange = { vm.goToPage(it.toInt()) },
-                                    valueRange = 0f..(vm.pageUrls.size - 1).toFloat(),
-                                    steps = (vm.pageUrls.size - 2).coerceAtLeast(0),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                IconButton(
-                                    onClick = { if (vm.currentPage < vm.pageUrls.size - 1) vm.goToPage(vm.currentPage + 1) },
-                                    enabled = vm.currentPage < vm.pageUrls.size - 1
-                                ) {
-                                    Icon(Icons.Default.NavigateNext, contentDescription = "Next", tint = Color.White)
-                                }
+                                Icon(Icons.Default.NavigateBefore, contentDescription = "Previous", tint = Color.White)
+                            }
+                            Slider(
+                                value = vm.currentPage.toFloat(),
+                                onValueChange = { vm.goToPage(it.toInt()) },
+                                valueRange = 0f..(vm.pageUrls.size - 1).toFloat(),
+                                steps = 0,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { if (vm.currentPage < vm.pageUrls.size - 1) vm.goToPage(vm.currentPage + 1) },
+                                enabled = vm.currentPage < vm.pageUrls.size - 1
+                            ) {
+                                Icon(Icons.Default.NavigateNext, contentDescription = "Next", tint = Color.White)
                             }
                         }
                     }
                 }
             }
+        }
 
-            // 独立的页面指示器（始终显示）
-            if (vm.pageUrls.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 16.dp)
-                        .background(
-                            color = Color.Black.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "${vm.currentPage + 1} / ${vm.pageUrls.size}",
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodySmall
+        // 页面指示器（始终显示，不受工具栏影响）
+        if (vm.pageUrls.isNotEmpty()) {
+            val indicatorAlpha by animateFloatAsState(
+                targetValue = if (vm.showControls) 0.85f else 0.45f,
+                label = "page_indicator_alpha"
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 56.dp)
+                    .alpha(indicatorAlpha)
+                    .background(
+                        color = Color.Black.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(16.dp)
                     )
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "${vm.currentPage + 1} / ${vm.pageUrls.size}",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderStatusOverlay(
+    loading: Boolean,
+    error: String?,
+    onRetry: () -> Unit
+) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        when {
+            loading -> CircularProgressIndicator(color = Color.White, modifier = Modifier.size(56.dp), strokeWidth = 5.dp)
+            error != null -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Text(error, color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodyLarge)
+                OutlinedButton(onClick = onRetry) {
+                    Text("重试", color = Color.White)
                 }
             }
+            else -> Text("没有可显示的页面", color = Color.White.copy(alpha = 0.72f))
         }
     }
 }
@@ -184,18 +296,29 @@ fun PagerReader(vm: ReaderViewModel) {
     if (vm.pageUrls.isEmpty()) return
     val pagerState = rememberPagerState(initialPage = vm.currentPage) { vm.pageUrls.size }
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var longPressUrl by remember { mutableStateOf<String?>(null) }
     val preloadPages by vm.prefs.preloadPages.collectAsState(initial = 5)
+    val imageLoader = coil.Coil.imageLoader(context)
 
     LaunchedEffect(pagerState.currentPage) { vm.updatePage(pagerState.currentPage) }
     LaunchedEffect(vm.currentPage) {
         if (pagerState.currentPage != vm.currentPage) pagerState.scrollToPage(vm.currentPage)
     }
+    LaunchedEffect(pagerState.currentPage, preloadPages, vm.pageUrls) {
+        val from = (pagerState.currentPage - 1).coerceAtLeast(0)
+        val to = (pagerState.currentPage + preloadPages).coerceAtMost(vm.pageUrls.lastIndex)
+        if (from <= to) {
+            for (index in from..to) {
+                if (index != pagerState.currentPage) {
+                    imageLoader.enqueue(readerPageRequest(context, vm.pageUrls[index]))
+                }
+            }
+        }
+    }
 
     HorizontalPager(
         state = pagerState,
-        beyondViewportPageCount = preloadPages,
+        beyondViewportPageCount = 0,
         modifier = Modifier.fillMaxSize()
     ) { page ->
         val zoomState = rememberZoomState(maxScale = 5f)
@@ -214,19 +337,31 @@ fun PagerReader(vm: ReaderViewModel) {
             contentAlignment = Alignment.Center
         ) {
             SubcomposeAsyncImage(
-                model = ImageRequest.Builder(context).data(vm.pageUrls[page]).size(Size.ORIGINAL).build(),
+                model = readerPageRequest(context, vm.pageUrls[page]),
                 contentDescription = "Page ${page + 1}",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
                     .zoomable(zoomState, onTap = { vm.toggleControls() })
             ) {
-                if (painter.state is coil.compose.AsyncImagePainter.State.Loading) {
-                    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(64.dp), strokeWidth = 6.dp)
+                when (val state = painter.state) {
+                    is AsyncImagePainter.State.Loading -> {
+                        CachedPageLoadingContent(
+                            state = state,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
-                } else {
-                    SubcomposeAsyncImageContent()
+                    AsyncImagePainter.State.Empty -> {
+                        PageLoadingPlaceholder(modifier = Modifier.fillMaxSize())
+                    }
+                    is AsyncImagePainter.State.Error -> {
+                        CachedPageErrorContent(
+                            state = state,
+                            modifier = Modifier.fillMaxSize(),
+                            onRetry = { vm.goToPage(page) }
+                        )
+                    }
+                    else -> SubcomposeAsyncImageContent()
                 }
             }
         }
@@ -236,18 +371,35 @@ fun PagerReader(vm: ReaderViewModel) {
         PageContextMenu(
             url = url,
             context = context,
+            vm = vm,
             onDismiss = { longPressUrl = null },
-            onSetBookPoster = { bytes ->
-                vm.uploadBookThumbnail(bytes) { ok ->
-                    Toast.makeText(context, if (ok) "已设置为书籍海报" else "设置失败", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onSetSeriesPoster = { bytes ->
-                vm.uploadSeriesThumbnail(bytes) { ok ->
-                    Toast.makeText(context, if (ok) "已设置为系列海报" else "设置失败", Toast.LENGTH_SHORT).show()
-                }
-            }
         )
+    }
+}
+
+@Composable
+private fun PageLoadingPlaceholder(modifier: Modifier = Modifier) {
+    Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            color = Color.White,
+            modifier = Modifier.size(48.dp),
+            strokeWidth = 4.dp
+        )
+    }
+}
+
+@Composable
+private fun ReaderPageError(onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(Color.Black).padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("图片加载失败", color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(onClick = onRetry) {
+            Text("重试", color = Color.White)
+        }
     }
 }
 
@@ -256,16 +408,14 @@ fun PagerReader(vm: ReaderViewModel) {
 private fun PageContextMenu(
     url: String,
     context: Context,
+    vm: ReaderViewModel,
     onDismiss: () -> Unit,
-    onSetBookPoster: (ByteArray) -> Unit,
-    onSetSeriesPoster: (ByteArray) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
+    val imageLoader = coil.Coil.imageLoader(context)
 
-    suspend fun loadBitmap(): Bitmap? {
-        val loader = ImageLoader(context)
-        val req = ImageRequest.Builder(context).data(url).build()
-        val result = loader.execute(req)
+    suspend fun loadBitmap(pageUrl: String): Bitmap? {
+        val req = readerPageRequest(context, pageUrl, allowHardware = false)
+        val result = imageLoader.execute(req)
         return (result as? SuccessResult)?.drawable?.let { (it as? BitmapDrawable)?.bitmap }
     }
 
@@ -275,6 +425,20 @@ private fun PageContextMenu(
         return out.toByteArray()
     }
 
+    fun doAction(pageUrl: String, action: suspend (Bitmap) -> Unit) {
+        onDismiss()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                val bitmap = loadBitmap(pageUrl) ?: return@launch
+                action(bitmap)
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "操作失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(bottom = 16.dp)) {
             ListItem(
@@ -282,11 +446,10 @@ private fun PageContextMenu(
                 leadingContent = { Icon(Icons.Default.Download, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable {
-                    onDismiss()
-                    scope.launch {
-                        val bitmap = loadBitmap() ?: return@launch
-                        withContext(Dispatchers.IO) { saveBitmapToGallery(context, bitmap) }
-                        Toast.makeText(context, "已保存到相册", Toast.LENGTH_SHORT).show()
+                    val pageUrl = url
+                    doAction(pageUrl) { bitmap ->
+                        saveBitmapToGallery(context, bitmap)
+                        withContext(Dispatchers.Main) { Toast.makeText(context, "已保存到相册", Toast.LENGTH_SHORT).show() }
                     }
                 }
             )
@@ -295,16 +458,18 @@ private fun PageContextMenu(
                 leadingContent = { Icon(Icons.Default.Share, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable {
-                    onDismiss()
-                    scope.launch {
-                        val bitmap = loadBitmap() ?: return@launch
-                        val uri = withContext(Dispatchers.IO) { saveBitmapToCache(context, bitmap) }
+                    val pageUrl = url
+                    doAction(pageUrl) { bitmap ->
+                        val uri = saveBitmapToCache(context, bitmap)
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "image/jpeg"
                             putExtra(Intent.EXTRA_STREAM, uri)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
-                        context.startActivity(Intent.createChooser(intent, "分享图片"))
+                        withContext(Dispatchers.Main) {
+                            context.startActivity(Intent.createChooser(intent, "分享图片"))
+                        }
                     }
                 }
             )
@@ -313,10 +478,11 @@ private fun PageContextMenu(
                 leadingContent = { Icon(Icons.Default.Book, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable {
-                    onDismiss()
-                    scope.launch {
-                        val bitmap = loadBitmap() ?: return@launch
-                        onSetBookPoster(bitmapToBytes(bitmap))
+                    val pageUrl = url
+                    doAction(pageUrl) { bitmap ->
+                        vm.uploadBookThumbnail(bitmapToBytes(bitmap)) { ok ->
+                            Toast.makeText(context, if (ok) "已设置为书籍海报" else "设置失败", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             )
@@ -325,10 +491,11 @@ private fun PageContextMenu(
                 leadingContent = { Icon(Icons.Default.Collections, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable {
-                    onDismiss()
-                    scope.launch {
-                        val bitmap = loadBitmap() ?: return@launch
-                        onSetSeriesPoster(bitmapToBytes(bitmap))
+                    val pageUrl = url
+                    doAction(pageUrl) { bitmap ->
+                        vm.uploadSeriesThumbnail(bitmapToBytes(bitmap)) { ok ->
+                            Toast.makeText(context, if (ok) "已设置为系列海报" else "设置失败", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             )
@@ -357,25 +524,77 @@ private fun saveBitmapToCache(context: Context, bitmap: Bitmap): android.net.Uri
 
 @Composable
 fun ScrollReader(vm: ReaderViewModel) {
+    val listState = rememberLazyListState()
+    val context = LocalContext.current
+    val imageLoader = coil.Coil.imageLoader(context)
+    val preloadPages by vm.prefs.preloadPages.collectAsState(initial = 5)
+
+    LaunchedEffect(vm.currentPage) {
+        val currentPageVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == vm.currentPage }
+        if (!listState.isScrollInProgress && !currentPageVisible) {
+            listState.scrollToItem(vm.currentPage)
+        }
+    }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo }
+            .map { visibleItems ->
+                visibleItems.maxByOrNull { item ->
+                    val visibleTop = item.offset.coerceAtLeast(0)
+                    val visibleBottom = (item.offset + item.size).coerceAtMost(listState.layoutInfo.viewportEndOffset)
+                    visibleBottom - visibleTop
+                }?.index
+            }
+            .distinctUntilChanged()
+            .collect { index ->
+                if (index != null) vm.updatePage(index)
+            }
+    }
+
+    LaunchedEffect(vm.currentPage, preloadPages, vm.pageUrls) {
+        val from = (vm.currentPage - 1).coerceAtLeast(0)
+        val to = (vm.currentPage + preloadPages).coerceAtMost(vm.pageUrls.lastIndex)
+        if (from <= to) {
+            for (index in from..to) {
+                if (index != vm.currentPage) {
+                    imageLoader.enqueue(readerPageRequest(context, vm.pageUrls[index]))
+                }
+            }
+        }
+    }
+
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().pointerInput(Unit) {
             detectTapGestures { vm.toggleControls() }
         }
     ) {
-        items(vm.pageUrls.indices.toList()) { index ->
+        itemsIndexed(vm.pageUrls, key = { _, url -> url }) { index, url ->
             Box(Modifier.fillMaxWidth().wrapContentHeight(), contentAlignment = Alignment.Center) {
                 SubcomposeAsyncImage(
-                    model = vm.pageUrls[index],
+                    model = readerPageRequest(context, url),
                     contentDescription = "Page ${index + 1}",
                     contentScale = ContentScale.FillWidth,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    if (painter.state is coil.compose.AsyncImagePainter.State.Loading) {
-                        Box(Modifier.fillMaxWidth().height(400.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(48.dp))
+                    when (val state = painter.state) {
+                        is AsyncImagePainter.State.Loading -> {
+                            CachedPageLoadingContent(
+                                state = state,
+                                modifier = Modifier.fillMaxWidth().height(400.dp)
+                            )
                         }
-                    } else {
-                        SubcomposeAsyncImageContent()
+                        AsyncImagePainter.State.Empty -> {
+                            PageLoadingPlaceholder(modifier = Modifier.fillMaxWidth().height(400.dp))
+                        }
+                        is AsyncImagePainter.State.Error -> {
+                            CachedPageErrorContent(
+                                state = state,
+                                modifier = Modifier.fillMaxWidth().height(400.dp),
+                                onRetry = { vm.goToPage(index) }
+                            )
+                        }
+                        else -> SubcomposeAsyncImageContent()
                     }
                 }
             }

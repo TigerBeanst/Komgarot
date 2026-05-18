@@ -22,6 +22,7 @@ class BookViewModel(
     var series by mutableStateOf<SeriesDto?>(null)
     var hasMore by mutableStateOf(true)
     var loading by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
     private var page = 0
     private var seriesId: String = ""
     private var initialized = false
@@ -30,11 +31,15 @@ class BookViewModel(
         if (seriesId != id) {
             seriesId = id
             books.clear()
+            series = null
             page = 0
             hasMore = true
             initialized = false
+            error = null
             viewModelScope.launch {
-                series = seriesRepo.getSeriesById(id).getOrNull()
+                seriesRepo.getSeriesById(id)
+                    .onSuccess { series = it }
+                    .onFailure { error = it.message ?: "加载系列详情失败" }
             }
         }
         if (!initialized) {
@@ -47,6 +52,7 @@ class BookViewModel(
         books.clear()
         page = 0
         hasMore = true
+        error = null
         loadMore()
     }
 
@@ -54,11 +60,18 @@ class BookViewModel(
         if (!hasMore || loading) return
         viewModelScope.launch {
             loading = true
-            runCatching { bookRepo.getBooks(seriesId, page) }.onSuccess {
-                books.addAll(it.content)
-                hasMore = page < it.totalPages - 1
-                page++
-            }
+            error = null
+            runCatching { bookRepo.getBooks(seriesId, page) }
+                .onSuccess {
+                    val existingIds = books.map { item -> item.id }.toSet()
+                    val newItems = it.content.filter { item -> item.id !in existingIds }
+                    books.addAll(newItems)
+                    hasMore = page < it.totalPages - 1
+                    page++
+                }
+                .onFailure {
+                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: "加载书籍失败"
+                }
             loading = false
         }
     }

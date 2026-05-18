@@ -2,6 +2,8 @@ package fail.tiger.komgarot.ui.navigation
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import soup.compose.material.motion.animation.materialSharedAxisX
+import soup.compose.material.motion.animation.rememberSlideDistance
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -42,13 +44,39 @@ fun AppNavGraph(app: KomgarotApp) {
         factory = LibraryViewModel.Factory(app.libraryRepository, app.authRepository, app.authPreferences)
     )
     val serverUrl by libraryVm.prefs.serverUrl.collectAsState(initial = "")
-    val startDest = if (app.authPreferences.serverUrlBlocking.isNotEmpty()) Screen.Library.route else Screen.Login.route
+    val alwaysIncognito by app.authPreferences.alwaysIncognito.collectAsState(initial = false)
+    val startDest = if (serverUrl.isNotEmpty()) Screen.Library.route else Screen.Login.route
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(serverUrl) {
-        if (serverUrl.isNotEmpty()) {
+        if (serverUrl.isNotEmpty() && navController.currentDestination?.route != Screen.Library.route) {
             navController.navigate(Screen.Library.route) {
                 popUpTo(Screen.Login.route) { inclusive = true }
             }
+        }
+    }
+
+    val slideDistance = rememberSlideDistance()
+    val openSeries: (String, Int) -> Unit = { seriesId, booksCount ->
+        if (booksCount == 1) {
+            scope.launch {
+                val book = runCatching { app.bookRepository.getBooks(seriesId, 0) }.getOrNull()?.content?.firstOrNull()
+                if (book != null) {
+                    navController.navigate(
+                        Screen.BookDetail.go(
+                            book.id,
+                            book.metadata.title.ifEmpty { book.name },
+                            book.seriesTitle.orEmpty(),
+                            book.media.pagesCount,
+                            true
+                        )
+                    )
+                } else {
+                    navController.navigate(Screen.Books.go(seriesId))
+                }
+            }
+        } else {
+            navController.navigate(Screen.Books.go(seriesId))
         }
     }
 
@@ -56,10 +84,18 @@ fun AppNavGraph(app: KomgarotApp) {
         navController = navController,
         startDestination = startDest,
         modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
-        enterTransition = { fadeIn(tween(300)) },
-        exitTransition = { fadeOut(tween(200)) },
-        popEnterTransition = { fadeIn(tween(200)) },
-        popExitTransition = { fadeOut(tween(300)) }
+        enterTransition = {
+            materialSharedAxisX(forward = true, slideDistance = slideDistance).targetContentEnter
+        },
+        exitTransition = {
+            materialSharedAxisX(forward = true, slideDistance = slideDistance).initialContentExit
+        },
+        popEnterTransition = {
+            materialSharedAxisX(forward = false, slideDistance = slideDistance).targetContentEnter
+        },
+        popExitTransition = {
+            materialSharedAxisX(forward = false, slideDistance = slideDistance).initialContentExit
+        }
     ) {
         composable(Screen.Login.route) {
             val vm: LoginViewModel = viewModel(factory = LoginViewModel.Factory(app.authRepository))
@@ -73,6 +109,19 @@ fun AppNavGraph(app: KomgarotApp) {
         composable(Screen.Library.route) {
             LibraryScreen(
                 onLibraryClick = { navController.navigate(Screen.Series.go(it)) },
+                onBookClick = { book ->
+                    navController.navigate(
+                        Screen.BookDetail.go(
+                            book.id,
+                            book.metadata.title.ifEmpty { book.name },
+                            book.seriesTitle.orEmpty(),
+                            book.media.pagesCount,
+                            book.oneshot
+                        )
+                    )
+                },
+                onSeriesClick = openSeries,
+                serverUrl = serverUrl,
                 vm = libraryVm,
                 onLogout = {
                     navController.navigate(Screen.Login.route) {
@@ -100,23 +149,9 @@ fun AppNavGraph(app: KomgarotApp) {
                 }
             }
 
-            val scope = rememberCoroutineScope()
             SeriesScreen(
                 libraryId = libraryId, serverUrl = serverUrl,
-                onSeriesClick = { seriesId, booksCount ->
-                    if (booksCount == 1) {
-                        scope.launch {
-                            val book = runCatching { app.bookRepository.getBooks(seriesId, 0) }.getOrNull()?.content?.firstOrNull()
-                            if (book != null) {
-                                navController.navigate(Screen.BookDetail.go(book.id, book.metadata.title.ifEmpty { book.name }, "", book.media.pagesCount, true))
-                            } else {
-                                navController.navigate(Screen.Books.go(seriesId))
-                            }
-                        }
-                    } else {
-                        navController.navigate(Screen.Books.go(seriesId))
-                    }
-                },
+                onSeriesClick = openSeries,
                 onMetadataClick = { navController.navigate(Screen.Metadata.go("series", it)) },
                 onBack = { navController.popBackStack() }, vm = vm
             )
@@ -135,7 +170,7 @@ fun AppNavGraph(app: KomgarotApp) {
                         launchSingleTop = true
                     }
                 },
-                onMetadataClick = { navController.navigate(Screen.Metadata.go("book", it)) },
+                onMetadataClick = { navController.navigate(Screen.Metadata.go("series", it)) },
                 onBack = { navController.popBackStack() }, vm = vm
             )
         }
@@ -171,12 +206,13 @@ fun AppNavGraph(app: KomgarotApp) {
                     }
                 },
                 onReadClick = { id, trackProgress ->
-                    val effectiveTrack = trackProgress && !app.authPreferences.alwaysIncognitoBlocking
+                    val effectiveTrack = trackProgress && !alwaysIncognito
                     val startPage = if (effectiveTrack) vm.book?.readProgress?.page ?: 1 else 1
                     navController.navigate("reader/$id/$startPage?trackProgress=$effectiveTrack")
                 },
-                onAuthorClick = { authorName ->
-                    navController.navigate(Screen.Series.go(null, "author:$authorName"))
+                onMetadataClick = { navController.navigate(Screen.Metadata.go("book", it)) },
+                onAuthorClick = { authorName, authorRole ->
+                    navController.navigate(Screen.Series.go(null, "author:$authorName,$authorRole"))
                 },
                 vm = vm,
                 prefs = app.authPreferences
@@ -189,13 +225,28 @@ fun AppNavGraph(app: KomgarotApp) {
                 navArgument("bookId") { type = NavType.StringType },
                 navArgument("page") { type = NavType.IntType; defaultValue = 1 },
                 navArgument("trackProgress") { type = NavType.BoolType; defaultValue = true }
-            )
+            ),
+            enterTransition = { fadeIn(tween(200)) },
+            exitTransition = { fadeOut(tween(150)) },
+            popEnterTransition = { fadeIn(tween(150)) },
+            popExitTransition = { fadeOut(tween(200)) }
         ) { back ->
             val bookId = back.arguments?.getString("bookId") ?: return@composable
             val page = back.arguments?.getInt("page") ?: 1
             val trackProgress = back.arguments?.getBoolean("trackProgress") ?: true
             val vm: ReaderViewModel = viewModel(factory = ReaderViewModel.Factory(app.bookRepository, app.authPreferences))
-            ReaderScreen(bookId = bookId, startPage = page, trackProgress = trackProgress, onBack = { navController.popBackStack() }, vm = vm)
+            ReaderScreen(
+                bookId = bookId,
+                startPage = page,
+                trackProgress = trackProgress,
+                onBack = { navController.popBackStack() },
+                onOpenBook = { id, start, shouldTrack ->
+                    navController.navigate(Screen.Reader.go(id, start, shouldTrack)) {
+                        popUpTo(Screen.Reader.route) { inclusive = true }
+                    }
+                },
+                vm = vm
+            )
         }
 
         composable(

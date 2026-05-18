@@ -31,7 +31,8 @@ class MetadataViewModel(private val repo: BookRepository) : ViewModel() {
             val body = mapOf(
                 "title" to meta.title, "titleSort" to meta.titleSort, "status" to meta.status,
                 "summary" to meta.summary, "publisher" to meta.publisher, "ageRating" to meta.ageRating,
-                "language" to meta.language, "genres" to meta.genres, "tags" to meta.tags
+                "language" to meta.language, "readingDirection" to meta.readingDirection,
+                "genres" to meta.genres, "tags" to meta.tags
             )
             runCatching { repo.updateSeriesMetadata(id, body) }.onSuccess { saved = true }
             saving = false

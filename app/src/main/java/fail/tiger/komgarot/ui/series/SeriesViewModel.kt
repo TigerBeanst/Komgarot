@@ -17,8 +17,12 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
     val series = mutableStateListOf<SeriesDto>()
     var hasMore by mutableStateOf(true)
     var loading by mutableStateOf(false)
+    var error by mutableStateOf<String?>(null)
     var searchQuery by mutableStateOf("")
+    var searchByAuthor by mutableStateOf(false)
     var currentSort by mutableStateOf(loadSortPreference())
+    val displaySearchQuery: String
+        get() = searchQuery.stripAuthorPrefix().substringBefore(',').trim()
     private var page = 0
     private var libraryId: String? = null
     private var initialized = false
@@ -40,6 +44,7 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
             page = 0
             hasMore = true
             initialized = false
+            error = null
         }
         if (!initialized) {
             initialized = true
@@ -47,15 +52,20 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         }
     }
 
-    fun search(query: String) {
-        searchQuery = if (query.startsWith("author:")) {
-            query
+    fun search(query: String, byAuthor: Boolean = false) {
+        val trimmedQuery = query.trim()
+        val hasAuthorPrefix = trimmedQuery.startsWith("author:", ignoreCase = true)
+        val cleanQuery = trimmedQuery.stripAuthorPrefix()
+        searchByAuthor = byAuthor || hasAuthorPrefix
+        searchQuery = if (searchByAuthor && cleanQuery.isNotEmpty()) {
+            "author:$cleanQuery"
         } else {
-            query.trim()
+            cleanQuery
         }
         series.clear()
         page = 0
         hasMore = true
+        error = null
         loadMore()
     }
 
@@ -65,6 +75,7 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         series.clear()
         page = 0
         hasMore = true
+        error = null
         loadMore()
     }
 
@@ -72,6 +83,7 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         series.clear()
         page = 0
         hasMore = true
+        error = null
         loadMore()
     }
 
@@ -79,11 +91,18 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         if (!hasMore || loading) return
         viewModelScope.launch {
             loading = true
-            runCatching { repo.getSeries(libraryId, page, searchQuery.ifEmpty { null }, currentSort) }.onSuccess {
-                series.addAll(it.content)
-                hasMore = page < it.totalPages - 1
-                page++
-            }
+            error = null
+            runCatching { repo.getSeries(libraryId, page, searchQuery.ifEmpty { null }, currentSort) }
+                .onSuccess {
+                    val existingIds = series.map { item -> item.id }.toSet()
+                    val newItems = it.content.filter { item -> item.id !in existingIds }
+                    series.addAll(newItems)
+                    hasMore = page < it.totalPages - 1
+                    page++
+                }
+                .onFailure {
+                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: "加载系列失败"
+                }
             loading = false
         }
     }
@@ -92,3 +111,6 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         override fun <T : ViewModel> create(modelClass: Class<T>): T = SeriesViewModel(repo, context) as T
     }
 }
+
+private fun String.stripAuthorPrefix(): String =
+    if (startsWith("author:", ignoreCase = true)) substringAfter(':').trim() else trim()

@@ -20,22 +20,39 @@ class AuthPreferences(private val context: Context) {
     private val ALWAYS_INCOGNITO = booleanPreferencesKey("always_incognito")
     private val PRELOAD_PAGES = intPreferencesKey("preload_pages")
 
+    @Volatile private var cachedServerUrl = ""
+    @Volatile private var cachedUsername = ""
+    @Volatile private var cachedPassword = ""
+
     val serverUrl: Flow<String> = context.dataStore.data.map { it[SERVER_URL] ?: "" }
     val username: Flow<String> = context.dataStore.data.map { it[USERNAME] ?: "" }
     val alwaysIncognito: Flow<Boolean> = context.dataStore.data.map { it[ALWAYS_INCOGNITO] ?: false }
     val preloadPages: Flow<Int> = context.dataStore.data.map { it[PRELOAD_PAGES] ?: 5 }
 
-    val serverUrlBlocking: String get() = runBlocking { serverUrl.first() }
-    val usernameBlocking: String get() = runBlocking { username.first() }
-    val passwordBlocking: String get() = runBlocking { context.dataStore.data.map { it[PASSWORD] ?: "" }.first() }
+    init {
+        runBlocking {
+            val data = context.dataStore.data.first()
+            cachedServerUrl = data[SERVER_URL] ?: ""
+            cachedUsername = data[USERNAME] ?: ""
+            cachedPassword = data[PASSWORD] ?: ""
+        }
+    }
+
+    val serverUrlBlocking: String get() = cachedServerUrl
+    val usernameBlocking: String get() = cachedUsername
+    val passwordBlocking: String get() = cachedPassword
     val alwaysIncognitoBlocking: Boolean get() = runBlocking { alwaysIncognito.first() }
 
     suspend fun save(url: String, user: String, pass: String) {
+        val cleanUrl = url.trimEnd('/')
         context.dataStore.edit {
-            it[SERVER_URL] = url.trimEnd('/')
+            it[SERVER_URL] = cleanUrl
             it[USERNAME] = user
             it[PASSWORD] = pass
         }
+        cachedServerUrl = cleanUrl
+        cachedUsername = user
+        cachedPassword = pass
     }
 
     suspend fun setAlwaysIncognito(value: Boolean) {
@@ -62,5 +79,10 @@ class AuthPreferences(private val context: Context) {
         context.dataStore.edit { it[APP_LOCK_TIMEOUT] = minutes }
     }
 
-    suspend fun clear() = context.dataStore.edit { it.clear() }
+    suspend fun clear() {
+        context.dataStore.edit { it.clear() }
+        cachedServerUrl = ""
+        cachedUsername = ""
+        cachedPassword = ""
+    }
 }
