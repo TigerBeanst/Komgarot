@@ -8,7 +8,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.BookDto
+import fail.tiger.komgarot.data.remote.dto.PageDto
 import fail.tiger.komgarot.data.repository.BookRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -18,6 +20,21 @@ import kotlinx.coroutines.launch
 data class PageImageInfo(val bookId: String, val seriesId: String, val pageUrl: String)
 
 enum class ReadingMode { PAGER, SCROLL }
+
+private val directImageMediaTypes = setOf(
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/jxl",
+    "image/heif",
+    "image/avif"
+)
+
+private fun readerPageUrl(serverUrl: String, bookId: String, page: PageDto): String {
+    val url = KomgaUrls.page(serverUrl, bookId, page.number)
+    return if (page.mediaType.lowercase() in directImageMediaTypes) url else "$url?convert=png"
+}
 
 class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferences) : ViewModel() {
     var pageUrls by mutableStateOf<List<String>>(emptyList())
@@ -64,7 +81,7 @@ class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferenc
 
             runCatching { repo.getPages(bookId) }
                 .onSuccess { pages ->
-                    pageUrls = pages.map { "$base/api/v1/books/$bookId/pages/${it.number}" }
+                    pageUrls = pages.map { readerPageUrl(base, bookId, it) }
                     currentPage = if (pageUrls.isEmpty()) 0 else (startPage - 1).coerceIn(0, pageUrls.lastIndex)
                 }
                 .onFailure {

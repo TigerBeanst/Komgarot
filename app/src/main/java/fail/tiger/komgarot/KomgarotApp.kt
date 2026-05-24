@@ -7,6 +7,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.remote.AuthInterceptor
+import fail.tiger.komgarot.data.remote.ImageDownloadProgressInterceptor
 import fail.tiger.komgarot.data.remote.KomgaApi
 import fail.tiger.komgarot.data.remote.UrlInterceptor
 import fail.tiger.komgarot.data.repository.AdminRepository
@@ -21,6 +22,8 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+
+private const val IMAGE_CACHE_MAX_SIZE_BYTES = 2L * 1024 * 1024 * 1024
 
 class KomgarotApp : Application(), ImageLoaderFactory {
     lateinit var authPreferences: AuthPreferences
@@ -42,6 +45,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         okHttpClient = OkHttpClient.Builder()
             .addInterceptor(urlInterceptor)
             .addInterceptor(authInterceptor)
+            .addNetworkInterceptor(ImageDownloadProgressInterceptor())
             .build()
         val retrofit = Retrofit.Builder()
             .baseUrl("http://localhost/")
@@ -64,9 +68,8 @@ class KomgarotApp : Application(), ImageLoaderFactory {
     private fun clearOldCache() {
         val diskCache = cacheDir.resolve("image_cache")
         if (diskCache.exists()) {
-            val maxSize = 500L * 1024 * 1024
             val currentSize = diskCache.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
-            if (currentSize > maxSize) {
+            if (currentSize > IMAGE_CACHE_MAX_SIZE_BYTES) {
                 diskCache.deleteRecursively()
             }
         }
@@ -74,6 +77,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
 
     override fun newImageLoader() = ImageLoader.Builder(this)
         .okHttpClient(okHttpClient)
+        .respectCacheHeaders(false)
         .memoryCache {
             MemoryCache.Builder(this)
                 .maxSizePercent(0.25)
@@ -82,7 +86,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         .diskCache {
             DiskCache.Builder()
                 .directory(cacheDir.resolve("image_cache"))
-                .maxSizeBytes(500L * 1024 * 1024)
+                .maxSizeBytes(IMAGE_CACHE_MAX_SIZE_BYTES)
                 .build()
         }
         .build()
