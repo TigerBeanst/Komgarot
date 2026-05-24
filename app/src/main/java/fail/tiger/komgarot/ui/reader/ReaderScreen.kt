@@ -7,6 +7,8 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.view.WindowManager
 import android.widget.Toast
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import coil.compose.SubcomposeAsyncImageScope
@@ -65,14 +68,19 @@ import kotlinx.coroutines.withContext
 import net.engawapg.lib.zoomable.rememberZoomState
 import net.engawapg.lib.zoomable.zoomable
 import java.io.ByteArrayOutputStream
+import kotlin.math.roundToInt
 
 private fun readerPageMemoryCacheKey(url: String, allowHardware: Boolean): String =
     "reader-page:${if (allowHardware) "hardware" else "software"}:$url"
 
+private fun readerPageDiskCacheKey(url: String): String = "reader-page:$url"
+
 private fun readerPageRequest(
     context: Context,
     url: String,
-    allowHardware: Boolean = true
+    allowHardware: Boolean = true,
+    progressListener: ImageDownloadProgressListener? = null,
+    listener: ImageRequest.Listener? = null
 ): ImageRequest {
     val memoryKey = readerPageMemoryCacheKey(url, allowHardware)
     return ImageRequest.Builder(context)
@@ -80,22 +88,108 @@ private fun readerPageRequest(
         .size(Size.ORIGINAL)
         .memoryCacheKey(memoryKey)
         .placeholderMemoryCacheKey(memoryKey)
+        .diskCacheKey(readerPageDiskCacheKey(url))
+        .setHeader("Accept", "image/*,*/*;q=0.8")
         .memoryCachePolicy(CachePolicy.ENABLED)
         .diskCachePolicy(CachePolicy.ENABLED)
         .networkCachePolicy(CachePolicy.ENABLED)
         .allowHardware(allowHardware)
+        .apply {
+            if (progressListener != null) {
+                this.tag(ImageDownloadProgressListener::class.java, progressListener)
+            }
+            if (listener != null) {
+                this.listener(listener)
+            }
+        }
         .build()
+}
+
+private class ReaderPageProgressState {
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var active = true
+
+    var progress by mutableFloatStateOf(0f)
+        private set
+    var hasPercent by mutableStateOf(false)
+        private set
+
+    val listener = ImageDownloadProgressListener { bytesRead, contentLength ->
+        val totalKnown = contentLength > 0L
+        val nextProgress = if (totalKnown) {
+            (bytesRead.toFloat() / contentLength.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        mainHandler.post {
+            if (active) {
+                hasPercent = totalKnown
+                progress = nextProgress
+            }
+        }
+    }
+
+    fun reset() {
+        hasPercent = false
+        progress = 0f
+    }
+
+    fun complete() {
+        hasPercent = true
+        progress = 1f
+    }
+
+    fun dispose() {
+        active = false
+        mainHandler.removeCallbacksAndMessages(null)
+    }
+}
+
+@Composable
+private fun rememberReaderPageRequest(
+    url: String,
+    allowHardware: Boolean = true
+): Pair<ImageRequest, ReaderPageProgressState> {
+    val context = LocalContext.current
+    val progressState = remember(url) { ReaderPageProgressState() }
+    DisposableEffect(progressState) {
+        onDispose { progressState.dispose() }
+    }
+
+    val request = remember(context, url, allowHardware, progressState) {
+        readerPageRequest(
+            context = context,
+            url = url,
+            allowHardware = allowHardware,
+            progressListener = progressState.listener,
+            listener = object : ImageRequest.Listener {
+                override fun onStart(request: ImageRequest) {
+                    progressState.reset()
+                }
+
+                override fun onSuccess(request: ImageRequest, result: SuccessResult) {
+                    progressState.complete()
+                }
+
+                override fun onError(request: ImageRequest, result: coil.request.ErrorResult) {
+                    progressState.reset()
+                }
+            }
+        )
+    }
+    return request to progressState
 }
 
 @Composable
 private fun SubcomposeAsyncImageScope.CachedPageLoadingContent(
     state: AsyncImagePainter.State.Loading,
+    progressState: ReaderPageProgressState,
     modifier: Modifier = Modifier
 ) {
     if (state.painter != null) {
         SubcomposeAsyncImageContent()
     } else {
-        PageLoadingPlaceholder(modifier)
+        PageLoadingPlaceholder(progressState = progressState, modifier = modifier)
     }
 }
 
@@ -351,8 +445,9 @@ fun PagerReader(vm: ReaderViewModel) {
                 },
             contentAlignment = Alignment.Center
         ) {
+            val (request, progressState) = rememberReaderPageRequest(vm.pageUrls[page])
             SubcomposeAsyncImage(
-                model = readerPageRequest(context, vm.pageUrls[page]),
+                model = request,
                 contentDescription = "Page ${page + 1}",
                 contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
                 modifier = Modifier
@@ -363,11 +458,12 @@ fun PagerReader(vm: ReaderViewModel) {
                     is AsyncImagePainter.State.Loading -> {
                         CachedPageLoadingContent(
                             state = state,
+                            progressState = progressState,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
                     AsyncImagePainter.State.Empty -> {
-                        PageLoadingPlaceholder(modifier = Modifier.fillMaxSize())
+                        PageLoadingPlaceholder(progressState = progressState, modifier = Modifier.fillMaxSize())
                     }
                     is AsyncImagePainter.State.Error -> {
                         CachedPageErrorContent(
@@ -393,13 +489,33 @@ fun PagerReader(vm: ReaderViewModel) {
 }
 
 @Composable
-private fun PageLoadingPlaceholder(modifier: Modifier = Modifier) {
+private fun PageLoadingPlaceholder(
+    progressState: ReaderPageProgressState,
+    modifier: Modifier = Modifier
+) {
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(
-            color = Color.White,
-            modifier = Modifier.size(48.dp),
-            strokeWidth = 4.dp
-        )
+        if (progressState.hasPercent) {
+            Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { progressState.progress },
+                    color = Color.White,
+                    trackColor = Color.White.copy(alpha = 0.22f),
+                    modifier = Modifier.size(56.dp),
+                    strokeWidth = 4.dp
+                )
+                Text(
+                    text = "${(progressState.progress * 100).roundToInt().coerceIn(0, 100)}%",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        } else {
+            CircularProgressIndicator(
+                color = Color.White,
+                modifier = Modifier.size(48.dp),
+                strokeWidth = 4.dp
+            )
+        }
     }
 }
 
@@ -586,8 +702,9 @@ fun ScrollReader(vm: ReaderViewModel) {
     ) {
         itemsIndexed(vm.pageUrls, key = { _, url -> url }) { index, url ->
             Box(Modifier.fillMaxWidth().wrapContentHeight(), contentAlignment = Alignment.Center) {
+                val (request, progressState) = rememberReaderPageRequest(url)
                 SubcomposeAsyncImage(
-                    model = readerPageRequest(context, url),
+                    model = request,
                     contentDescription = "Page ${index + 1}",
                     contentScale = ContentScale.FillWidth,
                     modifier = Modifier.fillMaxWidth()
@@ -596,11 +713,15 @@ fun ScrollReader(vm: ReaderViewModel) {
                         is AsyncImagePainter.State.Loading -> {
                             CachedPageLoadingContent(
                                 state = state,
+                                progressState = progressState,
                                 modifier = Modifier.fillMaxWidth().height(400.dp)
                             )
                         }
                         AsyncImagePainter.State.Empty -> {
-                            PageLoadingPlaceholder(modifier = Modifier.fillMaxWidth().height(400.dp))
+                            PageLoadingPlaceholder(
+                                progressState = progressState,
+                                modifier = Modifier.fillMaxWidth().height(400.dp)
+                            )
                         }
                         is AsyncImagePainter.State.Error -> {
                             CachedPageErrorContent(
