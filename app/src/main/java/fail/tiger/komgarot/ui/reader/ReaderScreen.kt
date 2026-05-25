@@ -70,31 +70,37 @@ import net.engawapg.lib.zoomable.zoomable
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
-private fun readerPageMemoryCacheKey(url: String, allowHardware: Boolean): String =
-    "reader-page:${if (allowHardware) "hardware" else "software"}:$url"
+private fun readerPageMemoryCacheKey(url: String, allowHardware: Boolean, originalSize: Boolean): String =
+    "reader-page:${if (originalSize) "original" else "display"}:${if (allowHardware) "hardware" else "software"}:$url"
 
 private fun readerPageDiskCacheKey(url: String): String = "reader-page:$url"
 
 private fun readerPageRequest(
     context: Context,
     url: String,
-    allowHardware: Boolean = true,
+    allowHardware: Boolean = false,
+    originalSize: Boolean = false,
+    retryKey: Int = 0,
     progressListener: ImageDownloadProgressListener? = null,
     listener: ImageRequest.Listener? = null
 ): ImageRequest {
-    val memoryKey = readerPageMemoryCacheKey(url, allowHardware)
+    val memoryKey = readerPageMemoryCacheKey(url, allowHardware, originalSize)
     return ImageRequest.Builder(context)
         .data(url)
-        .size(Size.ORIGINAL)
         .memoryCacheKey(memoryKey)
         .placeholderMemoryCacheKey(memoryKey)
         .diskCacheKey(readerPageDiskCacheKey(url))
         .setHeader("Accept", "image/*,*/*;q=0.8")
+        .setParameter("reader_retry_key", retryKey, memoryCacheKey = null)
         .memoryCachePolicy(CachePolicy.ENABLED)
         .diskCachePolicy(CachePolicy.ENABLED)
         .networkCachePolicy(CachePolicy.ENABLED)
         .allowHardware(allowHardware)
+        .allowRgb565(!originalSize)
         .apply {
+            if (originalSize) {
+                size(Size.ORIGINAL)
+            }
             if (progressListener != null) {
                 this.tag(ImageDownloadProgressListener::class.java, progressListener)
             }
@@ -148,7 +154,8 @@ private class ReaderPageProgressState {
 @Composable
 private fun rememberReaderPageRequest(
     url: String,
-    allowHardware: Boolean = true
+    allowHardware: Boolean = false,
+    retryKey: Int = 0
 ): Pair<ImageRequest, ReaderPageProgressState> {
     val context = LocalContext.current
     val progressState = remember(url) { ReaderPageProgressState() }
@@ -156,11 +163,12 @@ private fun rememberReaderPageRequest(
         onDispose { progressState.dispose() }
     }
 
-    val request = remember(context, url, allowHardware, progressState) {
+    val request = remember(context, url, allowHardware, retryKey, progressState) {
         readerPageRequest(
             context = context,
             url = url,
             allowHardware = allowHardware,
+            retryKey = retryKey,
             progressListener = progressState.listener,
             listener = object : ImageRequest.Listener {
                 override fun onStart(request: ImageRequest) {
@@ -432,6 +440,8 @@ fun PagerReader(vm: ReaderViewModel) {
     ) { page ->
         val zoomState = rememberZoomState(maxScale = 5f)
         LaunchedEffect(page) { zoomState.reset() }
+        val pageUrl = vm.pageUrls[page]
+        var retryKey by remember(pageUrl) { mutableIntStateOf(0) }
 
         Box(
             Modifier
@@ -440,12 +450,12 @@ fun PagerReader(vm: ReaderViewModel) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val lp = awaitLongPressOrCancellation(down.id)
-                        if (lp != null) longPressUrl = vm.pageUrls[page]
+                        if (lp != null) longPressUrl = pageUrl
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
-            val (request, progressState) = rememberReaderPageRequest(vm.pageUrls[page])
+            val (request, progressState) = rememberReaderPageRequest(pageUrl, retryKey = retryKey)
             SubcomposeAsyncImage(
                 model = request,
                 contentDescription = "Page ${page + 1}",
@@ -469,7 +479,7 @@ fun PagerReader(vm: ReaderViewModel) {
                         CachedPageErrorContent(
                             state = state,
                             modifier = Modifier.fillMaxSize(),
-                            onRetry = { vm.goToPage(page) }
+                            onRetry = { retryKey += 1 }
                         )
                     }
                     else -> SubcomposeAsyncImageContent()
@@ -545,7 +555,7 @@ private fun PageContextMenu(
     val imageLoader = coil.Coil.imageLoader(context)
 
     suspend fun loadBitmap(pageUrl: String): Bitmap? {
-        val req = readerPageRequest(context, pageUrl, allowHardware = false)
+        val req = readerPageRequest(context, pageUrl, allowHardware = false, originalSize = true)
         val result = imageLoader.execute(req)
         return (result as? SuccessResult)?.drawable?.let { (it as? BitmapDrawable)?.bitmap }
     }
@@ -702,7 +712,8 @@ fun ScrollReader(vm: ReaderViewModel) {
     ) {
         itemsIndexed(vm.pageUrls, key = { _, url -> url }) { index, url ->
             Box(Modifier.fillMaxWidth().wrapContentHeight(), contentAlignment = Alignment.Center) {
-                val (request, progressState) = rememberReaderPageRequest(url)
+                var retryKey by remember(url) { mutableIntStateOf(0) }
+                val (request, progressState) = rememberReaderPageRequest(url, retryKey = retryKey)
                 SubcomposeAsyncImage(
                     model = request,
                     contentDescription = "Page ${index + 1}",
@@ -727,7 +738,7 @@ fun ScrollReader(vm: ReaderViewModel) {
                             CachedPageErrorContent(
                                 state = state,
                                 modifier = Modifier.fillMaxWidth().height(400.dp),
-                                onRetry = { vm.goToPage(index) }
+                                onRetry = { retryKey += 1 }
                             )
                         }
                         else -> SubcomposeAsyncImageContent()
