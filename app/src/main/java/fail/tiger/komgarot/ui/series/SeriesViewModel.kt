@@ -40,7 +40,8 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         prefs.edit().putString("series_sort", sort).apply()
     }
 
-    fun init(id: String?) {
+    fun init(id: String?, initialSearch: String? = null) {
+        val normalizedInitialSearch = initialSearch?.trim().orEmpty()
         if (libraryId != id) {
             libraryId = id
             series.clear()
@@ -49,6 +50,14 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
             initialized = false
             error = null
         }
+        if (normalizedInitialSearch != searchQuery) {
+            initialized = false
+            series.clear()
+            page = 0
+            hasMore = true
+            error = null
+            applySearchState(normalizedInitialSearch)
+        }
         if (!initialized) {
             initialized = true
             loadMore()
@@ -56,6 +65,15 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
     }
 
     fun search(query: String, byAuthor: Boolean = false) {
+        applySearchState(query, byAuthor)
+        series.clear()
+        page = 0
+        hasMore = true
+        error = null
+        loadMore()
+    }
+
+    private fun applySearchState(query: String, byAuthor: Boolean = false) {
         val trimmedQuery = query.trim()
         val hasAuthorPrefix = trimmedQuery.startsWith("author:", ignoreCase = true)
         val cleanQuery = trimmedQuery.stripAuthorPrefix()
@@ -65,11 +83,6 @@ class SeriesViewModel(private val repo: SeriesRepository, private val context: C
         } else {
             cleanQuery
         }
-        series.clear()
-        page = 0
-        hasMore = true
-        error = null
-        loadMore()
     }
 
     fun setSortBy(sort: String) {

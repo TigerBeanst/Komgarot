@@ -50,17 +50,8 @@ internal fun buildSeriesSearch(
                 "libraryId" to isCondition(it)
             )
         }
-    val authorCondition = authorSearch
-        ?.takeIf { it.role != null }
-        ?.let {
-            mapOf(
-                "operator" to "SERIES",
-                "author" to isCondition("${it.name},${it.role}")
-            )
-        }
     val condition = combineSeriesConditions(
         libraryCondition,
-        authorCondition,
         filters.readStatus?.let { SearchCondition.series("readStatus", isCondition(it)) },
         filters.status?.let { SearchCondition.series("seriesStatus", isCondition(it)) },
         filters.publisher?.let { SearchCondition.series("publisher", isCondition(it)) },
@@ -83,11 +74,8 @@ internal fun buildSeriesSearch(
 
     return SeriesSearchDto(
         condition = condition,
-        fullTextSearch = when {
-            authorSearch?.role == null && authorSearch != null -> "author:(${authorSearch.name})"
-            authorSearch == null && !hasAuthorPrefix -> trimmedSearch
-            else -> null
-        }
+        fullTextSearch = authorSearch?.let { "author:(${it.name})" }
+            ?: trimmedSearch?.takeIf { !hasAuthorPrefix }
     )
 }
 
@@ -112,7 +100,7 @@ data class SeriesFilters(
         ).count { it != null }
 }
 
-private data class AuthorSearch(val name: String, val role: String?)
+private data class AuthorSearch(val name: String)
 
 private fun String.parseAuthorSearch(): AuthorSearch? {
     if (!startsWith("author:", ignoreCase = true)) return null
@@ -120,10 +108,7 @@ private fun String.parseAuthorSearch(): AuthorSearch? {
     if (value.isEmpty()) return null
     val parts = value.split(',', limit = 2).map { it.trim() }
     val name = parts.first().takeIf { it.isNotEmpty() } ?: return null
-    return AuthorSearch(
-        name = name,
-        role = parts.getOrNull(1)?.takeIf { it.isNotEmpty() }
-    )
+    return AuthorSearch(name = name)
 }
 
 private fun combineSeriesConditions(vararg conditions: Map<String, Any>?): Map<String, Any>? {
