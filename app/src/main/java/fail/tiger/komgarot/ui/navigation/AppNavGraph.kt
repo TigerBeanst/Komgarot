@@ -297,14 +297,10 @@ fun AppNavGraph(app: KomgarotApp) {
             val searchQuery = back.arguments?.getString("search")
             val vm: SeriesViewModel = viewModel(factory = SeriesViewModel.Factory(app.seriesRepository, app.applicationContext))
 
-            LaunchedEffect(searchQuery) {
-                if (!searchQuery.isNullOrEmpty()) {
-                    vm.search(searchQuery)
-                }
-            }
-
             SeriesScreen(
-                libraryId = libraryId, serverUrl = serverUrl,
+                libraryId = libraryId,
+                initialSearch = searchQuery,
+                serverUrl = serverUrl,
                 onSeriesClick = openSeries,
                 onMetadataClick = { navController.navigate(Screen.Metadata.go("series", it)) },
                 onBack = { navController.popBackStack() }, vm = vm
@@ -365,8 +361,8 @@ fun AppNavGraph(app: KomgarotApp) {
                     navController.navigate("reader/$id/$startPage?trackProgress=$effectiveTrack")
                 },
                 onMetadataClick = { navController.navigate(Screen.Metadata.go("book", it)) },
-                onAuthorClick = { authorName, authorRole ->
-                    navController.navigate(Screen.Series.go(null, "author:$authorName,$authorRole"))
+                onAuthorClick = { authorName, _ ->
+                    navController.navigate(Screen.Series.go(null, "author:$authorName"))
                 },
                 vm = vm,
                 prefs = app.authPreferences

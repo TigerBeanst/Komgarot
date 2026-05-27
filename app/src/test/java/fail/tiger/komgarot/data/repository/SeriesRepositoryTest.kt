@@ -15,15 +15,11 @@ class SeriesRepositoryTest {
     }
 
     @Test
-    fun authorSearchWithRoleUsesStringEqualityCondition() {
+    fun authorSearchWithRoleUsesFullTextAuthorScope() {
         val search = buildSeriesSearch(libraryId = null, search = "author:Sean Murphy,writer")
 
-        assertNull(search.fullTextSearch)
-        val condition = search.condition.orEmpty()
-        assertEquals("SERIES", condition["operator"])
-        val author = condition["author"].asMap()
-        assertEquals("IS", author["operator"])
-        assertEquals("Sean Murphy,writer", author["value"])
+        assertNull(search.condition)
+        assertEquals("author:(Sean Murphy)", search.fullTextSearch)
     }
 
     @Test
@@ -35,23 +31,15 @@ class SeriesRepositoryTest {
     }
 
     @Test
-    fun libraryAndRoleAuthorSearchAreCombinedWithAllOf() {
+    fun libraryAndRoleAuthorSearchKeepLibraryConditionAndFullTextAuthorScope() {
         val search = buildSeriesSearch(libraryId = "library-1", search = "author:Sean Murphy,writer")
 
-        assertNull(search.fullTextSearch)
+        assertEquals("author:(Sean Murphy)", search.fullTextSearch)
         val condition = search.condition.orEmpty()
         assertEquals("SERIES", condition["operator"])
-        val allOf = condition["allOf"].asList()
-        assertEquals(2, allOf.size)
-
-        assertTrue(allOf.any { item ->
-            val library = item["libraryId"] as? Map<*, *>
-            library?.get("operator") == "IS" && library["value"] == "library-1"
-        })
-        assertTrue(allOf.any { item ->
-            val author = item["author"] as? Map<*, *>
-            author?.get("operator") == "IS" && author["value"] == "Sean Murphy,writer"
-        })
+        val library = condition["libraryId"].asMap()
+        assertEquals("IS", library["operator"])
+        assertEquals("library-1", library["value"])
     }
 
     @Test
@@ -74,7 +62,4 @@ class SeriesRepositoryTest {
     private fun Any?.asMap(): Map<String, Any?> =
         this as Map<String, Any?>
 
-    @Suppress("UNCHECKED_CAST")
-    private fun Any?.asList(): List<Map<String, Any?>> =
-        this as List<Map<String, Any?>>
 }
