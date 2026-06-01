@@ -9,7 +9,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import fail.tiger.komgarot.data.remote.dto.*
 import fail.tiger.komgarot.data.repository.AdminRepository
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
     val libraries = mutableStateListOf<LibraryDto>()
@@ -34,21 +37,23 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
         viewModelScope.launch {
             loading = true
             error = null
-            val failures = mutableListOf<String>()
-
-            repo.getLibraries().onSuccess { libraries.replaceAllWith(it) }.onFailure { failures += it.message ?: "书库加载失败" }
-            repo.getSettings().onSuccess { settings = it }.onFailure { failures += it.message ?: "服务器设置加载失败" }
-            repo.getUsers().onSuccess { users.replaceAllWith(it) }.onFailure { failures += it.message ?: "用户加载失败" }
-            repo.getApiKeys().onSuccess { apiKeys.replaceAllWith(it) }.onFailure { failures += it.message ?: "API Key 加载失败" }
-            repo.getAuthenticationActivity().onSuccess { authActivity.replaceAllWith(it.content) }.onFailure { failures += it.message ?: "认证活动加载失败" }
-            repo.getHistory().onSuccess { history.replaceAllWith(it.content) }.onFailure { failures += it.message ?: "历史记录加载失败" }
-            repo.getDuplicateBooks().onSuccess { duplicateBooks.replaceAllWith(it.content) }.onFailure { failures += it.message ?: "重复书籍加载失败" }
-            repo.getKnownPageHashes().onSuccess { knownHashes.replaceAllWith(it.content) }.onFailure { failures += it.message ?: "重复页加载失败" }
-            repo.getUnknownPageHashes().onSuccess { unknownHashes.replaceAllWith(it.content) }.onFailure { failures += it.message ?: "未知重复页加载失败" }
-            repo.getAnnouncements().onSuccess { announcements.replaceAllWith(it) }.onFailure { failures += it.message ?: "公告加载失败" }
-            repo.getClaimStatus().onSuccess { claimStatus = it }.onFailure { failures += it.message ?: "Claim 状态加载失败" }
-            repo.getOAuthProviders().onSuccess { oauthProviders.replaceAllWith(it) }.onFailure { failures += it.message ?: "OAuth 提供方加载失败" }
-            repo.getReleases().onSuccess { releases.replaceAllWith(it) }.onFailure { failures += it.message ?: "版本信息加载失败" }
+            val failures = supervisorScope {
+                listOf(
+                    async { repo.getLibraries().applyResult("书库加载失败") { libraries.replaceAllWith(it) } },
+                    async { repo.getSettings().applyResult("服务器设置加载失败") { settings = it } },
+                    async { repo.getUsers().applyResult("用户加载失败") { users.replaceAllWith(it) } },
+                    async { repo.getApiKeys().applyResult("API Key 加载失败") { apiKeys.replaceAllWith(it) } },
+                    async { repo.getAuthenticationActivity().applyResult("认证活动加载失败") { authActivity.replaceAllWith(it.content) } },
+                    async { repo.getHistory().applyResult("历史记录加载失败") { history.replaceAllWith(it.content) } },
+                    async { repo.getDuplicateBooks().applyResult("重复书籍加载失败") { duplicateBooks.replaceAllWith(it.content) } },
+                    async { repo.getKnownPageHashes().applyResult("重复页加载失败") { knownHashes.replaceAllWith(it.content) } },
+                    async { repo.getUnknownPageHashes().applyResult("未知重复页加载失败") { unknownHashes.replaceAllWith(it.content) } },
+                    async { repo.getAnnouncements().applyResult("公告加载失败") { announcements.replaceAllWith(it) } },
+                    async { repo.getClaimStatus().applyResult("Claim 状态加载失败") { claimStatus = it } },
+                    async { repo.getOAuthProviders().applyResult("OAuth 提供方加载失败") { oauthProviders.replaceAllWith(it) } },
+                    async { repo.getReleases().applyResult("版本信息加载失败") { releases.replaceAllWith(it) } }
+                ).awaitAll().filterNotNull()
+            }
 
             error = failures.firstOrNull()
             loading = false
@@ -176,3 +181,12 @@ private fun <T> MutableList<T>.replaceAllWith(items: List<T>) {
     clear()
     addAll(items)
 }
+
+private inline fun <T> Result<T>.applyResult(defaultMessage: String, onSuccess: (T) -> Unit): String? =
+    fold(
+        onSuccess = {
+            onSuccess(it)
+            null
+        },
+        onFailure = { it.message ?: defaultMessage }
+    )

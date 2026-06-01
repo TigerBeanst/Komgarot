@@ -8,13 +8,15 @@ import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.LibraryDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.AuthRepository
-import fail.tiger.komgarot.data.repository.LibraryRepository
+import fail.tiger.komgarot.data.repository.LibraryHomeSource
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 class LibraryViewModel(
-    private val repo: LibraryRepository,
+    private val repo: LibraryHomeSource,
     private val authRepo: AuthRepository,
     val prefs: AuthPreferences
 ) : ViewModel() {
@@ -39,29 +41,13 @@ class LibraryViewModel(
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
-            val failures = mutableListOf<String>()
-
-            runCatching { repo.getLibraries() }
-                .onSuccess { _libraries.value = it }
-                .onFailure { failures += it.readableMessage() }
-
-            runCatching { repo.getBooksOnDeck() }
-                .onSuccess { _onDeckBooks.value = it }
-                .onFailure { failures += it.readableMessage() }
-
-            runCatching { repo.getLatestBooks() }
-                .onSuccess { _latestBooks.value = it }
-                .onFailure { failures += it.readableMessage() }
-
-            runCatching { repo.getUpdatedSeries() }
-                .onSuccess { _updatedSeries.value = it }
-                .onFailure { failures += it.readableMessage() }
-
-            runCatching { repo.getNewSeries() }
-                .onSuccess { _newSeries.value = it }
-                .onFailure { failures += it.readableMessage() }
-
-            _error.value = failures.firstOrNull()
+            val result = loadLibraryHome(repo)
+            _libraries.value = result.libraries
+            _onDeckBooks.value = result.onDeckBooks
+            _latestBooks.value = result.latestBooks
+            _updatedSeries.value = result.updatedSeries
+            _newSeries.value = result.newSeries
+            _error.value = result.failures.firstOrNull()
             _loading.value = false
         }
     }
@@ -71,12 +57,42 @@ class LibraryViewModel(
     }
 
     class Factory(
-        private val repo: LibraryRepository,
+        private val repo: LibraryHomeSource,
         private val authRepo: AuthRepository,
         private val prefs: AuthPreferences
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T = LibraryViewModel(repo, authRepo, prefs) as T
     }
+}
+
+internal data class LibraryHomeLoadResult(
+    val libraries: List<LibraryDto> = emptyList(),
+    val onDeckBooks: List<BookDto> = emptyList(),
+    val latestBooks: List<BookDto> = emptyList(),
+    val updatedSeries: List<SeriesDto> = emptyList(),
+    val newSeries: List<SeriesDto> = emptyList(),
+    val failures: List<String> = emptyList()
+)
+
+internal suspend fun loadLibraryHome(repo: LibraryHomeSource): LibraryHomeLoadResult = supervisorScope {
+    val libraries = async { runCatching { repo.getLibraries() } }
+    val onDeckBooks = async { runCatching { repo.getBooksOnDeck() } }
+    val latestBooks = async { runCatching { repo.getLatestBooks() } }
+    val updatedSeries = async { runCatching { repo.getUpdatedSeries() } }
+    val newSeries = async { runCatching { repo.getNewSeries() } }
+
+    val failures = mutableListOf<String>()
+    fun <T> Result<T>.valueOrDefault(defaultValue: T): T =
+        onFailure { failures += it.readableMessage() }.getOrDefault(defaultValue)
+
+    LibraryHomeLoadResult(
+        libraries = libraries.await().valueOrDefault(emptyList()),
+        onDeckBooks = onDeckBooks.await().valueOrDefault(emptyList()),
+        latestBooks = latestBooks.await().valueOrDefault(emptyList()),
+        updatedSeries = updatedSeries.await().valueOrDefault(emptyList()),
+        newSeries = newSeries.await().valueOrDefault(emptyList()),
+        failures = failures
+    )
 }
 
 private fun Throwable.readableMessage(): String =

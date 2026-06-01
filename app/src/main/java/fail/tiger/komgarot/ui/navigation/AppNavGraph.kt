@@ -49,6 +49,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import fail.tiger.komgarot.KomgarotApp
+import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.ui.admin.AdminScreen
 import fail.tiger.komgarot.ui.admin.AdminViewModel
 import fail.tiger.komgarot.ui.book.BookScreen
@@ -69,6 +70,7 @@ import fail.tiger.komgarot.ui.readlist.ReadListScreen
 import fail.tiger.komgarot.ui.readlist.ReadListViewModel
 import fail.tiger.komgarot.ui.reader.ReaderScreen
 import fail.tiger.komgarot.ui.reader.ReaderViewModel
+import fail.tiger.komgarot.ui.series.SharedPreferencesSeriesSortStore
 import fail.tiger.komgarot.ui.series.SeriesScreen
 import fail.tiger.komgarot.ui.series.SeriesViewModel
 import fail.tiger.komgarot.ui.settings.SettingsScreen
@@ -141,6 +143,22 @@ fun AppNavGraph(app: KomgarotApp) {
         }
     }
 
+    fun openReaderBookFromBoundary(book: BookDto, shouldTrack: Boolean) {
+        val detailRoute = Screen.BookDetail.go(
+            book.id,
+            book.metadata.title.ifEmpty { book.name },
+            book.seriesTitle.orEmpty(),
+            book.media.pagesCount,
+            book.oneshot
+        )
+        navController.navigate(detailRoute) {
+            popUpTo(Screen.BookDetail.route) { inclusive = true }
+        }
+        navController.navigate(Screen.Reader.go(book.id, 1, shouldTrack)) {
+            launchSingleTop = true
+        }
+    }
+
     AdaptiveShell(
         destinations = topLevelDestinations,
         currentRoute = currentRoute,
@@ -203,7 +221,12 @@ fun AppNavGraph(app: KomgarotApp) {
         }
 
         composable(Screen.Browse.route) {
-            val vm: SeriesViewModel = viewModel(factory = SeriesViewModel.Factory(app.seriesRepository, app.applicationContext))
+            val vm: SeriesViewModel = viewModel(
+                factory = SeriesViewModel.Factory(
+                    app.seriesRepository,
+                    SharedPreferencesSeriesSortStore(app.applicationContext)
+                )
+            )
             SeriesScreen(
                 libraryId = null,
                 serverUrl = serverUrl,
@@ -230,7 +253,7 @@ fun AppNavGraph(app: KomgarotApp) {
             Screen.CollectionDetail.route,
             arguments = listOf(navArgument("collectionId") { type = NavType.StringType })
         ) { back ->
-            val collectionId = back.arguments?.getString("collectionId") ?: return@composable
+            val collectionId = back.arguments?.getString("collectionId")?.let { Screen.decodeArg(it) } ?: return@composable
             val vm: CollectionViewModel = viewModel(factory = CollectionViewModel.Factory(app.collectionRepository))
             CollectionDetailScreen(
                 collectionId = collectionId,
@@ -256,7 +279,7 @@ fun AppNavGraph(app: KomgarotApp) {
             Screen.ReadListDetail.route,
             arguments = listOf(navArgument("readListId") { type = NavType.StringType })
         ) { back ->
-            val readListId = back.arguments?.getString("readListId") ?: return@composable
+            val readListId = back.arguments?.getString("readListId")?.let { Screen.decodeArg(it) } ?: return@composable
             val vm: ReadListViewModel = viewModel(factory = ReadListViewModel.Factory(app.readListRepository))
             ReadListDetailScreen(
                 readListId = readListId,
@@ -293,9 +316,14 @@ fun AppNavGraph(app: KomgarotApp) {
                 navArgument("search") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { back ->
-            val libraryId = back.arguments?.getString("libraryId")?.takeIf { it != "all" }
-            val searchQuery = back.arguments?.getString("search")
-            val vm: SeriesViewModel = viewModel(factory = SeriesViewModel.Factory(app.seriesRepository, app.applicationContext))
+            val libraryId = back.arguments?.getString("libraryId")?.let { Screen.decodeArg(it) }?.takeIf { it != "all" }
+            val searchQuery = back.arguments?.getString("search")?.let { Screen.decodeArg(it) }
+            val vm: SeriesViewModel = viewModel(
+                factory = SeriesViewModel.Factory(
+                    app.seriesRepository,
+                    SharedPreferencesSeriesSortStore(app.applicationContext)
+                )
+            )
 
             SeriesScreen(
                 libraryId = libraryId,
@@ -311,7 +339,7 @@ fun AppNavGraph(app: KomgarotApp) {
             Screen.Books.route,
             arguments = listOf(navArgument("seriesId") { type = NavType.StringType })
         ) { back ->
-            val seriesId = back.arguments?.getString("seriesId") ?: return@composable
+            val seriesId = back.arguments?.getString("seriesId")?.let { Screen.decodeArg(it) } ?: return@composable
             val vm: BookViewModel = viewModel(factory = BookViewModel.Factory(app.bookRepository, app.seriesRepository))
             BookScreen(
                 seriesId = seriesId, serverUrl = serverUrl,
@@ -335,8 +363,8 @@ fun AppNavGraph(app: KomgarotApp) {
                 navArgument("isOneShot") { type = NavType.BoolType; defaultValue = false }
             )
         ) { back ->
-            val bookId = back.arguments?.getString("bookId") ?: return@composable
-            val bookName = java.net.URLDecoder.decode(back.arguments?.getString("bookName") ?: "", "UTF-8")
+            val bookId = back.arguments?.getString("bookId")?.let { Screen.decodeArg(it) } ?: return@composable
+            val bookName = back.arguments?.getString("bookName")?.let { Screen.decodeArg(it) }.orEmpty()
             val pageCount = back.arguments?.getInt("pageCount") ?: 0
             val isOneShot = back.arguments?.getBoolean("isOneShot") ?: false
             val vm: BookDetailViewModel = viewModel(
@@ -358,7 +386,7 @@ fun AppNavGraph(app: KomgarotApp) {
                 onReadClick = { id, trackProgress ->
                     val effectiveTrack = trackProgress && !alwaysIncognito
                     val startPage = if (effectiveTrack) vm.book?.readProgress?.page ?: 1 else 1
-                    navController.navigate("reader/$id/$startPage?trackProgress=$effectiveTrack")
+                    navController.navigate(Screen.Reader.go(id, startPage, effectiveTrack))
                 },
                 onMetadataClick = { navController.navigate(Screen.Metadata.go("book", it)) },
                 onAuthorClick = { authorName, _ ->
@@ -381,7 +409,7 @@ fun AppNavGraph(app: KomgarotApp) {
             popEnterTransition = { fadeIn(tween(150)) },
             popExitTransition = { fadeOut(tween(200)) }
         ) { back ->
-            val bookId = back.arguments?.getString("bookId") ?: return@composable
+            val bookId = back.arguments?.getString("bookId")?.let { Screen.decodeArg(it) } ?: return@composable
             val page = back.arguments?.getInt("page") ?: 1
             val trackProgress = back.arguments?.getBoolean("trackProgress") ?: true
             val vm: ReaderViewModel = viewModel(factory = ReaderViewModel.Factory(app.bookRepository, app.authPreferences))
@@ -390,11 +418,7 @@ fun AppNavGraph(app: KomgarotApp) {
                 startPage = page,
                 trackProgress = trackProgress,
                 onBack = { navController.popBackStack() },
-                onOpenBook = { id, start, shouldTrack ->
-                    navController.navigate(Screen.Reader.go(id, start, shouldTrack)) {
-                        popUpTo(Screen.Reader.route) { inclusive = true }
-                    }
-                },
+                onOpenBook = ::openReaderBookFromBoundary,
                 vm = vm
             )
         }
@@ -406,8 +430,8 @@ fun AppNavGraph(app: KomgarotApp) {
                 navArgument("id") { type = NavType.StringType }
             )
         ) { back ->
-            val type = back.arguments?.getString("type") ?: return@composable
-            val id = back.arguments?.getString("id") ?: return@composable
+            val type = back.arguments?.getString("type")?.let { Screen.decodeArg(it) } ?: return@composable
+            val id = back.arguments?.getString("id")?.let { Screen.decodeArg(it) } ?: return@composable
             val vm: MetadataViewModel = viewModel(factory = MetadataViewModel.Factory(app.bookRepository))
             MetadataScreen(type = type, id = id, onBack = { navController.popBackStack() }, vm = vm)
         }

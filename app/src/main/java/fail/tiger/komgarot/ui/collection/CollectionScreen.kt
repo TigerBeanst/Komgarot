@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.CollectionDto
 import fail.tiger.komgarot.ui.components.AutoHideBottomBarOnLazyListScroll
@@ -44,6 +45,7 @@ fun CollectionScreen(
     onBack: () -> Unit,
     onBottomBarVisibleChange: (Boolean) -> Unit = {}
 ) {
+    LaunchedEffect(vm) { vm.ensureListLoaded() }
     var showEditor by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf(vm.search) }
     val listState = rememberLazyListState()
@@ -168,12 +170,12 @@ fun CollectionDetailScreen(
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = vm.loading,
-            onRefresh = { vm.loadCollection(collectionId) },
+            onRefresh = { vm.loadCollection(collectionId, refresh = true) },
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
             when {
                 vm.series.isEmpty() && !vm.loading && vm.error != null ->
-                    ErrorState(message = vm.error ?: "加载集合失败", onRetry = { vm.loadCollection(collectionId) })
+                    ErrorState(message = vm.error ?: "加载集合失败", onRetry = { vm.loadCollection(collectionId, refresh = true) })
                 vm.series.isEmpty() && !vm.loading ->
                     EmptyState(message = "这个集合还没有系列")
                 else ->
@@ -193,10 +195,12 @@ fun CollectionDetailScreen(
                             }
                         }
                         items(vm.series, key = { it.id }) { series ->
+                            val thumbnailVersion = ThumbnailVersion.get(series.id)
                             PosterCard(
                                 title = series.metadata.title.ifEmpty { series.name },
                                 subtitle = "${series.booksCount} 本",
-                                imageUrl = KomgaUrls.seriesThumbnail(serverUrl, series.id),
+                                imageUrl = KomgaUrls.seriesThumbnail(serverUrl, series.id, thumbnailVersion),
+                                imageCacheKey = "series-thumb:${series.id}:$thumbnailVersion",
                                 badge = if (series.booksUnreadCount > 0) "${series.booksUnreadCount} 未读" else null,
                                 onClick = { onSeriesClick(series.id, series.booksCount) }
                             )
@@ -242,6 +246,7 @@ private fun CollectionListItem(
     serverUrl: String,
     onClick: () -> Unit
 ) {
+    val thumbnailVersion = ThumbnailVersion.get(collection.id)
     ElevatedCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
@@ -250,7 +255,8 @@ private fun CollectionListItem(
             PosterCard(
                 title = collection.name,
                 subtitle = "",
-                imageUrl = KomgaUrls.collectionThumbnail(serverUrl, collection.id),
+                imageUrl = KomgaUrls.collectionThumbnail(serverUrl, collection.id, thumbnailVersion),
+                imageCacheKey = "collection-thumb:${collection.id}:$thumbnailVersion",
                 modifier = Modifier.width(72.dp),
                 onClick = onClick
             )

@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.BookDto
@@ -105,27 +106,6 @@ class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferenc
         scheduleProgressUpdate()
     }
 
-    fun markCurrentBookRead() {
-        if (currentBookId.isEmpty() || pageUrls.isEmpty()) return
-        currentPage = pageUrls.lastIndex
-        viewModelScope.launch {
-            runCatching { repo.updateReadProgress(currentBookId, pageUrls.size, completed = true) }
-        }
-    }
-
-    fun markCurrentBookUnread() {
-        if (currentBookId.isEmpty()) return
-        currentPage = 0
-        viewModelScope.launch {
-            runCatching { repo.deleteBookReadProgress(currentBookId) }
-        }
-    }
-
-    fun startPageFor(target: BookDto): Int {
-        val progress = target.readProgress
-        return if (trackProgress && progress != null && !progress.completed) progress.page.coerceAtLeast(1) else 1
-    }
-
     fun flushProgress() {
         progressJob?.cancel()
         if (trackProgress && currentBookId.isNotEmpty() && pageUrls.isNotEmpty()) {
@@ -154,6 +134,7 @@ class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferenc
     fun uploadBookThumbnail(imageBytes: ByteArray, onDone: (Boolean) -> Unit) {
         viewModelScope.launch {
             val ok = runCatching { repo.uploadBookThumbnail(currentBookId, imageBytes, "image/jpeg") }.isSuccess
+            if (ok) ThumbnailVersion.bump(currentBookId)
             onDone(ok)
         }
     }
@@ -161,6 +142,7 @@ class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferenc
     fun uploadSeriesThumbnail(imageBytes: ByteArray, onDone: (Boolean) -> Unit) {
         viewModelScope.launch {
             val ok = runCatching { repo.uploadSeriesThumbnail(currentSeriesId, imageBytes, "image/jpeg") }.isSuccess
+            if (ok) ThumbnailVersion.bump(currentSeriesId)
             onDone(ok)
         }
     }

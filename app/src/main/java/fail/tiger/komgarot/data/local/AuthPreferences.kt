@@ -26,9 +26,10 @@ class AuthPreferences(private val context: Context) {
     @Volatile private var cachedServerUrl = ""
     @Volatile private var cachedUsername = ""
     @Volatile private var cachedPassword = ""
+    private val secureAuthStore = SecureAuthStore(context)
 
-    val serverUrl: Flow<String> = context.dataStore.data.map { it[SERVER_URL] ?: "" }
-    val username: Flow<String> = context.dataStore.data.map { it[USERNAME] ?: "" }
+    val serverUrl: Flow<String> = context.dataStore.data.map { cachedServerUrl }
+    val username: Flow<String> = context.dataStore.data.map { cachedUsername }
     val alwaysIncognito: Flow<Boolean> = context.dataStore.data.map { it[ALWAYS_INCOGNITO] ?: false }
     val preloadPages: Flow<Int> = context.dataStore.data.map { it[PRELOAD_PAGES] ?: 5 }
     val readingDirection: Flow<String> = context.dataStore.data.map { it[READING_DIRECTION] ?: "LTR" }
@@ -38,9 +39,18 @@ class AuthPreferences(private val context: Context) {
     init {
         runBlocking {
             val data = context.dataStore.data.first()
-            cachedServerUrl = data[SERVER_URL] ?: ""
-            cachedUsername = data[USERNAME] ?: ""
-            cachedPassword = data[PASSWORD] ?: ""
+            if (data.contains(SERVER_URL) || data.contains(USERNAME) || data.contains(PASSWORD)) {
+                context.dataStore.edit {
+                    it.remove(SERVER_URL)
+                    it.remove(USERNAME)
+                    it.remove(PASSWORD)
+                }
+                secureAuthStore.clear()
+            }
+            val credentials = secureAuthStore.read()
+            cachedServerUrl = credentials.serverUrl
+            cachedUsername = credentials.username
+            cachedPassword = credentials.password
         }
     }
 
@@ -52,10 +62,11 @@ class AuthPreferences(private val context: Context) {
     suspend fun save(url: String, user: String, pass: String) {
         val cleanUrl = url.trimEnd('/')
         context.dataStore.edit {
-            it[SERVER_URL] = cleanUrl
-            it[USERNAME] = user
-            it[PASSWORD] = pass
+            it.remove(SERVER_URL)
+            it.remove(USERNAME)
+            it.remove(PASSWORD)
         }
+        secureAuthStore.save(cleanUrl, user, pass)
         cachedServerUrl = cleanUrl
         cachedUsername = user
         cachedPassword = pass
@@ -99,6 +110,7 @@ class AuthPreferences(private val context: Context) {
 
     suspend fun clear() {
         context.dataStore.edit { it.clear() }
+        secureAuthStore.clear()
         cachedServerUrl = ""
         cachedUsername = ""
         cachedPassword = ""

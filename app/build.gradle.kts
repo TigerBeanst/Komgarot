@@ -62,8 +62,9 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
-    implementation("net.engawapg.lib:zoomable:1.6.2")
+    implementation(libs.zoomable)
     implementation(libs.biometric)
     implementation(libs.appcompat)
     implementation(libs.material.motion.compose.core)
+    implementation(libs.security.crypto)
 }

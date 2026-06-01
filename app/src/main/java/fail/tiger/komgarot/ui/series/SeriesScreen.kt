@@ -30,14 +30,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Shadow
-import coil.compose.AsyncImage
 import fail.tiger.komgarot.ui.components.LazyGridScrollbar
 import fail.tiger.komgarot.ui.components.EmptyState
 import fail.tiger.komgarot.ui.components.ErrorState
-import fail.tiger.komgarot.ui.components.rememberStableImageRequest
-import coil.request.ImageRequest
+import fail.tiger.komgarot.ui.components.ThumbnailImage
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.repository.SeriesFilters
 import fail.tiger.komgarot.ui.components.AutoHideBottomBarOnLazyGridScroll
 import fail.tiger.komgarot.ui.components.topLevelScrollableContentPadding
@@ -250,19 +249,18 @@ fun SeriesScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(vm.series, key = { it.id }) { series ->
-                        val thumbnailUrl = remember(series.id) {
-                            "$serverUrl/api/v1/series/${series.id}/thumbnail?v=${ThumbnailVersion.get(series.id)}"
+                        val thumbnailVersion = ThumbnailVersion.get(series.id)
+                        val thumbnailUrl = remember(serverUrl, series.id, thumbnailVersion) {
+                            KomgaUrls.seriesThumbnail(serverUrl, series.id, thumbnailVersion)
                         }
                         Card(
                             shape = RoundedCornerShape(6.dp),
                             modifier = Modifier.fillMaxWidth().clickable { onSeriesClick(series.id, series.booksCount) }
                         ) {
                             Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
-                                AsyncImage(
-                                    model = rememberStableImageRequest(
-                                        thumbnailUrl,
-                                        "series-thumb:${series.id}:${ThumbnailVersion.get(series.id)}"
-                                    ),
+                                ThumbnailImage(
+                                    url = thumbnailUrl,
+                                    cacheKey = "series-thumb:${series.id}:$thumbnailVersion",
                                     contentDescription = series.name,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()

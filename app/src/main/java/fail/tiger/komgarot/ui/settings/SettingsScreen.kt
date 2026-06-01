@@ -9,13 +9,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.local.ReaderPageCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalCoilApi::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
     val context = LocalContext.current
@@ -221,6 +223,7 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
                     scope.launch {
                         context.imageLoader.memoryCache?.clear()
                         context.imageLoader.diskCache?.clear()
+                        ReaderPageCache.clear(context)
                         cacheSize = getCacheSize(context)
                         showClearDialog = false
                     }
@@ -248,9 +251,10 @@ private fun RadioOption(value: String, label: String, selected: String, onSelect
     }
 }
 
+@OptIn(ExperimentalCoilApi::class)
 private suspend fun getCacheSize(context: android.content.Context): String = withContext(Dispatchers.IO) {
     val diskCache = context.imageLoader.diskCache
-    val size = diskCache?.size ?: 0L
+    val size = (diskCache?.size ?: 0L) + ReaderPageCache.size(context)
     formatFileSize(size)
 }
 

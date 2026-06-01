@@ -14,11 +14,12 @@
     <!-- Common -->
     <string name="search_hint">Search…</string>
     <string name="back">Back</string>
-    <string name="edit">Edit</string>
 
     <!-- Series -->
-    <string name="series_books">Series Books</string>
-    <string name="books_count">%d books</string>
+    <plurals name="books_count">
+        <item quantity="one">%d book</item>
+        <item quantity="other">%d books</item>
+    </plurals>
     <string name="publisher">Publisher: %s</string>
     <string name="status">Status: %s</string>
     <string name="summary">Summary</string>
@@ -29,18 +30,18 @@
     <string name="read">Read</string>
     <string name="continue_reading">Continue Reading</string>
     <string name="incognito_reading">Incognito Reading</string>
-    <string name="pages_count">%d pages</string>
-    <string name="pages_remaining">%d pages remaining</string>
+    <plurals name="pages_count">
+        <item quantity="one">%d page</item>
+        <item quantity="other">%d pages</item>
+    </plurals>
+    <plurals name="pages_remaining">
+        <item quantity="one">%d page remaining</item>
+        <item quantity="other">%d pages remaining</item>
+    </plurals>
     <string name="file_size">File Size</string>
     <string name="file_format">File Format</string>
     <string name="file_source">File Source</string>
     <string name="created_at">Created At</string>
     <string name="last_modified">Last Modified</string>
     <string name="unknown">Unknown</string>
-
-    <!-- Reader -->
-    <string name="page_indicator">%1$d / %2$d</string>
-    <string name="previous">Previous</string>
-    <string name="next">Next</string>
-    <string name="toggle_mode">Toggle Mode</string>
 </resources>

@@ -14,11 +14,11 @@
     <!-- 通用 -->
     <string name="search_hint">搜索…</string>
     <string name="back">返回</string>
-    <string name="edit">编辑</string>
 
     <!-- 系列 -->
-    <string name="series_books">系列书籍</string>
-    <string name="books_count">共 %d 本</string>
+    <plurals name="books_count">
+        <item quantity="other">共 %d 本</item>
+    </plurals>
     <string name="publisher">出版社: %s</string>
     <string name="status">状态: %s</string>
     <string name="summary">简介</string>
@@ -29,18 +29,16 @@
     <string name="read">阅读</string>
     <string name="continue_reading">继续阅读</string>
     <string name="incognito_reading">无痕阅读</string>
-    <string name="pages_count">%d 页</string>
-    <string name="pages_remaining">剩余 %d 页</string>
+    <plurals name="pages_count">
+        <item quantity="other">%d 页</item>
+    </plurals>
+    <plurals name="pages_remaining">
+        <item quantity="other">剩余 %d 页</item>
+    </plurals>
     <string name="file_size">文件大小</string>
     <string name="file_format">文件格式</string>
     <string name="file_source">文件来源</string>
     <string name="created_at">创建于</string>
     <string name="last_modified">最后修改时间</string>
     <string name="unknown">未知</string>
-
-    <!-- 阅读器 -->
-    <string name="page_indicator">%1$d / %2$d</string>
-    <string name="previous">上一页</string>
-    <string name="next">下一页</string>
-    <string name="toggle_mode">切换模式</string>
 </resources>

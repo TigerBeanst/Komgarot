@@ -21,15 +21,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.ui.components.ErrorState
-import fail.tiger.komgarot.ui.components.rememberStableImageRequest
+import fail.tiger.komgarot.ui.components.ThumbnailImage
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -66,7 +66,10 @@ fun BookDetailScreen(
         containerColor = Color.Transparent
     ) { padding ->
         val serverUrl by prefs.serverUrl.collectAsState(initial = "")
-        val thumbnailUrl = "$serverUrl/api/v1/books/$bookId/thumbnail?v=${ThumbnailVersion.get(bookId)}"
+        val thumbnailVersion = ThumbnailVersion.get(bookId)
+        val thumbnailUrl = remember(serverUrl, bookId, thumbnailVersion) {
+            KomgaUrls.bookThumbnail(serverUrl, bookId, thumbnailVersion)
+        }
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = vm.loading,
@@ -85,8 +88,9 @@ fun BookDetailScreen(
             ErrorState(message = vm.error ?: "加载书籍详情失败", onRetry = { vm.load(bookId) })
         } else {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-            AsyncImage(
-                model = rememberStableImageRequest(thumbnailUrl, "book-thumb:$bookId:${ThumbnailVersion.get(bookId)}"),
+            ThumbnailImage(
+                url = thumbnailUrl,
+                cacheKey = "book-thumb:$bookId:$thumbnailVersion",
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxWidth().height(330.dp)
@@ -118,8 +122,9 @@ fun BookDetailScreen(
             ) {
                 Card(shape = RoundedCornerShape(6.dp), modifier = Modifier.width(120.dp)) {
                     Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
-                        AsyncImage(
-                            model = rememberStableImageRequest(thumbnailUrl, "book-thumb:$bookId:${ThumbnailVersion.get(bookId)}"),
+                        ThumbnailImage(
+                            url = thumbnailUrl,
+                            cacheKey = "book-thumb:$bookId:$thumbnailVersion",
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -133,7 +138,11 @@ fun BookDetailScreen(
                                 book?.readProgress?.let { progress ->
                                     if (!progress.completed && progress.page > 0) {
                                         Text(
-                                            stringResource(R.string.pages_remaining, pageCount - progress.page),
+                                            pluralStringResource(
+                                                R.plurals.pages_remaining,
+                                                pageCount - progress.page,
+                                                pageCount - progress.page
+                                            ),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = Color.White.copy(alpha = 0.7f)
                                         )
@@ -154,7 +163,7 @@ fun BookDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(bookName, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-                    Text(stringResource(R.string.pages_count, pageCount), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(pluralStringResource(R.plurals.pages_count, pageCount, pageCount), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     meta?.authors?.firstOrNull()?.let {
                         Text(stringResource(R.string.author, it.name), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }

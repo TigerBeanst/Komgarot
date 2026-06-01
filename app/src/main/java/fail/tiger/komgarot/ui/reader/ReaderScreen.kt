@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
-import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
@@ -34,6 +33,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
@@ -58,6 +60,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Size
+import fail.tiger.komgarot.data.remote.dto.BookDto
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -84,9 +87,11 @@ private fun readerPageRequest(
     progressListener: ImageDownloadProgressListener? = null,
     listener: ImageRequest.Listener? = null
 ): ImageRequest {
+    val cachedFile = ReaderPageCache.cachedFile(context, url)
+    val data = cachedFile ?: url
     val memoryKey = readerPageMemoryCacheKey(url, allowHardware, originalSize)
-    return ImageRequest.Builder(context)
-        .data(url)
+    val builder = ImageRequest.Builder(context)
+        .data(data)
         .memoryCacheKey(memoryKey)
         .placeholderMemoryCacheKey(memoryKey)
         .diskCacheKey(readerPageDiskCacheKey(url))
@@ -94,21 +99,24 @@ private fun readerPageRequest(
         .setParameter("reader_retry_key", retryKey, memoryCacheKey = null)
         .memoryCachePolicy(CachePolicy.ENABLED)
         .diskCachePolicy(CachePolicy.ENABLED)
-        .networkCachePolicy(CachePolicy.ENABLED)
+        .networkCachePolicy(if (cachedFile == null) CachePolicy.ENABLED else CachePolicy.DISABLED)
         .allowHardware(allowHardware)
         .allowRgb565(!originalSize)
         .apply {
             if (originalSize) {
                 size(Size.ORIGINAL)
             }
-            if (progressListener != null) {
-                this.tag(ImageDownloadProgressListener::class.java, progressListener)
-            }
             if (listener != null) {
                 this.listener(listener)
             }
         }
-        .build()
+    if (cachedFile == null) {
+        builder.tag(ReaderPageCache.Entry::class.java, ReaderPageCache.entry(context, url))
+        if (progressListener != null) {
+            builder.tag(ImageDownloadProgressListener::class.java, progressListener)
+        }
+    }
+    return builder.build()
 }
 
 private class ReaderPageProgressState {
@@ -216,6 +224,41 @@ private fun SubcomposeAsyncImageScope.CachedPageErrorContent(
     }
 }
 
+private enum class ReaderBoundaryDirection { PREVIOUS, NEXT }
+
+private sealed interface ReaderPagerPage {
+    data class Actual(val pageIndex: Int) : ReaderPagerPage
+    data class Boundary(val direction: ReaderBoundaryDirection, val target: BookDto?) : ReaderPagerPage
+    data class Trigger(val direction: ReaderBoundaryDirection, val target: BookDto) : ReaderPagerPage
+}
+
+private fun buildReaderPagerPages(
+    pageCount: Int,
+    previousBook: BookDto?,
+    nextBook: BookDto?
+): List<ReaderPagerPage> = buildList {
+    if (previousBook != null) {
+        add(ReaderPagerPage.Trigger(ReaderBoundaryDirection.PREVIOUS, previousBook))
+        add(ReaderPagerPage.Boundary(ReaderBoundaryDirection.PREVIOUS, previousBook))
+    } else {
+        add(ReaderPagerPage.Boundary(ReaderBoundaryDirection.PREVIOUS, null))
+    }
+    repeat(pageCount) { pageIndex -> add(ReaderPagerPage.Actual(pageIndex)) }
+    if (nextBook != null) {
+        add(ReaderPagerPage.Boundary(ReaderBoundaryDirection.NEXT, nextBook))
+        add(ReaderPagerPage.Trigger(ReaderBoundaryDirection.NEXT, nextBook))
+    } else {
+        add(ReaderPagerPage.Boundary(ReaderBoundaryDirection.NEXT, null))
+    }
+}
+
+private fun List<ReaderPagerPage>.pagerIndexForActualPage(pageIndex: Int): Int =
+    indexOfFirst { it is ReaderPagerPage.Actual && it.pageIndex == pageIndex }
+        .takeIf { it >= 0 }
+        ?: indexOfFirst { it is ReaderPagerPage.Actual }.coerceAtLeast(0)
+
+private fun BookDto.displayTitle(): String = metadata.title.ifEmpty { name }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ReaderScreen(
@@ -223,7 +266,7 @@ fun ReaderScreen(
     startPage: Int,
     trackProgress: Boolean = true,
     onBack: () -> Unit,
-    onOpenBook: (String, Int, Boolean) -> Unit,
+    onOpenBook: (BookDto, Boolean) -> Unit,
     vm: ReaderViewModel
 ) {
     LaunchedEffect(bookId) { vm.load(bookId, startPage, trackProgress) }
@@ -261,7 +304,7 @@ fun ReaderScreen(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (vm.mode) {
-            ReadingMode.PAGER -> PagerReader(vm)
+            ReadingMode.PAGER -> PagerReader(vm, onOpenBook)
             ReadingMode.SCROLL -> ScrollReader(vm)
         }
 
@@ -285,30 +328,8 @@ fun ReaderScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(
-                        onClick = {
-                            vm.previousBook?.let { onOpenBook(it.id, vm.startPageFor(it), vm.trackProgress) }
-                        },
-                        enabled = vm.previousBook != null
-                    ) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "上一册", tint = Color.White)
-                    }
                     IconButton(onClick = { vm.toggleMode() }) {
                         Icon(Icons.Default.SwapHoriz, contentDescription = "切换阅读模式（翻页/滚动）", tint = Color.White)
-                    }
-                    TextButton(onClick = { vm.markCurrentBookUnread() }) {
-                        Text("未读", color = Color.White)
-                    }
-                    TextButton(onClick = { vm.markCurrentBookRead() }) {
-                        Text("已读", color = Color.White)
-                    }
-                    IconButton(
-                        onClick = {
-                            vm.nextBook?.let { onOpenBook(it.id, vm.startPageFor(it), vm.trackProgress) }
-                        },
-                        enabled = vm.nextBook != null
-                    ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "下一册", tint = Color.White)
                     }
                 }
             }
@@ -332,7 +353,7 @@ fun ReaderScreen(
                                 onClick = { if (vm.currentPage > 0) vm.goToPage(vm.currentPage - 1) },
                                 enabled = vm.currentPage > 0
                             ) {
-                                Icon(Icons.Default.NavigateBefore, contentDescription = "Previous", tint = Color.White)
+                                Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = "Previous", tint = Color.White)
                             }
                             Slider(
                                 value = vm.currentPage.toFloat(),
@@ -345,7 +366,7 @@ fun ReaderScreen(
                                 onClick = { if (vm.currentPage < vm.pageUrls.size - 1) vm.goToPage(vm.currentPage + 1) },
                                 enabled = vm.currentPage < vm.pageUrls.size - 1
                             ) {
-                                Icon(Icons.Default.NavigateNext, contentDescription = "Next", tint = Color.White)
+                                Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = "Next", tint = Color.White)
                             }
                         }
                     }
@@ -406,19 +427,41 @@ private fun ReaderStatusOverlay(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PagerReader(vm: ReaderViewModel) {
+fun PagerReader(vm: ReaderViewModel, onOpenBook: (BookDto, Boolean) -> Unit) {
     if (vm.pageUrls.isEmpty()) return
-    val pagerState = rememberPagerState(initialPage = vm.currentPage) { vm.pageUrls.size }
+    val pagerPages = remember(vm.pageUrls, vm.previousBook, vm.nextBook) {
+        buildReaderPagerPages(vm.pageUrls.size, vm.previousBook, vm.nextBook)
+    }
+    val initialPage = remember(vm.currentBookId, pagerPages) {
+        pagerPages.pagerIndexForActualPage(vm.currentPage)
+    }
+    val pagerState = rememberPagerState(initialPage = initialPage) { pagerPages.size }
     val context = LocalContext.current
     var longPressUrl by remember { mutableStateOf<String?>(null) }
+    var openedBoundaryBookId by remember(vm.currentBookId) { mutableStateOf<String?>(null) }
     val preloadPages by vm.prefs.preloadPages.collectAsState(initial = 5)
     val readingDirection by vm.prefs.readingDirection.collectAsState(initial = "LTR")
     val pageFit by vm.prefs.pageFit.collectAsState(initial = "FIT")
     val imageLoader = coil.Coil.imageLoader(context)
 
-    LaunchedEffect(pagerState.currentPage) { vm.updatePage(pagerState.currentPage) }
+    LaunchedEffect(pagerState.currentPage, pagerPages) {
+        when (val page = pagerPages.getOrNull(pagerState.currentPage)) {
+            is ReaderPagerPage.Actual -> vm.updatePage(page.pageIndex)
+            is ReaderPagerPage.Trigger -> {
+                if (openedBoundaryBookId != page.target.id) {
+                    openedBoundaryBookId = page.target.id
+                    onOpenBook(page.target, vm.trackProgress)
+                }
+            }
+            else -> Unit
+        }
+    }
     LaunchedEffect(vm.currentPage) {
-        if (pagerState.currentPage != vm.currentPage) pagerState.scrollToPage(vm.currentPage)
+        val currentPagerPage = pagerPages.getOrNull(pagerState.currentPage)
+        val targetPage = pagerPages.pagerIndexForActualPage(vm.currentPage)
+        if (currentPagerPage is ReaderPagerPage.Actual && pagerState.currentPage != targetPage) {
+            pagerState.scrollToPage(targetPage)
+        }
     }
     LaunchedEffect(pagerState.currentPage, preloadPages, vm.pageUrls) {
         val from = (pagerState.currentPage - 1).coerceAtLeast(0)
@@ -438,52 +481,73 @@ fun PagerReader(vm: ReaderViewModel) {
         reverseLayout = readingDirection == "RTL",
         modifier = Modifier.fillMaxSize()
     ) { page ->
-        val zoomState = rememberZoomState(maxScale = 5f)
-        LaunchedEffect(page) { zoomState.reset() }
-        val pageUrl = vm.pageUrls[page]
-        var retryKey by remember(pageUrl) { mutableIntStateOf(0) }
+        when (val readerPage = pagerPages[page]) {
+            is ReaderPagerPage.Actual -> {
+                val actualPageIndex = readerPage.pageIndex
+                val zoomState = rememberZoomState(maxScale = 5f)
+                LaunchedEffect(actualPageIndex) { zoomState.reset() }
+                val pageUrl = vm.pageUrls[actualPageIndex]
+                var retryKey by remember(pageUrl) { mutableIntStateOf(0) }
 
-        Box(
-            Modifier
-                .fillMaxSize()
-                .pointerInput(page) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val lp = awaitLongPressOrCancellation(down.id)
-                        if (lp != null) longPressUrl = pageUrl
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(actualPageIndex) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val lp = awaitLongPressOrCancellation(down.id)
+                                if (lp != null) longPressUrl = pageUrl
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    val (request, progressState) = rememberReaderPageRequest(pageUrl, retryKey = retryKey)
+                    SubcomposeAsyncImage(
+                        model = request,
+                        contentDescription = "Page ${actualPageIndex + 1}",
+                        contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zoomable(zoomState, onTap = { vm.toggleControls() })
+                    ) {
+                        when (val state = painter.state) {
+                            is AsyncImagePainter.State.Loading -> {
+                                CachedPageLoadingContent(
+                                    state = state,
+                                    progressState = progressState,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            AsyncImagePainter.State.Empty -> {
+                                PageLoadingPlaceholder(progressState = progressState, modifier = Modifier.fillMaxSize())
+                            }
+                            is AsyncImagePainter.State.Error -> {
+                                CachedPageErrorContent(
+                                    state = state,
+                                    modifier = Modifier.fillMaxSize(),
+                                    onRetry = { retryKey += 1 }
+                                )
+                            }
+                            else -> SubcomposeAsyncImageContent()
+                        }
                     }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            val (request, progressState) = rememberReaderPageRequest(pageUrl, retryKey = retryKey)
-            SubcomposeAsyncImage(
-                model = request,
-                contentDescription = "Page ${page + 1}",
-                contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zoomable(zoomState, onTap = { vm.toggleControls() })
-            ) {
-                when (val state = painter.state) {
-                    is AsyncImagePainter.State.Loading -> {
-                        CachedPageLoadingContent(
-                            state = state,
-                            progressState = progressState,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    AsyncImagePainter.State.Empty -> {
-                        PageLoadingPlaceholder(progressState = progressState, modifier = Modifier.fillMaxSize())
-                    }
-                    is AsyncImagePainter.State.Error -> {
-                        CachedPageErrorContent(
-                            state = state,
-                            modifier = Modifier.fillMaxSize(),
-                            onRetry = { retryKey += 1 }
-                        )
-                    }
-                    else -> SubcomposeAsyncImageContent()
                 }
+            }
+            is ReaderPagerPage.Boundary -> {
+                ReaderBoundaryPage(
+                    direction = readerPage.direction,
+                    target = readerPage.target,
+                    opening = false,
+                    onTap = { vm.toggleControls() }
+                )
+            }
+            is ReaderPagerPage.Trigger -> {
+                ReaderBoundaryPage(
+                    direction = readerPage.direction,
+                    target = readerPage.target,
+                    opening = true,
+                    onTap = { vm.toggleControls() }
+                )
             }
         }
     }
@@ -495,6 +559,58 @@ fun PagerReader(vm: ReaderViewModel) {
             vm = vm,
             onDismiss = { longPressUrl = null },
         )
+    }
+}
+
+@Composable
+private fun ReaderBoundaryPage(
+    direction: ReaderBoundaryDirection,
+    target: BookDto?,
+    opening: Boolean,
+    onTap: () -> Unit
+) {
+    val isNext = direction == ReaderBoundaryDirection.NEXT
+    val title = when {
+        opening && isNext -> "正在打开下一本"
+        opening -> "正在打开上一本"
+        isNext -> "本书已看完"
+        else -> "已到达第一页"
+    }
+    val message = when {
+        target != null && isNext -> "继续翻下一页打开"
+        target != null -> "继续往前翻打开"
+        isNext -> "已到最后一本书"
+        else -> "已到第一本书"
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable(onClick = onTap)
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(title, color = Color.White, style = MaterialTheme.typography.headlineSmall)
+            Text(message, color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.bodyLarge)
+            target?.let {
+                Surface(
+                    color = Color.White.copy(alpha = 0.12f),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = it.displayTitle(),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -646,15 +762,13 @@ private fun PageContextMenu(
 
 private fun saveBitmapToGallery(context: Context, bitmap: Bitmap) {
     val filename = "komgarot_${System.currentTimeMillis()}.jpg"
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, filename)
-            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
-        }
-        val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return
-        context.contentResolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+    val values = ContentValues().apply {
+        put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+        put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
     }
+    val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return
+    context.contentResolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
 }
 
 private fun saveBitmapToCache(context: Context, bitmap: Bitmap): android.net.Uri {
