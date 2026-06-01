@@ -28,28 +28,31 @@ fun LazyGridScrollbar(
     thumbWidth: Dp = 6.dp,
     thumbMinHeight: Dp = 48.dp
 ) {
-    val layoutInfo = state.layoutInfo
-    val totalItems = layoutInfo.totalItemsCount
-    val visibleItems = layoutInfo.visibleItemsInfo
+    val scrollbarInfo by remember(state) {
+        derivedStateOf {
+            val layoutInfo = state.layoutInfo
+            val totalItems = layoutInfo.totalItemsCount
+            val visibleItems = layoutInfo.visibleItemsInfo
+            if (totalItems == 0 || visibleItems.isEmpty()) {
+                null
+            } else {
+                val firstVisibleIndex = visibleItems.first().index
+                val lastVisibleIndex = visibleItems.last().index
+                if (firstVisibleIndex == 0 && lastVisibleIndex >= totalItems - 1) {
+                    null
+                } else {
+                    LazyGridScrollbarInfo(
+                        totalItems = totalItems,
+                        scrollProgress = firstVisibleIndex.toFloat() / totalItems.toFloat(),
+                        visibleRatio = (lastVisibleIndex - firstVisibleIndex + 1).toFloat() / totalItems.toFloat()
+                    )
+                }
+            }
+        }
+    }
 
-    // 如果没有内容或内容不需要滚动，不显示滚动条
-    if (totalItems == 0 || visibleItems.isEmpty()) return
+    val info = scrollbarInfo ?: return
 
-    val firstVisibleIndex = visibleItems.firstOrNull()?.index ?: 0
-    val lastVisibleIndex = visibleItems.lastOrNull()?.index ?: 0
-
-    // 如果所有内容都可见，不显示滚动条
-    if (firstVisibleIndex == 0 && lastVisibleIndex >= totalItems - 1) return
-
-    // 计算滚动进度（0.0 到 1.0）
-    val scrollProgress = if (totalItems > 0) {
-        firstVisibleIndex.toFloat() / totalItems.toFloat()
-    } else 0f
-
-    // 计算滚动条高度比例
-    val visibleRatio = (lastVisibleIndex - firstVisibleIndex + 1).toFloat() / totalItems.toFloat()
-
-    // 自动隐藏逻辑
     var isScrolling by remember { mutableStateOf(false) }
     val alpha by animateFloatAsState(
         targetValue = if (isScrolling) 1f else 0f,
@@ -76,12 +79,10 @@ fun LazyGridScrollbar(
         val maxHeightPx = with(density) { maxHeight.toPx() }
         val thumbMinHeightPx = with(density) { thumbMinHeight.toPx() }
 
-        // 计算滚动条高度
-        val thumbHeightPx = (maxHeightPx * visibleRatio).coerceAtLeast(thumbMinHeightPx)
+        val thumbHeightPx = (maxHeightPx * info.visibleRatio).coerceAtLeast(thumbMinHeightPx)
         val thumbHeight = with(density) { thumbHeightPx.toDp() }
 
-        // 计算滚动条位置
-        val thumbOffsetPx = scrollProgress * (maxHeightPx - thumbHeightPx)
+        val thumbOffsetPx = info.scrollProgress * (maxHeightPx - thumbHeightPx)
         val thumbOffset = with(density) { thumbOffsetPx.toDp() }
 
         Box(
@@ -102,12 +103,11 @@ fun LazyGridScrollbar(
                         onDrag = { change, dragAmount ->
                             change.consume()
 
-                            // 计算拖拽后的目标位置
                             val newOffsetPx = (thumbOffsetPx + dragAmount.y).coerceIn(0f, maxHeightPx - thumbHeightPx)
                             val newProgress = if (maxHeightPx - thumbHeightPx > 0) {
                                 newOffsetPx / (maxHeightPx - thumbHeightPx)
                             } else 0f
-                            val targetIndex = (newProgress * totalItems).toInt().coerceIn(0, totalItems - 1)
+                            val targetIndex = (newProgress * info.totalItems).toInt().coerceIn(0, info.totalItems - 1)
 
                             scrollJob?.cancel()
                             scrollJob = coroutineScope.launch {
@@ -119,3 +119,9 @@ fun LazyGridScrollbar(
         )
     }
 }
+
+private data class LazyGridScrollbarInfo(
+    val totalItems: Int,
+    val scrollProgress: Float,
+    val visibleRatio: Float
+)

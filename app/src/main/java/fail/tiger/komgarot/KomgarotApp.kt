@@ -9,6 +9,7 @@ import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.remote.AuthInterceptor
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressInterceptor
 import fail.tiger.komgarot.data.remote.KomgaApi
+import fail.tiger.komgarot.data.remote.ReaderPageCacheInterceptor
 import fail.tiger.komgarot.data.remote.UrlInterceptor
 import fail.tiger.komgarot.data.repository.AdminRepository
 import fail.tiger.komgarot.data.repository.AuthRepository
@@ -45,6 +46,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         okHttpClient = OkHttpClient.Builder()
             .addInterceptor(urlInterceptor)
             .addInterceptor(authInterceptor)
+            .addNetworkInterceptor(ReaderPageCacheInterceptor(this))
             .addNetworkInterceptor(ImageDownloadProgressInterceptor())
             .build()
         val retrofit = Retrofit.Builder()
@@ -61,18 +63,6 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         collectionRepository = CollectionRepository(api)
         readListRepository = ReadListRepository(api)
         adminRepository = AdminRepository(api)
-
-        clearOldCache()
-    }
-
-    private fun clearOldCache() {
-        val diskCache = cacheDir.resolve("image_cache")
-        if (diskCache.exists()) {
-            val currentSize = diskCache.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
-            if (currentSize > IMAGE_CACHE_MAX_SIZE_BYTES) {
-                diskCache.deleteRecursively()
-            }
-        }
     }
 
     override fun newImageLoader() = ImageLoader.Builder(this)

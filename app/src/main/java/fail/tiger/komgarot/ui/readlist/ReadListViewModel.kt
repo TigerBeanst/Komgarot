@@ -1,7 +1,6 @@
 package fail.tiger.komgarot.ui.readlist
 
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -10,22 +9,34 @@ import androidx.lifecycle.viewModelScope
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.ReadListDto
 import fail.tiger.komgarot.data.repository.ReadListRepository
+import fail.tiger.komgarot.ui.state.PagedListState
 import kotlinx.coroutines.launch
 
 class ReadListViewModel(private val repo: ReadListRepository) : ViewModel() {
-    val readLists = mutableStateListOf<ReadListDto>()
-    val books = mutableStateListOf<BookDto>()
+    private val readListPaging = PagedListState<ReadListDto, String>(
+        keySelector = { it.id },
+        fallbackErrorMessage = "加载阅读列表失败"
+    )
+    private val bookPaging = PagedListState<BookDto, String>(
+        keySelector = { it.id },
+        fallbackErrorMessage = "加载阅读列表内容失败"
+    )
+    val readLists = readListPaging.items
+    val books = bookPaging.items
     var selected by mutableStateOf<ReadListDto?>(null)
     var search by mutableStateOf("")
-    var loading by mutableStateOf(false)
-    var error by mutableStateOf<String?>(null)
-    var hasMore by mutableStateOf(true)
-    var detailHasMore by mutableStateOf(true)
-    private var page = 0
-    private var detailPage = 0
+    private var selectedLoading by mutableStateOf(false)
+    private var selectedError by mutableStateOf<String?>(null)
+    val loading: Boolean get() = selectedLoading || readListPaging.loading || bookPaging.loading
+    val error: String? get() = selectedError ?: readListPaging.error ?: bookPaging.error
+    val hasMore: Boolean get() = readListPaging.hasMore
+    val detailHasMore: Boolean get() = bookPaging.hasMore
     private var currentReadListId = ""
+    private var listLoaded = false
 
-    init { refresh() }
+    fun ensureListLoaded() {
+        if (!listLoaded) refresh()
+    }
 
     fun updateSearch(value: String) {
         search = value
@@ -33,58 +44,38 @@ class ReadListViewModel(private val repo: ReadListRepository) : ViewModel() {
     }
 
     fun refresh() {
-        readLists.clear()
-        page = 0
-        hasMore = true
+        listLoaded = true
+        readListPaging.reset()
         loadMore()
     }
 
     fun loadMore() {
-        if (!hasMore || loading) return
         viewModelScope.launch {
-            loading = true
-            error = null
-            runCatching { repo.getReadLists(page, search) }
-                .onSuccess {
-                    readLists.addAll(it.content.filter { item -> readLists.none { existing -> existing.id == item.id } })
-                    hasMore = page < it.totalPages - 1
-                    page++
-                }
-                .onFailure { error = it.message ?: "加载阅读列表失败" }
-            loading = false
+            readListPaging.loadMore { page -> repo.getReadLists(page, search) }
         }
     }
 
-    fun loadReadList(id: String) {
-        if (currentReadListId != id) {
+    fun loadReadList(id: String, refresh: Boolean = false) {
+        if (currentReadListId != id || refresh) {
             currentReadListId = id
             selected = null
-            books.clear()
-            detailPage = 0
-            detailHasMore = true
+            selectedError = null
+            bookPaging.reset()
         }
         viewModelScope.launch {
-            loading = true
-            error = null
-            repo.getReadList(id).onSuccess { selected = it }.onFailure { error = it.message ?: "加载阅读列表失败" }
-            loading = false
+            selectedLoading = true
+            repo.getReadList(id)
+                .onSuccess { selected = it }
+                .onFailure { selectedError = it.message?.takeIf { message -> message.isNotBlank() } ?: "加载阅读列表失败" }
+            selectedLoading = false
             loadMoreBooks()
         }
     }
 
     fun loadMoreBooks() {
-        if (currentReadListId.isEmpty() || !detailHasMore || loading) return
+        if (currentReadListId.isEmpty()) return
         viewModelScope.launch {
-            loading = true
-            error = null
-            runCatching { repo.getBooks(currentReadListId, detailPage) }
-                .onSuccess {
-                    books.addAll(it.content.filter { item -> books.none { existing -> existing.id == item.id } })
-                    detailHasMore = detailPage < it.totalPages - 1
-                    detailPage++
-                }
-                .onFailure { error = it.message ?: "加载阅读列表内容失败" }
-            loading = false
+            bookPaging.loadMore { page -> repo.getBooks(currentReadListId, page) }
         }
     }
 

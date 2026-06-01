@@ -19,16 +19,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.ui.components.AutoHideBottomBarOnLazyListScroll
 import fail.tiger.komgarot.ui.components.ErrorState
-import fail.tiger.komgarot.ui.components.rememberStableImageRequest
+import fail.tiger.komgarot.ui.components.ThumbnailImage
 import fail.tiger.komgarot.ui.components.topLevelScrollableContentPadding
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -195,16 +193,17 @@ private fun SeriesSection(
 
 @Composable
 private fun BookPosterCard(book: BookDto, serverUrl: String, onClick: () -> Unit) {
-    val context = LocalContext.current
-    val thumbnailUrl = remember(book.id, serverUrl) {
-        "$serverUrl/api/v1/books/${book.id}/thumbnail?v=${ThumbnailVersion.get(book.id)}"
+    val thumbnailVersion = ThumbnailVersion.get(book.id)
+    val thumbnailUrl = remember(book.id, serverUrl, thumbnailVersion) {
+        KomgaUrls.bookThumbnail(serverUrl, book.id, thumbnailVersion)
     }
     Card(
         shape = RoundedCornerShape(6.dp),
         modifier = Modifier.width(112.dp).clickable(onClick = onClick)
     ) {
         PosterImage(
-            model = rememberStableImageRequest(thumbnailUrl, "book-thumb:${book.id}:${ThumbnailVersion.get(book.id)}"),
+            imageUrl = thumbnailUrl,
+            imageCacheKey = "book-thumb:${book.id}:$thumbnailVersion",
             title = book.metadata.title.ifEmpty { book.name },
             subtitle = book.seriesTitle ?: book.metadata.number,
             progress = book.readProgress?.takeIf { !it.completed && book.media.pagesCount > 0 }?.let {
@@ -216,16 +215,17 @@ private fun BookPosterCard(book: BookDto, serverUrl: String, onClick: () -> Unit
 
 @Composable
 private fun SeriesPosterCard(item: SeriesDto, serverUrl: String, onClick: () -> Unit) {
-    val context = LocalContext.current
-    val thumbnailUrl = remember(item.id, serverUrl) {
-        "$serverUrl/api/v1/series/${item.id}/thumbnail?v=${ThumbnailVersion.get(item.id)}"
+    val thumbnailVersion = ThumbnailVersion.get(item.id)
+    val thumbnailUrl = remember(item.id, serverUrl, thumbnailVersion) {
+        KomgaUrls.seriesThumbnail(serverUrl, item.id, thumbnailVersion)
     }
     Card(
         shape = RoundedCornerShape(6.dp),
         modifier = Modifier.width(112.dp).clickable(onClick = onClick)
     ) {
         PosterImage(
-            model = rememberStableImageRequest(thumbnailUrl, "series-thumb:${item.id}:${ThumbnailVersion.get(item.id)}"),
+            imageUrl = thumbnailUrl,
+            imageCacheKey = "series-thumb:${item.id}:$thumbnailVersion",
             title = item.metadata.title.ifEmpty { item.name },
             subtitle = "${item.booksCount} 本"
         )
@@ -234,14 +234,16 @@ private fun SeriesPosterCard(item: SeriesDto, serverUrl: String, onClick: () -> 
 
 @Composable
 private fun PosterImage(
-    model: ImageRequest,
+    imageUrl: String,
+    imageCacheKey: String,
     title: String,
     subtitle: String,
     progress: Float? = null
 ) {
     Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
-        AsyncImage(
-            model = model,
+        ThumbnailImage(
+            url = imageUrl,
+            cacheKey = imageCacheKey,
             contentDescription = title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()

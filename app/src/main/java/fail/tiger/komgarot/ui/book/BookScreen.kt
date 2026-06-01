@@ -19,16 +19,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.ui.components.EmptyState
 import fail.tiger.komgarot.ui.components.ErrorState
 import fail.tiger.komgarot.ui.components.LazyGridScrollbar
-import fail.tiger.komgarot.ui.components.rememberStableImageRequest
+import fail.tiger.komgarot.ui.components.ThumbnailImage
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -110,14 +110,13 @@ fun BookScreen(
         } else {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             vm.series?.let { series ->
-                val seriesThumbnailUrl = remember(series.id) {
-                    "$serverUrl/api/v1/series/${series.id}/thumbnail?v=${ThumbnailVersion.get(series.id)}"
+                val seriesThumbnailVersion = ThumbnailVersion.get(series.id)
+                val seriesThumbnailUrl = remember(serverUrl, series.id, seriesThumbnailVersion) {
+                    KomgaUrls.seriesThumbnail(serverUrl, series.id, seriesThumbnailVersion)
                 }
-                AsyncImage(
-                    model = rememberStableImageRequest(
-                        seriesThumbnailUrl,
-                        "series-thumb:${series.id}:${ThumbnailVersion.get(series.id)}"
-                    ),
+                ThumbnailImage(
+                    url = seriesThumbnailUrl,
+                    cacheKey = "series-thumb:${series.id}:$seriesThumbnailVersion",
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(330.dp)
@@ -146,16 +145,15 @@ fun BookScreen(
                     ) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         vm.series?.let { series ->
-                            val seriesThumbnailUrl = remember(series.id) {
-                                "$serverUrl/api/v1/series/${series.id}/thumbnail?v=${ThumbnailVersion.get(series.id)}"
+                            val seriesThumbnailVersion = ThumbnailVersion.get(series.id)
+                            val seriesThumbnailUrl = remember(serverUrl, series.id, seriesThumbnailVersion) {
+                                KomgaUrls.seriesThumbnail(serverUrl, series.id, seriesThumbnailVersion)
                             }
                             Column(Modifier.fillMaxWidth().padding(top = padding.calculateTopPadding() + 180.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    AsyncImage(
-                                        model = rememberStableImageRequest(
-                                            seriesThumbnailUrl,
-                                            "series-thumb:${series.id}:${ThumbnailVersion.get(series.id)}"
-                                        ),
+                                    ThumbnailImage(
+                                        url = seriesThumbnailUrl,
+                                        cacheKey = "series-thumb:${series.id}:$seriesThumbnailVersion",
                                         contentDescription = null,
                                         modifier = Modifier.width(120.dp).aspectRatio(0.7f).clip(RoundedCornerShape(6.dp)),
                                         contentScale = ContentScale.Crop
@@ -170,7 +168,7 @@ fun BookScreen(
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Text(
-                                            stringResource(R.string.books_count, series.booksCount),
+                                            pluralStringResource(R.plurals.books_count, series.booksCount, series.booksCount),
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
@@ -215,8 +213,9 @@ fun BookScreen(
                         }
                     }
                     items(vm.books, key = { it.id }) { book ->
-                        val thumbnailUrl = remember(book.id) {
-                            "$serverUrl/api/v1/books/${book.id}/thumbnail?v=${ThumbnailVersion.get(book.id)}"
+                        val thumbnailVersion = ThumbnailVersion.get(book.id)
+                        val thumbnailUrl = remember(serverUrl, book.id, thumbnailVersion) {
+                            KomgaUrls.bookThumbnail(serverUrl, book.id, thumbnailVersion)
                         }
                         Card(
                             shape = RoundedCornerShape(6.dp),
@@ -225,11 +224,9 @@ fun BookScreen(
                             }
                         ) {
                             Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
-                                AsyncImage(
-                                    model = rememberStableImageRequest(
-                                        thumbnailUrl,
-                                        "book-thumb:${book.id}:${ThumbnailVersion.get(book.id)}"
-                                    ),
+                                ThumbnailImage(
+                                    url = thumbnailUrl,
+                                    cacheKey = "book-thumb:${book.id}:$thumbnailVersion",
                                     contentDescription = book.name,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -247,7 +244,7 @@ fun BookScreen(
                                             maxLines = 1
                                         )
                                         Text(
-                                            "#${book.metadata.number.toInt()} · ${book.media.pagesCount}页",
+                                            "#${book.metadata.number} · ${book.media.pagesCount}页",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = Color.White.copy(alpha = 0.7f)
                                         )

@@ -15,7 +15,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 
 @Composable
 fun SectionHeader(
@@ -46,6 +45,7 @@ fun PosterCard(
     subtitle: String,
     imageUrl: String,
     modifier: Modifier = Modifier,
+    imageCacheKey: String = imageUrl,
     progress: Float? = null,
     badge: String? = null,
     onClick: () -> Unit
@@ -56,8 +56,9 @@ fun PosterCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
-            AsyncImage(
-                model = rememberStableImageRequest(imageUrl),
+            ThumbnailImage(
+                url = imageUrl,
+                cacheKey = imageCacheKey,
                 contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

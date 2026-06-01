@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.ReadListDto
@@ -45,6 +46,7 @@ fun ReadListScreen(
     onBack: () -> Unit,
     onBottomBarVisibleChange: (Boolean) -> Unit = {}
 ) {
+    LaunchedEffect(vm) { vm.ensureListLoaded() }
     var showEditor by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf(vm.search) }
     val listState = rememberLazyListState()
@@ -169,12 +171,12 @@ fun ReadListDetailScreen(
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = vm.loading,
-            onRefresh = { vm.loadReadList(readListId) },
+            onRefresh = { vm.loadReadList(readListId, refresh = true) },
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
             when {
                 vm.books.isEmpty() && !vm.loading && vm.error != null ->
-                    ErrorState(message = vm.error ?: "加载阅读列表失败", onRetry = { vm.loadReadList(readListId) })
+                    ErrorState(message = vm.error ?: "加载阅读列表失败", onRetry = { vm.loadReadList(readListId, refresh = true) })
                 vm.books.isEmpty() && !vm.loading ->
                     EmptyState(message = "这个阅读列表还没有书籍")
                 else ->
@@ -199,10 +201,12 @@ fun ReadListDetailScreen(
                             }
                         }
                         items(vm.books, key = { it.id }) { book ->
+                            val thumbnailVersion = ThumbnailVersion.get(book.id)
                             PosterCard(
                                 title = book.metadata.title.ifEmpty { book.name },
                                 subtitle = book.seriesTitle ?: book.metadata.number,
-                                imageUrl = KomgaUrls.bookThumbnail(serverUrl, book.id),
+                                imageUrl = KomgaUrls.bookThumbnail(serverUrl, book.id, thumbnailVersion),
+                                imageCacheKey = "book-thumb:${book.id}:$thumbnailVersion",
                                 progress = book.readProgress?.takeIf { !it.completed && book.media.pagesCount > 0 }?.let {
                                     it.page.toFloat() / book.media.pagesCount
                                 },
@@ -246,6 +250,7 @@ fun ReadListDetailScreen(
 
 @Composable
 private fun ReadListItem(readList: ReadListDto, serverUrl: String, onClick: () -> Unit) {
+    val thumbnailVersion = ThumbnailVersion.get(readList.id)
     ElevatedCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
@@ -254,7 +259,8 @@ private fun ReadListItem(readList: ReadListDto, serverUrl: String, onClick: () -
             PosterCard(
                 title = readList.name,
                 subtitle = "",
-                imageUrl = KomgaUrls.readListThumbnail(serverUrl, readList.id),
+                imageUrl = KomgaUrls.readListThumbnail(serverUrl, readList.id, thumbnailVersion),
+                imageCacheKey = "readlist-thumb:${readList.id}:$thumbnailVersion",
                 modifier = Modifier.width(72.dp),
                 onClick = onClick
             )
