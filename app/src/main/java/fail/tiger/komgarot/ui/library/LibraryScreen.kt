@@ -52,6 +52,11 @@ fun LibraryScreen(
         latestBooks.isNotEmpty() || updatedSeries.isNotEmpty() || newSeries.isNotEmpty()
     val listState = rememberLazyListState()
     AutoHideBottomBarOnLazyListScroll(listState, onBottomBarVisibleChange)
+    val loadHome = { if (serverUrl.isNotBlank()) vm.load() }
+
+    LaunchedEffect(serverUrl) {
+        loadHome()
+    }
 
     Scaffold(
         topBar = {
@@ -70,11 +75,11 @@ fun LibraryScreen(
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = loading,
-            onRefresh = { vm.load() },
+            onRefresh = loadHome,
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
             if (error != null && !hasAnyContent && !loading) {
-                ErrorState(message = error ?: "连接 Komga 失败", onRetry = vm::load)
+                ErrorState(message = error ?: "连接 Komga 失败", onRetry = loadHome)
             } else {
                 LazyColumn(
                     state = listState,

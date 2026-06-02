@@ -25,6 +25,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 private const val IMAGE_CACHE_MAX_SIZE_BYTES = 2L * 1024 * 1024 * 1024
+private const val RETROFIT_PLACEHOLDER_BASE_URL = "https://komgarot.invalid/"
 
 class KomgarotApp : Application(), ImageLoaderFactory {
     lateinit var authPreferences: AuthPreferences
@@ -50,7 +51,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
             .addNetworkInterceptor(ImageDownloadProgressInterceptor())
             .build()
         val retrofit = Retrofit.Builder()
-            .baseUrl("http://localhost/")
+            .baseUrl(RETROFIT_PLACEHOLDER_BASE_URL)
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

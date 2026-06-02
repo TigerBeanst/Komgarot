@@ -78,11 +78,8 @@ import fail.tiger.komgarot.ui.settings.SettingsScreen
 @Composable
 fun AppNavGraph(app: KomgarotApp) {
     val navController = rememberNavController()
-    val libraryVm: LibraryViewModel = viewModel(
-        factory = LibraryViewModel.Factory(app.libraryRepository, app.authRepository, app.authPreferences)
-    )
     val sessionVm: SessionViewModel = viewModel(factory = SessionViewModel.Factory(app.userRepository))
-    val serverUrl by libraryVm.prefs.serverUrl.collectAsState(initial = "")
+    val serverUrl by app.authPreferences.serverUrl.collectAsState(initial = "")
     val alwaysIncognito by app.authPreferences.alwaysIncognito.collectAsState(initial = false)
     val user by sessionVm.user.collectAsState()
     val startDest = if (serverUrl.isNotEmpty()) Screen.Library.route else Screen.Login.route
@@ -185,15 +182,13 @@ fun AppNavGraph(app: KomgarotApp) {
         ) {
         composable(Screen.Login.route) {
             val vm: LoginViewModel = viewModel(factory = LoginViewModel.Factory(app.authRepository))
-            LoginScreen(onSuccess = {
-                sessionVm.refresh()
-                navController.navigate(Screen.Library.route) {
-                    popUpTo(Screen.Login.route) { inclusive = true }
-                }
-            }, vm = vm)
+            LoginScreen(onSuccess = {}, vm = vm)
         }
 
         composable(Screen.Library.route) {
+            val vm: LibraryViewModel = viewModel(
+                factory = LibraryViewModel.Factory(app.libraryRepository, app.authRepository)
+            )
             LibraryScreen(
                 onLibraryClick = { navController.navigate(Screen.Series.go(it)) },
                 onBookClick = { book ->
@@ -209,14 +204,14 @@ fun AppNavGraph(app: KomgarotApp) {
                 },
                 onSeriesClick = openSeries,
                 serverUrl = serverUrl,
-                vm = libraryVm,
                 onLogout = {
                     navController.navigate(Screen.Login.route) {
                         popUpTo(0) { inclusive = true }
                     }
                 },
                 onSettings = { navigateTopLevel(Screen.Settings.route) },
-                onBottomBarVisibleChange = { bottomBarVisible = it }
+                onBottomBarVisibleChange = { bottomBarVisible = it },
+                vm = vm
             )
         }
 

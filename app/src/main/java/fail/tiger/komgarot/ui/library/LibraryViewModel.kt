@@ -3,7 +3,6 @@ package fail.tiger.komgarot.ui.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.LibraryDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
@@ -17,8 +16,7 @@ import kotlinx.coroutines.supervisorScope
 
 class LibraryViewModel(
     private val repo: LibraryHomeSource,
-    private val authRepo: AuthRepository,
-    val prefs: AuthPreferences
+    private val authRepo: AuthRepository
 ) : ViewModel() {
     private val _libraries = MutableStateFlow<List<LibraryDto>>(emptyList())
     val libraries = _libraries.asStateFlow()
@@ -34,8 +32,6 @@ class LibraryViewModel(
     val loading = _loading.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
-
-    init { load() }
 
     fun load() {
         viewModelScope.launch {
@@ -58,10 +54,9 @@ class LibraryViewModel(
 
     class Factory(
         private val repo: LibraryHomeSource,
-        private val authRepo: AuthRepository,
-        private val prefs: AuthPreferences
+        private val authRepo: AuthRepository
     ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = LibraryViewModel(repo, authRepo, prefs) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = LibraryViewModel(repo, authRepo) as T
     }
 }
 

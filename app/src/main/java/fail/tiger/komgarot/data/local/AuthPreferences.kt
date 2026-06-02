@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
@@ -23,13 +25,13 @@ class AuthPreferences(private val context: Context) {
     private val PAGE_FIT = stringPreferencesKey("page_fit")
     private val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
 
-    @Volatile private var cachedServerUrl = ""
-    @Volatile private var cachedUsername = ""
-    @Volatile private var cachedPassword = ""
+    private val _serverUrl = MutableStateFlow("")
+    private val _username = MutableStateFlow("")
+    private val _password = MutableStateFlow("")
     private val secureAuthStore = SecureAuthStore(context)
 
-    val serverUrl: Flow<String> = context.dataStore.data.map { cachedServerUrl }
-    val username: Flow<String> = context.dataStore.data.map { cachedUsername }
+    val serverUrl = _serverUrl.asStateFlow()
+    val username = _username.asStateFlow()
     val alwaysIncognito: Flow<Boolean> = context.dataStore.data.map { it[ALWAYS_INCOGNITO] ?: false }
     val preloadPages: Flow<Int> = context.dataStore.data.map { it[PRELOAD_PAGES] ?: 5 }
     val readingDirection: Flow<String> = context.dataStore.data.map { it[READING_DIRECTION] ?: "LTR" }
@@ -48,15 +50,13 @@ class AuthPreferences(private val context: Context) {
                 secureAuthStore.clear()
             }
             val credentials = secureAuthStore.read()
-            cachedServerUrl = credentials.serverUrl
-            cachedUsername = credentials.username
-            cachedPassword = credentials.password
+            updateCredentials(credentials)
         }
     }
 
-    val serverUrlBlocking: String get() = cachedServerUrl
-    val usernameBlocking: String get() = cachedUsername
-    val passwordBlocking: String get() = cachedPassword
+    val serverUrlBlocking: String get() = _serverUrl.value
+    val usernameBlocking: String get() = _username.value
+    val passwordBlocking: String get() = _password.value
     val alwaysIncognitoBlocking: Boolean get() = runBlocking { alwaysIncognito.first() }
 
     suspend fun save(url: String, user: String, pass: String) {
@@ -67,9 +67,7 @@ class AuthPreferences(private val context: Context) {
             it.remove(PASSWORD)
         }
         secureAuthStore.save(cleanUrl, user, pass)
-        cachedServerUrl = cleanUrl
-        cachedUsername = user
-        cachedPassword = pass
+        updateCredentials(AuthCredentials(cleanUrl, user, pass))
     }
 
     suspend fun setAlwaysIncognito(value: Boolean) {
@@ -111,8 +109,12 @@ class AuthPreferences(private val context: Context) {
     suspend fun clear() {
         context.dataStore.edit { it.clear() }
         secureAuthStore.clear()
-        cachedServerUrl = ""
-        cachedUsername = ""
-        cachedPassword = ""
+        updateCredentials(AuthCredentials("", "", ""))
+    }
+
+    private fun updateCredentials(credentials: AuthCredentials) {
+        _serverUrl.value = credentials.serverUrl
+        _username.value = credentials.username
+        _password.value = credentials.password
     }
 }

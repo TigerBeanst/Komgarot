@@ -2,11 +2,15 @@
   <img src="app/src/main/res/drawable-nodpi/ic_launcher_tiger_comic.png" alt="Komgarot 图标" width="144" height="144">
 </p>
 
+<p align="center">
+  简体中文 | <a href="README.en-US.md">English</a>
+</p>
+
 # Komgarot
 
 Komgarot 是一个面向 Komga 服务器的 Android 漫画阅读客户端，使用 Kotlin 与 Jetpack Compose 构建。
 
-> 本项目完全由 AI 编写，唯一一份涉及人类编写的只有这份 README.md。
+> 本项目完全由 AI 编写，唯一一份有人类参与编写的只有 README.md
 
 ## 功能
 
@@ -21,6 +25,16 @@ Komgarot 是一个面向 Komga 服务器的 Android 漫画阅读客户端，使�
 - 长按页面保存、分享、设置为书籍或系列封面
 - 隐私阅读、应用锁、保持亮屏
 - 管理员入口：书库、用户、服务器设置、维护、活动
+
+## 截图
+
+<p>
+  <img src="assets/screenshot/Screenshot_01.jpg" alt="Komgarot 截图 1" width="180">
+  <img src="assets/screenshot/Screenshot_02.jpg" alt="Komgarot 截图 2" width="180">
+  <img src="assets/screenshot/Screenshot_03.jpg" alt="Komgarot 截图 3" width="180">
+  <img src="assets/screenshot/Screenshot_04.jpg" alt="Komgarot 截图 4" width="180">
+  <img src="assets/screenshot/Screenshot_05.jpg" alt="Komgarot 截图 5" width="180">
+</p>
 
 ## 环境
 
