@@ -30,6 +30,9 @@
     <string name="read">Read</string>
     <string name="continue_reading">Continue Reading</string>
     <string name="incognito_reading">Incognito Reading</string>
+    <string name="reading_status">Reading Status</string>
+    <string name="mark_read">Mark Read</string>
+    <string name="mark_unread">Mark Unread</string>
     <plurals name="pages_count">
         <item quantity="one">%d page</item>
         <item quantity="other">%d pages</item>

@@ -22,7 +22,7 @@ import kotlinx.coroutines.withContext
 fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var cacheSize by remember { mutableStateOf("计算中...") }
+    var cacheSize by remember { mutableStateOf(CacheSizeUi.loading()) }
     var showClearDialog by remember { mutableStateOf(false) }
     val alwaysIncognito by prefs.alwaysIncognito.collectAsState(initial = false)
     val preloadPages by prefs.preloadPages.collectAsState(initial = 5)
@@ -55,7 +55,7 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
         Column(Modifier.padding(padding)) {
             ListItem(
                 headlineContent = { Text("清除图片缓存") },
-                supportingContent = { Text("当前缓存: $cacheSize") },
+                supportingContent = { Text(cacheSize.displayText) },
                 modifier = Modifier.clickable { showClearDialog = true }
             )
             ListItem(
@@ -252,13 +252,30 @@ private fun RadioOption(value: String, label: String, selected: String, onSelect
 }
 
 @OptIn(ExperimentalCoilApi::class)
-private suspend fun getCacheSize(context: android.content.Context): String = withContext(Dispatchers.IO) {
+private suspend fun getCacheSize(context: android.content.Context): CacheSizeUi = withContext(Dispatchers.IO) {
     val diskCache = context.imageLoader.diskCache
-    val size = (diskCache?.size ?: 0L) + ReaderPageCache.size(context)
-    formatFileSize(size)
+    val imageBytes = diskCache?.size ?: 0L
+    val readerBytes = ReaderPageCache.size(context)
+    CacheSizeUi(
+        imageBytes = imageBytes,
+        readerBytes = readerBytes
+    )
+}
+
+private data class CacheSizeUi(
+    val imageBytes: Long,
+    val readerBytes: Long
+) {
+    val displayText: String
+        get() = "总计: ${formatFileSize(imageBytes + readerBytes)} · 封面: ${formatFileSize(imageBytes)} · 阅读页: ${formatFileSize(readerBytes)}"
+
+    companion object {
+        fun loading(): CacheSizeUi = CacheSizeUi(imageBytes = -1L, readerBytes = -1L)
+    }
 }
 
 private fun formatFileSize(bytes: Long): String {
+    if (bytes < 0) return "计算中..."
     return when {
         bytes < 1024 -> "$bytes B"
         bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024.0)
