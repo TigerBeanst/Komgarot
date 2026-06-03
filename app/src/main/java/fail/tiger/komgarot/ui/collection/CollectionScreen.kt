@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
+import fail.tiger.komgarot.data.local.thumbnailCacheKey
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.CollectionDto
 import fail.tiger.komgarot.ui.components.AutoHideBottomBarOnLazyListScroll
@@ -200,7 +202,7 @@ fun CollectionDetailScreen(
                                 title = series.metadata.title.ifEmpty { series.name },
                                 subtitle = "${series.booksCount} 本",
                                 imageUrl = KomgaUrls.seriesThumbnail(serverUrl, series.id, thumbnailVersion),
-                                imageCacheKey = "series-thumb:${series.id}:$thumbnailVersion",
+                                imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(series.id)),
                                 badge = if (series.booksUnreadCount > 0) "${series.booksUnreadCount} 未读" else null,
                                 onClick = { onSeriesClick(series.id, series.booksCount) }
                             )
@@ -249,15 +251,16 @@ private fun CollectionListItem(
     val thumbnailVersion = ThumbnailVersion.get(collection.id)
     ElevatedCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             PosterCard(
                 title = collection.name,
                 subtitle = "",
                 imageUrl = KomgaUrls.collectionThumbnail(serverUrl, collection.id, thumbnailVersion),
-                imageCacheKey = "collection-thumb:${collection.id}:$thumbnailVersion",
-                modifier = Modifier.width(72.dp),
+                imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Collection(collection.id)),
+                modifier = Modifier.width(68.dp),
                 onClick = onClick
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {

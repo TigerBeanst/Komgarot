@@ -1,5 +1,6 @@
 *.iml
 .gradle
+.gradle-home/
 .idea/
 /local.properties
 /.idea/caches
@@ -15,6 +16,7 @@
 .cxx
 local.properties
 app/release/
+.superpowers/
 *.apk
 *.aab
 *.apks

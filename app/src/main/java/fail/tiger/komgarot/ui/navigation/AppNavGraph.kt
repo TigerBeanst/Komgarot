@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -49,6 +50,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import fail.tiger.komgarot.KomgarotApp
+import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.ui.admin.AdminScreen
 import fail.tiger.komgarot.ui.admin.AdminViewModel
@@ -78,6 +80,7 @@ import fail.tiger.komgarot.ui.settings.SettingsScreen
 @Composable
 fun AppNavGraph(app: KomgarotApp) {
     val navController = rememberNavController()
+    val imageCacheInvalidator = remember(app) { ImageCacheInvalidator(app.applicationContext) }
     val sessionVm: SessionViewModel = viewModel(factory = SessionViewModel.Factory(app.userRepository))
     val serverUrl by app.authPreferences.serverUrl.collectAsState(initial = "")
     val alwaysIncognito by app.authPreferences.alwaysIncognito.collectAsState(initial = false)
@@ -335,7 +338,9 @@ fun AppNavGraph(app: KomgarotApp) {
             arguments = listOf(navArgument("seriesId") { type = NavType.StringType })
         ) { back ->
             val seriesId = back.arguments?.getString("seriesId")?.let { Screen.decodeArg(it) } ?: return@composable
-            val vm: BookViewModel = viewModel(factory = BookViewModel.Factory(app.bookRepository, app.seriesRepository))
+            val vm: BookViewModel = viewModel(
+                factory = BookViewModel.Factory(app.bookRepository, app.seriesRepository, imageCacheInvalidator)
+            )
             BookScreen(
                 seriesId = seriesId, serverUrl = serverUrl,
                 onBookClick = { id, name, pages, isOneShot ->
@@ -363,7 +368,7 @@ fun AppNavGraph(app: KomgarotApp) {
             val pageCount = back.arguments?.getInt("pageCount") ?: 0
             val isOneShot = back.arguments?.getBoolean("isOneShot") ?: false
             val vm: BookDetailViewModel = viewModel(
-                factory = BookDetailViewModel.Factory(app.bookRepository, app.seriesRepository)
+                factory = BookDetailViewModel.Factory(app.bookRepository, app.seriesRepository, imageCacheInvalidator)
             )
             BookDetailScreen(
                 bookId = bookId,
@@ -407,7 +412,9 @@ fun AppNavGraph(app: KomgarotApp) {
             val bookId = back.arguments?.getString("bookId")?.let { Screen.decodeArg(it) } ?: return@composable
             val page = back.arguments?.getInt("page") ?: 1
             val trackProgress = back.arguments?.getBoolean("trackProgress") ?: true
-            val vm: ReaderViewModel = viewModel(factory = ReaderViewModel.Factory(app.bookRepository, app.authPreferences))
+            val vm: ReaderViewModel = viewModel(
+                factory = ReaderViewModel.Factory(app.bookRepository, app.authPreferences, imageCacheInvalidator)
+            )
             ReaderScreen(
                 bookId = bookId,
                 startPage = page,
