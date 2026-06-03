@@ -21,8 +21,57 @@ object ReaderPageCache {
         }
     }
 
+    fun cachedFile(context: Context, bookId: String, url: String): File? {
+        val file = cacheFile(context.cacheDir, bookId, url)
+        val legacyFile = cacheFile(context, url)
+        return listOf(file, legacyFile).firstOrNull { it.isFile && it.length() > 0L }?.also {
+            it.setLastModified(System.currentTimeMillis())
+        }
+    }
+
+    fun cachedFile(context: Context, seriesId: String, bookId: String, url: String): File? {
+        val file = cacheFile(context.cacheDir, seriesId, bookId, url)
+        val bookFile = cacheFile(context.cacheDir, bookId, url)
+        val legacyFile = cacheFile(context, url)
+        return listOf(file, bookFile, legacyFile).firstOrNull { it.isFile && it.length() > 0L }?.also {
+            it.setLastModified(System.currentTimeMillis())
+        }
+    }
+
+    fun hasCachedFile(context: Context, url: String): Boolean {
+        val file = cacheFile(context, url)
+        return file.isFile && file.length() > 0L
+    }
+
+    fun hasCachedFile(context: Context, bookId: String, url: String): Boolean {
+        val file = cacheFile(context.cacheDir, bookId, url)
+        val legacyFile = cacheFile(context, url)
+        return file.isFile && file.length() > 0L || legacyFile.isFile && legacyFile.length() > 0L
+    }
+
+    fun hasCachedFile(context: Context, seriesId: String, bookId: String, url: String): Boolean {
+        val file = cacheFile(context.cacheDir, seriesId, bookId, url)
+        val bookFile = cacheFile(context.cacheDir, bookId, url)
+        val legacyFile = cacheFile(context, url)
+        return file.isFile && file.length() > 0L ||
+            bookFile.isFile && bookFile.length() > 0L ||
+            legacyFile.isFile && legacyFile.length() > 0L
+    }
+
     fun entry(context: Context, url: String): Entry {
         val file = cacheFile(context, url)
+        val tempFile = File(file.parentFile, "${file.name}.${System.nanoTime()}.tmp")
+        return Entry(url = url, file = file, tempFile = tempFile)
+    }
+
+    fun entry(context: Context, bookId: String, url: String): Entry {
+        val file = cacheFile(context.cacheDir, bookId, url)
+        val tempFile = File(file.parentFile, "${file.name}.${System.nanoTime()}.tmp")
+        return Entry(url = url, file = file, tempFile = tempFile)
+    }
+
+    fun entry(context: Context, seriesId: String, bookId: String, url: String): Entry {
+        val file = cacheFile(context.cacheDir, seriesId, bookId, url)
         val tempFile = File(file.parentFile, "${file.name}.${System.nanoTime()}.tmp")
         return Entry(url = url, file = file, tempFile = tempFile)
     }
@@ -56,11 +105,50 @@ object ReaderPageCache {
         cacheDir(context).deleteRecursively()
     }
 
+    fun clearBook(context: Context, bookId: String) {
+        clearBook(context.cacheDir, bookId)
+    }
+
+    fun clearBook(cacheDir: File, bookId: String) {
+        if (bookId.isBlank()) return
+        val bookHash = sanitizeId(bookId)
+        readerPageCacheDir(cacheDir)
+            .listFiles { file ->
+                file.isFile && (
+                    file.name.startsWith("$bookHash-") ||
+                        file.name.contains("-$bookHash-")
+                    )
+            }
+            .orEmpty()
+            .forEach { it.delete() }
+    }
+
+    fun clearSeries(context: Context, seriesId: String) {
+        clearSeries(context.cacheDir, seriesId)
+    }
+
+    fun clearSeries(cacheDir: File, seriesId: String) {
+        if (seriesId.isBlank()) return
+        val prefix = "${sanitizeId(seriesId)}-"
+        readerPageCacheDir(cacheDir)
+            .listFiles { file -> file.isFile && file.name.startsWith(prefix) }
+            .orEmpty()
+            .forEach { it.delete() }
+    }
+
     fun size(context: Context): Long =
         cacheDir(context)
             .walkTopDown()
             .filter { it.isFile }
             .sumOf { it.length() }
+
+    fun cacheFile(cacheDir: File, bookId: String, url: String): File {
+        return File(readerPageCacheDir(cacheDir), "${sanitizeId(bookId)}-${sha256(url)}")
+    }
+
+    fun cacheFile(cacheDir: File, seriesId: String, bookId: String, url: String): File {
+        return File(readerPageCacheDir(cacheDir), "${sanitizeId(seriesId)}-${sanitizeId(bookId)}-${sha256(url)}")
+    }
 
     private fun cacheFile(context: Context, url: String): File {
         return File(cacheDir(context), sha256(url))
@@ -86,6 +174,12 @@ object ReaderPageCache {
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
+    private fun sanitizeId(id: String): String =
+        sha256(id).take(16)
+
     private fun cacheDir(context: Context): File =
         File(context.cacheDir, "reader_page_cache")
+
+    private fun readerPageCacheDir(cacheDir: File): File =
+        File(cacheDir, "reader_page_cache")
 }

@@ -1,0 +1,92 @@
+package fail.tiger.komgarot.ui.reader
+
+import android.content.Context
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import coil.size.Size
+import fail.tiger.komgarot.data.local.ReaderPageCache
+import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
+
+fun readerPageMemoryCacheKey(
+    url: String,
+    allowHardware: Boolean,
+    originalSize: Boolean,
+    cacheVersion: Int = 0
+): String {
+    val versionSegment = if (cacheVersion > 0) ":v$cacheVersion" else ""
+    return "reader-page:${if (originalSize) "original" else "display"}:${if (allowHardware) "hardware" else "software"}$versionSegment:$url"
+}
+
+fun readerPageDiskCacheKey(url: String): String = "reader-page:$url"
+
+fun shouldShowReaderPageLoadingPlaceholder(isLocalCacheHit: Boolean, hasPreviousPainter: Boolean): Boolean =
+    !isLocalCacheHit && !hasPreviousPainter
+
+fun readerPageRequest(
+    context: Context,
+    url: String,
+    seriesId: String? = null,
+    bookId: String? = null,
+    cacheVersion: Int = 0,
+    allowHardware: Boolean = false,
+    originalSize: Boolean = false,
+    retryKey: Int = 0,
+    progressListener: ImageDownloadProgressListener? = null,
+    listener: ImageRequest.Listener? = null
+): ImageRequest {
+    val cachedFile = when {
+        !seriesId.isNullOrBlank() && !bookId.isNullOrBlank() -> ReaderPageCache.cachedFile(context, seriesId, bookId, url)
+        !bookId.isNullOrBlank() -> ReaderPageCache.cachedFile(context, bookId, url)
+        else -> ReaderPageCache.cachedFile(context, url)
+    }
+    val data = cachedFile ?: url
+    val memoryKey = readerPageMemoryCacheKey(url, allowHardware, originalSize, cacheVersion)
+    val builder = ImageRequest.Builder(context)
+        .data(data)
+        .memoryCacheKey(memoryKey)
+        .placeholderMemoryCacheKey(memoryKey)
+        .diskCacheKey(readerPageDiskCacheKey(url))
+        .setHeader("Accept", "image/*,*/*;q=0.8")
+        .setParameter("reader_retry_key", retryKey, memoryCacheKey = null)
+        .memoryCachePolicy(CachePolicy.ENABLED)
+        .diskCachePolicy(CachePolicy.DISABLED)
+        .networkCachePolicy(if (cachedFile == null) CachePolicy.ENABLED else CachePolicy.DISABLED)
+        .allowHardware(allowHardware)
+        .allowRgb565(!originalSize)
+        .apply {
+            if (originalSize) {
+                size(Size.ORIGINAL)
+            }
+            if (listener != null) {
+                this.listener(listener)
+            }
+        }
+    if (cachedFile == null) {
+        builder.tag(
+            ReaderPageCache.Entry::class.java,
+            when {
+                !seriesId.isNullOrBlank() && !bookId.isNullOrBlank() -> ReaderPageCache.entry(context, seriesId, bookId, url)
+                !bookId.isNullOrBlank() -> ReaderPageCache.entry(context, bookId, url)
+                else -> ReaderPageCache.entry(context, url)
+            }
+        )
+        if (progressListener != null) {
+            builder.tag(ImageDownloadProgressListener::class.java, progressListener)
+        }
+    }
+    return builder.build()
+}
+
+fun readerPagerActualPreloadRange(
+    pagerPages: List<ReaderPagerPage>,
+    currentPagerIndex: Int,
+    preloadPages: Int
+): List<Int> {
+    val from = (currentPagerIndex - 1).coerceAtLeast(0)
+    val to = (currentPagerIndex + preloadPages).coerceAtMost(pagerPages.lastIndex)
+    if (from > to) return emptyList()
+
+    return (from..to)
+        .filter { it != currentPagerIndex }
+        .mapNotNull { index -> (pagerPages.getOrNull(index) as? ReaderPagerPage.Actual)?.pageIndex }
+}

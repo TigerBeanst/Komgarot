@@ -1,14 +1,15 @@
 package fail.tiger.komgarot.ui.bookdetail
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
@@ -16,10 +17,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -27,9 +25,13 @@ import androidx.compose.ui.unit.dp
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
+import fail.tiger.komgarot.data.local.thumbnailCacheKey
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.ui.components.ErrorState
-import fail.tiger.komgarot.ui.components.ThumbnailImage
+import fail.tiger.komgarot.ui.components.FloatingDetailActions
+import fail.tiger.komgarot.ui.components.FloatingDetailIconButton
+import fail.tiger.komgarot.ui.components.ImmersiveDetailScaffold
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -56,14 +58,8 @@ fun BookDetailScreen(
     BackHandler { onBack() }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
-        },
-        containerColor = Color.Transparent
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         val serverUrl by prefs.serverUrl.collectAsState(initial = "")
         val thumbnailVersion = ThumbnailVersion.get(bookId)
@@ -84,179 +80,212 @@ fun BookDetailScreen(
             },
             modifier = Modifier.fillMaxSize()
         ) {
-        if (book == null && !vm.loading && vm.error != null) {
-            ErrorState(message = vm.error ?: "加载书籍详情失败", onRetry = { vm.load(bookId) })
-        } else {
-        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-            ThumbnailImage(
-                url = thumbnailUrl,
-                cacheKey = "book-thumb:$bookId:$thumbnailVersion",
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().height(330.dp)
-            )
-            Box(
-                Modifier.fillMaxWidth().height(330.dp).background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.2f),
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                            MaterialTheme.colorScheme.surface
-                        ),
-                        startY = 200f
-                    )
-                )
-            )
-
-            Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(top = 180.dp, start = 16.dp, end = 16.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Card(shape = RoundedCornerShape(6.dp), modifier = Modifier.width(120.dp)) {
-                    Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
-                        ThumbnailImage(
-                            url = thumbnailUrl,
-                            cacheKey = "book-thumb:$bookId:$thumbnailVersion",
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+            if (book == null && !vm.loading && vm.error != null) {
+                ErrorState(message = vm.error ?: "加载书籍详情失败", onRetry = { vm.load(bookId) })
+            } else {
+                val context = LocalContext.current
+                val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                ImmersiveDetailScaffold(
+                    backgroundImageUrl = thumbnailUrl,
+                    backgroundImageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Book(bookId)),
+                    coverImageUrl = thumbnailUrl,
+                    coverImageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Book(bookId)),
+                    contentDescription = bookName,
+                    padding = padding,
+                    actions = {
+                        FloatingDetailActions(
+                            onBack = onBack,
+                            backIcon = {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = stringResource(R.string.back),
+                                    tint = Color.White
+                                )
+                            },
+                            trailingActions = {
+                                FloatingDetailIconButton(onClick = { onMetadataClick(bookId) }) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "编辑元数据",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
                         )
-                        Box(
-                            Modifier.fillMaxWidth().align(Alignment.BottomStart)
-                                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.75f))))
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
-                        ) {
-                            Column {
-                                book?.readProgress?.let { progress ->
-                                    if (!progress.completed && progress.page > 0) {
-                                        Text(
-                                            pluralStringResource(
-                                                R.plurals.pages_remaining,
-                                                pageCount - progress.page,
-                                                pageCount - progress.page
-                                            ),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White.copy(alpha = 0.7f)
-                                        )
-                                        LinearProgressIndicator(
-                                            progress = { progress.page.toFloat() / pageCount },
-                                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp).height(2.dp),
-                                            color = Color.White,
-                                            trackColor = Color.White.copy(alpha = 0.3f)
-                                        )
-                                    }
+                    },
+                    titleContent = {
+                        Text(
+                            book?.metadata?.title?.ifEmpty { bookName } ?: bookName,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            pluralStringResource(R.plurals.pages_count, pageCount, pageCount),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        book?.readProgress?.let { progress ->
+                            if (!progress.completed && progress.page > 0 && pageCount > 0) {
+                                Text(
+                                    pluralStringResource(
+                                        R.plurals.pages_remaining,
+                                        pageCount - progress.page,
+                                        pageCount - progress.page
+                                    ),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                LinearProgressIndicator(
+                                    progress = { progress.page.toFloat() / pageCount },
+                                    modifier = Modifier.fillMaxWidth().height(3.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            "ID: $bookId",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable {
+                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("id", bookId))
+                                android.widget.Toast.makeText(context, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        BookDetailReadingActions(
+                            hasReadProgress = book?.readProgress != null,
+                            onReadClick = { onReadClick(bookId, true) },
+                            onIncognitoReadClick = { onReadClick(bookId, false) }
+                        )
+                    },
+                    bodyContent = {
+                        BookDetailReadStatusActions(
+                            canMarkUnread = book?.readProgress != null,
+                            canMarkRead = book != null,
+                            onMarkUnread = { vm.markUnread() },
+                            onMarkRead = { vm.markRead() }
+                        )
+
+                        HorizontalDivider()
+
+                        if (!meta?.authors.isNullOrEmpty()) {
+                            meta!!.authors.forEach { author ->
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        translateAuthorRole(context, author.role),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        author.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.clickable { onAuthorClick(author.name, author.role) }
+                                    )
                                 }
                             }
                         }
+
+                        if (!meta?.tags.isNullOrEmpty()) {
+                            InfoRow(stringResource(R.string.tags, "").dropLast(2), meta!!.tags.joinToString(", "))
+                        }
+
+                        HorizontalDivider()
+
+                        if (book != null) {
+                            InfoRow(stringResource(R.string.file_size), formatFileSize(book.sizeBytes))
+                            InfoRow(stringResource(R.string.file_format), book.media.mediaType ?: stringResource(R.string.unknown))
+                            InfoRow(stringResource(R.string.file_source), book.url ?: stringResource(R.string.unknown))
+                            if (book.created != null) InfoRow(stringResource(R.string.created_at), formatDateTime(book.created))
+                            if (book.fileLastModified != null) InfoRow(stringResource(R.string.last_modified), formatDateTime(book.fileLastModified))
+                        }
+                        if (meta != null && meta.summary.isNotEmpty()) {
+                            Text(stringResource(R.string.summary), style = MaterialTheme.typography.titleMedium)
+                            Text(meta.summary, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
-                }
-                Column(
-                    Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(bookName, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-                    Text(pluralStringResource(R.plurals.pages_count, pageCount, pageCount), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                    meta?.authors?.firstOrNull()?.let {
-                        Text(stringResource(R.string.author, it.name), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                }
+                )
             }
+        }
+    }
+}
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { onReadClick(bookId, true) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(stringResource(if (book?.readProgress != null) R.string.continue_reading else R.string.read))
-                }
-                OutlinedButton(
-                    onClick = { onReadClick(bookId, false) },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(stringResource(R.string.incognito_reading))
-                }
-            }
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { vm.markUnread() },
-                    enabled = book?.readProgress != null,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("标记未读")
-                }
-                OutlinedButton(
-                    onClick = { vm.markRead() },
-                    enabled = book != null,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("标记已读")
-                }
-            }
-
-            OutlinedButton(
-                onClick = { onMetadataClick(bookId) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("编辑元数据")
-            }
-
-            HorizontalDivider()
-
-            val context = LocalContext.current
-            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+@Composable
+private fun BookDetailReadingActions(
+    hasReadProgress: Boolean,
+    onReadClick: () -> Unit,
+    onIncognitoReadClick: () -> Unit
+) {
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Button(
+            onClick = onReadClick,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+            shape = MaterialTheme.shapes.large,
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp, pressedElevation = 1.dp)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
             Text(
-                "ID: $bookId",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clickable {
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("id", bookId))
-                    android.widget.Toast.makeText(context, "已复制", android.widget.Toast.LENGTH_SHORT).show()
-                }
+                stringResource(if (hasReadProgress) R.string.continue_reading else R.string.read),
+                style = MaterialTheme.typography.titleSmall
             )
-            if (!meta?.authors.isNullOrEmpty()) {
-                for (author in meta!!.authors) {
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(translateAuthorRole(context, author.role), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            author.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable { onAuthorClick(author.name, author.role) }
-                        )
-                    }
-                }
-            }
-
-            if (!meta?.tags.isNullOrEmpty()) {
-                InfoRow(stringResource(R.string.tags, "").dropLast(2), meta!!.tags.joinToString(", "))
-            }
-
-            HorizontalDivider()
-
-            if (book != null) {
-                InfoRow(stringResource(R.string.file_size), formatFileSize(book.sizeBytes))
-                InfoRow(stringResource(R.string.file_format), book.media.mediaType ?: stringResource(R.string.unknown))
-                InfoRow(stringResource(R.string.file_source), book.url ?: stringResource(R.string.unknown))
-                if (book.created != null) InfoRow(stringResource(R.string.created_at), formatDateTime(book.created))
-                if (book.fileLastModified != null) InfoRow(stringResource(R.string.last_modified), formatDateTime(book.fileLastModified))
-            }
-            if (meta != null && meta.summary.isNotEmpty()) {
-                Text(stringResource(R.string.summary), style = MaterialTheme.typography.titleMedium)
-                Text(meta.summary, style = MaterialTheme.typography.bodyMedium)
-            }
         }
-        } // Box
+        FilledTonalButton(
+            onClick = onIncognitoReadClick,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            shape = MaterialTheme.shapes.large,
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+        ) {
+            Icon(Icons.Default.VisibilityOff, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                stringResource(R.string.incognito_reading),
+                style = MaterialTheme.typography.labelLarge
+            )
         }
-        } // PullToRefreshBox
+    }
+}
+
+@Composable
+private fun BookDetailReadStatusActions(
+    canMarkUnread: Boolean,
+    canMarkRead: Boolean,
+    onMarkUnread: () -> Unit,
+    onMarkRead: () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            stringResource(R.string.reading_status),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(
+            onClick = onMarkUnread,
+            enabled = canMarkUnread,
+            modifier = Modifier.heightIn(min = 36.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(stringResource(R.string.mark_unread))
+        }
+        TextButton(
+            onClick = onMarkRead,
+            enabled = canMarkRead,
+            modifier = Modifier.heightIn(min = 36.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Icon(Icons.Default.Done, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(stringResource(R.string.mark_read))
+        }
     }
 }
 
@@ -265,19 +294,6 @@ private fun InfoRow(label: String, value: String) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-    }
-}
-
-@Composable
-private fun ClickableInfoRow(label: String, value: String, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.clickable(onClick = onClick)
-        )
     }
 }
 

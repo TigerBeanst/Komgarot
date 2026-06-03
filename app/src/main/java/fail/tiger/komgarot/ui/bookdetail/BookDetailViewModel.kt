@@ -9,14 +9,15 @@ import androidx.lifecycle.viewModelScope
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
-import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.data.repository.SeriesRepository
 import kotlinx.coroutines.launch
 
 class BookDetailViewModel(
     private val bookRepo: BookRepository,
-    private val seriesRepo: SeriesRepository
+    private val seriesRepo: SeriesRepository,
+    private val imageCacheInvalidator: ImageCacheInvalidator
 ) : ViewModel() {
     var book by mutableStateOf<BookDto?>(null)
     var series by mutableStateOf<SeriesDto?>(null)
@@ -43,9 +44,9 @@ class BookDetailViewModel(
     }
 
     fun refresh() {
+        imageCacheInvalidator.invalidateBook(currentBookId, book?.seriesId)
         book = null
         metadata = null
-        ThumbnailVersion.bump(currentBookId)
         load(currentBookId)
     }
 
@@ -67,9 +68,10 @@ class BookDetailViewModel(
 
     class Factory(
         private val bookRepo: BookRepository,
-        private val seriesRepo: SeriesRepository
+        private val seriesRepo: SeriesRepository,
+        private val imageCacheInvalidator: ImageCacheInvalidator
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            BookDetailViewModel(bookRepo, seriesRepo) as T
+            BookDetailViewModel(bookRepo, seriesRepo, imageCacheInvalidator) as T
     }
 }

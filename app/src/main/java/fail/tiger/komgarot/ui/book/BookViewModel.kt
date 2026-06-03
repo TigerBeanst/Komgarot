@@ -6,16 +6,20 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.data.repository.SeriesRepository
 import fail.tiger.komgarot.ui.state.PagedListState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class BookViewModel(
     private val bookRepo: BookRepository,
-    private val seriesRepo: SeriesRepository
+    private val seriesRepo: SeriesRepository,
+    private val imageCacheInvalidator: ImageCacheInvalidator
 ) : ViewModel() {
     private val paging = PagedListState<BookDto, String>(
         keySelector = { it.id },
@@ -47,7 +51,9 @@ class BookViewModel(
     }
 
     fun refresh() {
+        imageCacheInvalidator.invalidateSeries(seriesId, books.map { it.id })
         paging.reset()
+        refreshAllKnownBookThumbnails()
         loadMore()
     }
 
@@ -57,11 +63,25 @@ class BookViewModel(
         }
     }
 
+    private fun refreshAllKnownBookThumbnails() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                var page = 0
+                do {
+                    val result = bookRepo.getBooks(seriesId, page)
+                    imageCacheInvalidator.invalidateBookCaches(result.content.map { it.id })
+                    page++
+                } while (page < result.totalPages)
+            }
+        }
+    }
+
     class Factory(
         private val bookRepo: BookRepository,
-        private val seriesRepo: SeriesRepository
+        private val seriesRepo: SeriesRepository,
+        private val imageCacheInvalidator: ImageCacheInvalidator
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            BookViewModel(bookRepo, seriesRepo) as T
+            BookViewModel(bookRepo, seriesRepo, imageCacheInvalidator) as T
     }
 }
