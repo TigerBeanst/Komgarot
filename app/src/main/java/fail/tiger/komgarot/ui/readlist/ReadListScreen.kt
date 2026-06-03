@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
+import fail.tiger.komgarot.data.local.thumbnailCacheKey
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.ReadListDto
@@ -206,7 +208,7 @@ fun ReadListDetailScreen(
                                 title = book.metadata.title.ifEmpty { book.name },
                                 subtitle = book.seriesTitle ?: book.metadata.number,
                                 imageUrl = KomgaUrls.bookThumbnail(serverUrl, book.id, thumbnailVersion),
-                                imageCacheKey = "book-thumb:${book.id}:$thumbnailVersion",
+                                imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Book(book.id)),
                                 progress = book.readProgress?.takeIf { !it.completed && book.media.pagesCount > 0 }?.let {
                                     it.page.toFloat() / book.media.pagesCount
                                 },
@@ -253,15 +255,16 @@ private fun ReadListItem(readList: ReadListDto, serverUrl: String, onClick: () -
     val thumbnailVersion = ThumbnailVersion.get(readList.id)
     ElevatedCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             PosterCard(
                 title = readList.name,
                 subtitle = "",
                 imageUrl = KomgaUrls.readListThumbnail(serverUrl, readList.id, thumbnailVersion),
-                imageCacheKey = "readlist-thumb:${readList.id}:$thumbnailVersion",
-                modifier = Modifier.width(72.dp),
+                imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.ReadList(readList.id)),
+                modifier = Modifier.width(68.dp),
                 onClick = onClick
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {

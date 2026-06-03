@@ -21,11 +21,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
+import fail.tiger.komgarot.data.local.thumbnailCacheKey
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.ui.components.AutoHideBottomBarOnLazyListScroll
 import fail.tiger.komgarot.ui.components.ErrorState
+import fail.tiger.komgarot.ui.components.SectionHeader
 import fail.tiger.komgarot.ui.components.ThumbnailImage
 import fail.tiger.komgarot.ui.components.topLevelScrollableContentPadding
 
@@ -170,7 +173,7 @@ private fun BookSection(
     onBookClick: (BookDto) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge)
+        SectionHeader(title = title)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(books, key = { it.id }) { book ->
                 BookPosterCard(book = book, serverUrl = serverUrl, onClick = { onBookClick(book) })
@@ -187,7 +190,7 @@ private fun SeriesSection(
     onSeriesClick: (String, Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge)
+        SectionHeader(title = title)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(series, key = { it.id }) { item ->
                 SeriesPosterCard(item = item, serverUrl = serverUrl, onClick = { onSeriesClick(item.id, item.booksCount) })
@@ -208,7 +211,7 @@ private fun BookPosterCard(book: BookDto, serverUrl: String, onClick: () -> Unit
     ) {
         PosterImage(
             imageUrl = thumbnailUrl,
-            imageCacheKey = "book-thumb:${book.id}:$thumbnailVersion",
+            imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Book(book.id)),
             title = book.metadata.title.ifEmpty { book.name },
             subtitle = book.seriesTitle ?: book.metadata.number,
             progress = book.readProgress?.takeIf { !it.completed && book.media.pagesCount > 0 }?.let {
@@ -230,7 +233,7 @@ private fun SeriesPosterCard(item: SeriesDto, serverUrl: String, onClick: () -> 
     ) {
         PosterImage(
             imageUrl = thumbnailUrl,
-            imageCacheKey = "series-thumb:${item.id}:$thumbnailVersion",
+            imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(item.id)),
             title = item.metadata.title.ifEmpty { item.name },
             subtitle = "${item.booksCount} 本"
         )

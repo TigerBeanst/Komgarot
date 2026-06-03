@@ -36,6 +36,8 @@ import fail.tiger.komgarot.ui.components.ErrorState
 import fail.tiger.komgarot.ui.components.ThumbnailImage
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
+import fail.tiger.komgarot.data.local.thumbnailCacheKey
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.repository.SeriesFilters
 import fail.tiger.komgarot.ui.components.AutoHideBottomBarOnLazyGridScroll
@@ -248,6 +250,15 @@ fun SeriesScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            SeriesStatusChips(
+                                sortField = sortField,
+                                sortDirection = sortDirection,
+                                searchQuery = vm.displaySearchQuery,
+                                searchByAuthor = vm.searchByAuthor,
+                                activeFilterCount = vm.activeFilterCount
+                            )
+                        }
                         items(vm.series, key = { it.id }) { series ->
                         val thumbnailVersion = ThumbnailVersion.get(series.id)
                         val thumbnailUrl = remember(serverUrl, series.id, thumbnailVersion) {
@@ -260,7 +271,7 @@ fun SeriesScreen(
                             Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
                                 ThumbnailImage(
                                     url = thumbnailUrl,
-                                    cacheKey = "series-thumb:${series.id}:$thumbnailVersion",
+                                    cacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(series.id)),
                                     contentDescription = series.name,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -327,6 +338,54 @@ fun SeriesScreen(
                 showFilterSheet = false
             }
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SeriesStatusChips(
+    sortField: String,
+    sortDirection: String,
+    searchQuery: String,
+    searchByAuthor: Boolean,
+    activeFilterCount: Int
+) {
+    val sortLabel = when (sortField) {
+        "metadata.titleSort" -> "名称"
+        "created" -> "添加时间"
+        "lastModified" -> "更新时间"
+        "lastReadDate" -> "阅读日期"
+        "metadata.releaseDate" -> "发布日期"
+        "random" -> "随机"
+        else -> sortField
+    }
+    val showSort = sortField != "metadata.titleSort" || sortDirection != "asc"
+    val hasStatus = showSort || searchQuery.isNotBlank() || activeFilterCount > 0
+    if (!hasStatus) return
+
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)
+    ) {
+        if (showSort) {
+            AssistChip(
+                onClick = {},
+                label = { Text("排序：$sortLabel ${if (sortDirection == "asc") "↑" else "↓"}") }
+            )
+        }
+        if (searchQuery.isNotBlank()) {
+            AssistChip(
+                onClick = {},
+                label = { Text("${if (searchByAuthor) "作者" else "搜索"}：$searchQuery") }
+            )
+        }
+        if (activeFilterCount > 0) {
+            AssistChip(
+                onClick = {},
+                label = { Text("筛选：$activeFilterCount 项") }
+            )
+        }
     }
 }
 

@@ -29,6 +29,9 @@
     <string name="read">阅读</string>
     <string name="continue_reading">继续阅读</string>
     <string name="incognito_reading">无痕阅读</string>
+    <string name="reading_status">阅读状态</string>
+    <string name="mark_read">标记已读</string>
+    <string name="mark_unread">标记未读</string>
     <plurals name="pages_count">
         <item quantity="other">%d 页</item>
     </plurals>

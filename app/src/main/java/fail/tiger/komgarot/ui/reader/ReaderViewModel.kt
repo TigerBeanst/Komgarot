@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.PageDto
@@ -37,7 +38,11 @@ private fun readerPageUrl(serverUrl: String, bookId: String, page: PageDto): Str
     return if (page.mediaType.lowercase() in directImageMediaTypes) url else "$url?convert=png"
 }
 
-class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferences) : ViewModel() {
+class ReaderViewModel(
+    private val repo: BookRepository,
+    val prefs: AuthPreferences,
+    private val imageCacheInvalidator: ImageCacheInvalidator
+) : ViewModel() {
     var pageUrls by mutableStateOf<List<String>>(emptyList())
     var currentPage by mutableIntStateOf(0)
     var mode by mutableStateOf(ReadingMode.PAGER)
@@ -134,7 +139,7 @@ class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferenc
     fun uploadBookThumbnail(imageBytes: ByteArray, onDone: (Boolean) -> Unit) {
         viewModelScope.launch {
             val ok = runCatching { repo.uploadBookThumbnail(currentBookId, imageBytes, "image/jpeg") }.isSuccess
-            if (ok) ThumbnailVersion.bump(currentBookId)
+            if (ok) imageCacheInvalidator.invalidateBookThumbnail(currentBookId)
             onDone(ok)
         }
     }
@@ -142,12 +147,17 @@ class ReaderViewModel(private val repo: BookRepository, val prefs: AuthPreferenc
     fun uploadSeriesThumbnail(imageBytes: ByteArray, onDone: (Boolean) -> Unit) {
         viewModelScope.launch {
             val ok = runCatching { repo.uploadSeriesThumbnail(currentSeriesId, imageBytes, "image/jpeg") }.isSuccess
-            if (ok) ThumbnailVersion.bump(currentSeriesId)
+            if (ok) imageCacheInvalidator.invalidateSeriesThumbnail(currentSeriesId)
             onDone(ok)
         }
     }
 
-    class Factory(private val repo: BookRepository, private val prefs: AuthPreferences) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = ReaderViewModel(repo, prefs) as T
+    class Factory(
+        private val repo: BookRepository,
+        private val prefs: AuthPreferences,
+        private val imageCacheInvalidator: ImageCacheInvalidator
+    ) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            ReaderViewModel(repo, prefs, imageCacheInvalidator) as T
     }
 }

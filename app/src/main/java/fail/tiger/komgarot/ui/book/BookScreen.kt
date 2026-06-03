@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
@@ -24,9 +25,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
+import fail.tiger.komgarot.data.local.thumbnailCacheKey
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.ui.components.EmptyState
 import fail.tiger.komgarot.ui.components.ErrorState
+import fail.tiger.komgarot.ui.components.FloatingDetailActions
+import fail.tiger.komgarot.ui.components.FloatingDetailIconButton
+import fail.tiger.komgarot.ui.components.ImmersiveDetailBackground
+import fail.tiger.komgarot.ui.components.ImmersiveDetailDefaults
+import fail.tiger.komgarot.ui.components.ImmersiveDetailIdentityRow
 import fail.tiger.komgarot.ui.components.LazyGridScrollbar
 import fail.tiger.komgarot.ui.components.ThumbnailImage
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -71,23 +79,8 @@ fun BookScreen(
         }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        vm.series?.metadata?.title?.ifEmpty { vm.series?.name.orEmpty() }.orEmpty(),
-                        maxLines = 1
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
-        },
-        containerColor = Color.Transparent
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
@@ -103,38 +96,23 @@ fun BookScreen(
             },
             modifier = Modifier.fillMaxSize()
         ) {
-        if (vm.books.isEmpty() && !vm.loading && vm.error != null) {
-            ErrorState(message = vm.error ?: "加载书籍失败", onRetry = vm::refresh)
-        } else if (vm.books.isEmpty() && !vm.loading) {
-            EmptyState(message = "这个系列还没有书籍")
-        } else {
-        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-            vm.series?.let { series ->
-                val seriesThumbnailVersion = ThumbnailVersion.get(series.id)
-                val seriesThumbnailUrl = remember(serverUrl, series.id, seriesThumbnailVersion) {
-                    KomgaUrls.seriesThumbnail(serverUrl, series.id, seriesThumbnailVersion)
-                }
-                ThumbnailImage(
-                    url = seriesThumbnailUrl,
-                    cacheKey = "series-thumb:${series.id}:$seriesThumbnailVersion",
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().height(330.dp)
-                )
-                Box(
-                    Modifier.fillMaxWidth().height(330.dp).background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.2f),
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                                MaterialTheme.colorScheme.surface
-                            ),
-                            startY = 200f
+            if (vm.books.isEmpty() && !vm.loading && vm.error != null) {
+                ErrorState(message = vm.error ?: "加载书籍失败", onRetry = vm::refresh)
+            } else if (vm.books.isEmpty() && !vm.loading) {
+                EmptyState(message = "这个系列还没有书籍")
+            } else {
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+                    vm.series?.let { series ->
+                        val seriesThumbnailVersion = ThumbnailVersion.get(series.id)
+                        val seriesThumbnailUrl = remember(serverUrl, series.id, seriesThumbnailVersion) {
+                            KomgaUrls.seriesThumbnail(serverUrl, series.id, seriesThumbnailVersion)
+                        }
+                        ImmersiveDetailBackground(
+                            imageUrl = seriesThumbnailUrl,
+                            imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(series.id))
                         )
-                    )
-                )
-            }
-            Box(modifier = Modifier.fillMaxSize()) {
+                    }
+                    Box(modifier = Modifier.fillMaxSize()) {
                 LazyVerticalGrid(
                         columns = GridCells.Adaptive(104.dp),
                         state = listState,
@@ -143,24 +121,22 @@ fun BookScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        vm.series?.let { series ->
-                            val seriesThumbnailVersion = ThumbnailVersion.get(series.id)
-                            val seriesThumbnailUrl = remember(serverUrl, series.id, seriesThumbnailVersion) {
-                                KomgaUrls.seriesThumbnail(serverUrl, series.id, seriesThumbnailVersion)
-                            }
-                            Column(Modifier.fillMaxWidth().padding(top = padding.calculateTopPadding() + 180.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    ThumbnailImage(
-                                        url = seriesThumbnailUrl,
-                                        cacheKey = "series-thumb:${series.id}:$seriesThumbnailVersion",
-                                        contentDescription = null,
-                                        modifier = Modifier.width(120.dp).aspectRatio(0.7f).clip(RoundedCornerShape(6.dp)),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Column(
-                                        Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            vm.series?.let { series ->
+                                val seriesThumbnailVersion = ThumbnailVersion.get(series.id)
+                                val seriesThumbnailUrl = remember(serverUrl, series.id, seriesThumbnailVersion) {
+                                    KomgaUrls.seriesThumbnail(serverUrl, series.id, seriesThumbnailVersion)
+                                }
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = ImmersiveDetailDefaults.IdentityTopPadding),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    ImmersiveDetailIdentityRow(
+                                        coverImageUrl = seriesThumbnailUrl,
+                                        coverImageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(series.id)),
+                                        contentDescription = series.name
                                     ) {
                                         Text(
                                             series.metadata.title.ifEmpty { series.name },
@@ -170,27 +146,30 @@ fun BookScreen(
                                         Text(
                                             pluralStringResource(R.plurals.books_count, series.booksCount, series.booksCount),
                                             style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurface
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                        if (series.booksUnreadCount > 0) {
+                                            Text(
+                                                "${series.booksUnreadCount} 未读",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
                                         if (series.metadata.publisher.isNotEmpty()) {
                                             Text(
                                                 stringResource(R.string.publisher, series.metadata.publisher),
                                                 style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                         if (series.metadata.status.isNotEmpty()) {
                                             Text(
                                                 stringResource(R.string.status, series.metadata.status),
                                                 style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
-                                        TextButton(onClick = { onMetadataClick(series.id) }) {
-                                            Text("编辑系列元数据")
-                                        }
                                     }
-                                }
                                 if (series.metadata.summary.isNotEmpty()) {
                                     Text(stringResource(R.string.summary), style = MaterialTheme.typography.titleMedium)
                                     Text(series.metadata.summary, style = MaterialTheme.typography.bodyMedium)
@@ -209,7 +188,7 @@ fun BookScreen(
                                     }
                                 )
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                            }
+                                }
                         }
                     }
                     items(vm.books, key = { it.id }) { book ->
@@ -226,7 +205,7 @@ fun BookScreen(
                             Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
                                 ThumbnailImage(
                                     url = thumbnailUrl,
-                                    cacheKey = "book-thumb:${book.id}:$thumbnailVersion",
+                                    cacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Book(book.id)),
                                     contentDescription = book.name,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -272,9 +251,34 @@ fun BookScreen(
                         .fillMaxHeight()
                         .padding(end = 2.dp)
                 )
+                    }
+                    FloatingDetailActions(
+                        onBack = onBack,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        backIcon = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.back),
+                                tint = Color.White
+                            )
+                        },
+                        trailingActions = {
+                            vm.series?.let { series ->
+                                FloatingDetailIconButton(onClick = { onMetadataClick(series.id) }) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "编辑系列元数据",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    )
+                }
             }
-        } // Box
         }
-        } // PullToRefreshBox
     }
 }
