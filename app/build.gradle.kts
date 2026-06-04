@@ -1,6 +1,34 @@
+import fail.tiger.komgarot.build.GenerateReleaseVersionTask
+import fail.tiger.komgarot.build.ReleaseVersioning
+import fail.tiger.komgarot.build.ReleaseVersionState
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+val komgarotVersionBase = providers.gradleProperty("komgarotVersionBase")
+val releaseVersionFile = layout.buildDirectory.file("generated/komgarotReleaseVersion/release-version.properties")
+val generateReleaseVersion = tasks.register<GenerateReleaseVersionTask>("generateReleaseVersion") {
+    baseVersion.set(komgarotVersionBase)
+    epochSeconds.set(providers.systemProperty("komgarot.versionEpochSeconds").map(String::toLong))
+    stateFile.set(rootProject.layout.projectDirectory.file(".gradle/komgarot-release-version.properties"))
+    outputFile.set(releaseVersionFile)
+}
+
+fun releaseVersionStateProvider(): Provider<ReleaseVersionState> =
+    generateReleaseVersion.flatMap { it.outputFile }.map { file ->
+        ReleaseVersioning.readState(file.asFile)
+            ?: error("Release version state was not generated at ${file.asFile.absolutePath}")
+    }
+
+val releaseVersionName = releaseVersionStateProvider().map { it.versionName }
+val releaseVersionCode = releaseVersionStateProvider().map { it.versionCode }
+val releaseApkFileName = releaseVersionStateProvider().map { state ->
+    ReleaseVersioning.apkFileName(
+        versionName = state.versionName,
+        versionCode = state.versionCode,
+    )
 }
 
 android {
@@ -16,7 +44,7 @@ android {
         minSdk = 30
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = komgarotVersionBase.get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -34,6 +62,16 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionCode.set(releaseVersionCode)
+            output.versionName.set(releaseVersionName)
+            output.outputFileName.set(releaseApkFileName)
+        }
     }
 }
 
