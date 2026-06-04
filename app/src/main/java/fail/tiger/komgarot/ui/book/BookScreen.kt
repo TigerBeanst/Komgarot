@@ -52,6 +52,9 @@ fun BookScreen(
 ) {
     var hasNavigated by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val loadBooksFailed = stringResource(R.string.error_load_books_failed)
+    val emptyBooksInSeries = stringResource(R.string.empty_books_in_series)
+    val copied = stringResource(R.string.copied)
 
     LaunchedEffect(seriesId) { vm.init(seriesId) }
 
@@ -97,9 +100,9 @@ fun BookScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             if (vm.books.isEmpty() && !vm.loading && vm.error != null) {
-                ErrorState(message = vm.error ?: "加载书籍失败", onRetry = vm::refresh)
+                ErrorState(message = vm.error ?: loadBooksFailed, onRetry = vm::refresh)
             } else if (vm.books.isEmpty() && !vm.loading) {
-                EmptyState(message = "这个系列还没有书籍")
+                EmptyState(message = emptyBooksInSeries)
             } else {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
                     vm.series?.let { series ->
@@ -150,7 +153,7 @@ fun BookScreen(
                                         )
                                         if (series.booksUnreadCount > 0) {
                                             Text(
-                                                "${series.booksUnreadCount} 未读",
+                                                stringResource(R.string.unread_count, series.booksUnreadCount),
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
@@ -179,12 +182,12 @@ fun BookScreen(
                                 }
                                 val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
                                 Text(
-                                    "ID: ${series.id}",
+                                    stringResource(R.string.id_format, series.id),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.clickable {
                                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("id", series.id))
-                                        android.widget.Toast.makeText(context, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+                                        android.widget.Toast.makeText(context, copied, android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 )
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -223,7 +226,11 @@ fun BookScreen(
                                             maxLines = 1
                                         )
                                         Text(
-                                            "#${book.metadata.number} · ${book.media.pagesCount}页",
+                                            stringResource(
+                                                R.string.book_number_pages,
+                                                book.metadata.number,
+                                                stringResource(R.string.page_count_short, book.media.pagesCount)
+                                            ),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = Color.White.copy(alpha = 0.7f)
                                         )
@@ -268,11 +275,11 @@ fun BookScreen(
                         trailingActions = {
                             vm.series?.let { series ->
                                 FloatingDetailIconButton(onClick = { onMetadataClick(series.id) }) {
-                                    Icon(
-                                        Icons.Default.Edit,
-                                        contentDescription = "编辑系列元数据",
-                                        tint = Color.White
-                                    )
+                                        Icon(
+                                            Icons.Default.Edit,
+                                            contentDescription = stringResource(R.string.edit_series_metadata),
+                                            tint = Color.White
+                                        )
                                 }
                             }
                         }

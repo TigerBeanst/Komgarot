@@ -13,8 +13,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import fail.tiger.komgarot.R
 
 @Composable
 fun SectionHeader(
@@ -103,8 +105,8 @@ fun PosterCard(
 fun ConfirmActionDialog(
     title: String,
     text: String,
-    confirmText: String = "确认",
-    dismissText: String = "取消",
+    confirmText: String = stringResource(R.string.confirm),
+    dismissText: String = stringResource(R.string.cancel),
     destructive: Boolean = true,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit

@@ -6,20 +6,26 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.ReadListDto
 import fail.tiger.komgarot.data.repository.ReadListRepository
+import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import fail.tiger.komgarot.ui.state.PagedListState
 import kotlinx.coroutines.launch
 
-class ReadListViewModel(private val repo: ReadListRepository) : ViewModel() {
+class ReadListViewModel(
+    private val repo: ReadListRepository,
+    private val loadReadListsFailed: String,
+    private val loadReadListContentFailed: String
+) : ViewModel() {
     private val readListPaging = PagedListState<ReadListDto, String>(
         keySelector = { it.id },
-        fallbackErrorMessage = "加载阅读列表失败"
+        fallbackErrorMessage = loadReadListsFailed
     )
     private val bookPaging = PagedListState<BookDto, String>(
         keySelector = { it.id },
-        fallbackErrorMessage = "加载阅读列表内容失败"
+        fallbackErrorMessage = loadReadListContentFailed
     )
     val readLists = readListPaging.items
     val books = bookPaging.items
@@ -66,7 +72,7 @@ class ReadListViewModel(private val repo: ReadListRepository) : ViewModel() {
             selectedLoading = true
             repo.getReadList(id)
                 .onSuccess { selected = it }
-                .onFailure { selectedError = it.message?.takeIf { message -> message.isNotBlank() } ?: "加载阅读列表失败" }
+                .onFailure { selectedError = it.message?.takeIf { message -> message.isNotBlank() } ?: loadReadListsFailed }
             selectedLoading = false
             loadMoreBooks()
         }
@@ -100,7 +106,15 @@ class ReadListViewModel(private val repo: ReadListRepository) : ViewModel() {
         }
     }
 
-    class Factory(private val repo: ReadListRepository) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = ReadListViewModel(repo) as T
+    class Factory(
+        private val repo: ReadListRepository,
+        private val textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            ReadListViewModel(
+                repo,
+                textProvider.get(R.string.error_load_read_lists_failed),
+                textProvider.get(R.string.error_load_read_list_content_failed)
+            ) as T
     }
 }

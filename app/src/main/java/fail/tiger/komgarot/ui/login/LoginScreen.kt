@@ -6,9 +6,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import fail.tiger.komgarot.R
 
 @Composable
 fun LoginScreen(onSuccess: () -> Unit, vm: LoginViewModel) {
@@ -26,12 +28,12 @@ fun LoginScreen(onSuccess: () -> Unit, vm: LoginViewModel) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Komgarot", style = MaterialTheme.typography.headlineLarge)
+        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(32.dp))
         OutlinedTextField(
             value = url, onValueChange = { url = it },
-            label = { Text("Server URL") },
-            placeholder = { Text("https://komga.example.com") },
+            label = { Text(stringResource(R.string.login_server_url)) },
+            placeholder = { Text(stringResource(R.string.login_server_placeholder)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
@@ -39,14 +41,14 @@ fun LoginScreen(onSuccess: () -> Unit, vm: LoginViewModel) {
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = username, onValueChange = { username = it },
-            label = { Text("Username") },
+            label = { Text(stringResource(R.string.login_username)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = password, onValueChange = { password = it },
-            label = { Text("Password") },
+            label = { Text(stringResource(R.string.login_password)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
@@ -67,7 +69,7 @@ fun LoginScreen(onSuccess: () -> Unit, vm: LoginViewModel) {
             enabled = state !is LoginState.Loading && url.isNotBlank() && username.isNotBlank() && password.isNotBlank()
         ) {
             if (state is LoginState.Loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            else Text("Login")
+            else Text(stringResource(R.string.login_action))
         }
     }
 }

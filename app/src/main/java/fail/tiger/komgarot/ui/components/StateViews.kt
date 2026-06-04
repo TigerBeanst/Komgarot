@@ -16,8 +16,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import fail.tiger.komgarot.R
 
 @Composable
 fun ErrorState(
@@ -40,7 +42,7 @@ fun ErrorState(
         Button(onClick = onRetry) {
             Icon(Icons.Default.Refresh, contentDescription = null)
             Spacer(Modifier.width(8.dp))
-            Text("重试")
+            Text(stringResource(R.string.retry))
         }
     }
 }

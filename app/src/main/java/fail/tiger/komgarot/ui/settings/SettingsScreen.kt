@@ -8,9 +8,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import kotlinx.coroutines.Dispatchers
@@ -43,10 +45,10 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("设置") },
+                title = { Text(stringResource(R.string.settings)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 }
             )
@@ -54,13 +56,13 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
     ) { padding ->
         Column(Modifier.padding(padding)) {
             ListItem(
-                headlineContent = { Text("清除图片缓存") },
-                supportingContent = { Text(cacheSize.displayText) },
+                headlineContent = { Text(stringResource(R.string.settings_clear_image_cache)) },
+                supportingContent = { Text(cacheSize.displayText()) },
                 modifier = Modifier.clickable { showClearDialog = true }
             )
             ListItem(
-                headlineContent = { Text("始终无痕") },
-                supportingContent = { Text("阅读和继续阅读均不记录进度") },
+                headlineContent = { Text(stringResource(R.string.settings_always_incognito)) },
+                supportingContent = { Text(stringResource(R.string.settings_always_incognito_desc)) },
                 trailingContent = {
                     Switch(
                         checked = alwaysIncognito,
@@ -70,23 +72,27 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
                 modifier = Modifier.clickable { scope.launch { prefs.setAlwaysIncognito(!alwaysIncognito) } }
             )
             ListItem(
-                headlineContent = { Text("预加载页数") },
-                supportingContent = { Text("阅读时向后预加载 $preloadPages 页") },
+                headlineContent = { Text(stringResource(R.string.settings_preload_pages)) },
+                supportingContent = { Text(stringResource(R.string.settings_preload_pages_desc, preloadPages)) },
                 modifier = Modifier.clickable { showPreloadDialog = true }
             )
             ListItem(
-                headlineContent = { Text("阅读方向") },
-                supportingContent = { Text(if (readingDirection == "RTL") "从右向左翻页" else "从左向右翻页") },
+                headlineContent = { Text(stringResource(R.string.settings_reading_direction)) },
+                supportingContent = {
+                    Text(stringResource(if (readingDirection == "RTL") R.string.settings_reading_rtl_desc else R.string.settings_reading_ltr_desc))
+                },
                 modifier = Modifier.clickable { showReadingDialog = true }
             )
             ListItem(
-                headlineContent = { Text("页面适配") },
-                supportingContent = { Text(if (pageFit == "WIDTH") "适合宽度" else "完整显示页面") },
+                headlineContent = { Text(stringResource(R.string.settings_page_fit)) },
+                supportingContent = {
+                    Text(stringResource(if (pageFit == "WIDTH") R.string.settings_page_fit_width else R.string.settings_page_fit_fit))
+                },
                 modifier = Modifier.clickable { showFitDialog = true }
             )
             ListItem(
-                headlineContent = { Text("阅读时保持亮屏") },
-                supportingContent = { Text("打开阅读器时不自动息屏") },
+                headlineContent = { Text(stringResource(R.string.settings_keep_screen_on)) },
+                supportingContent = { Text(stringResource(R.string.settings_keep_screen_on_desc)) },
                 trailingContent = {
                     Switch(
                         checked = keepScreenOn,
@@ -97,8 +103,8 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
             )
             HorizontalDivider()
             ListItem(
-                headlineContent = { Text("应用锁定") },
-                supportingContent = { Text("进入应用时需要验证身份") },
+                headlineContent = { Text(stringResource(R.string.settings_app_lock)) },
+                supportingContent = { Text(stringResource(R.string.settings_app_lock_desc)) },
                 trailingContent = {
                     Switch(
                         checked = appLockEnabled,
@@ -109,8 +115,16 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
             )
             if (appLockEnabled) {
                 ListItem(
-                    headlineContent = { Text("锁定宽限时间") },
-                    supportingContent = { Text(if (appLockTimeout == 0) "每次回到应用都锁定" else "离开 $appLockTimeout 分钟后锁定") },
+                    headlineContent = { Text(stringResource(R.string.settings_lock_timeout)) },
+                    supportingContent = {
+                        Text(
+                            if (appLockTimeout == 0) {
+                                stringResource(R.string.settings_lock_every_time)
+                            } else {
+                                stringResource(R.string.settings_lock_after_minutes, appLockTimeout)
+                            }
+                        )
+                    },
                     modifier = Modifier.clickable { showLockTimeoutDialog = true }
                 )
             }
@@ -121,10 +135,16 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
         var sliderValue by remember { mutableFloatStateOf(appLockTimeout.toFloat()) }
         AlertDialog(
             onDismissRequest = { showLockTimeoutDialog = false },
-            title = { Text("锁定宽限时间") },
+            title = { Text(stringResource(R.string.settings_lock_timeout)) },
             text = {
                 Column {
-                    Text(if (sliderValue.toInt() == 0) "每次回到应用都锁定" else "离开 ${sliderValue.toInt()} 分钟后锁定")
+                    Text(
+                        if (sliderValue.toInt() == 0) {
+                            stringResource(R.string.settings_lock_every_time)
+                        } else {
+                            stringResource(R.string.settings_lock_after_minutes, sliderValue.toInt())
+                        }
+                    )
                     Slider(
                         value = sliderValue,
                         onValueChange = { sliderValue = it },
@@ -137,10 +157,10 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
                 TextButton(onClick = {
                     scope.launch { prefs.setAppLockTimeout(sliderValue.toInt()) }
                     showLockTimeoutDialog = false
-                }) { Text("确定") }
+                }) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
-                TextButton(onClick = { showLockTimeoutDialog = false }) { Text("取消") }
+                TextButton(onClick = { showLockTimeoutDialog = false }) { Text(stringResource(R.string.cancel)) }
             }
         )
     }
@@ -149,10 +169,10 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
         var sliderValue by remember { mutableFloatStateOf(preloadPages.toFloat()) }
         AlertDialog(
             onDismissRequest = { showPreloadDialog = false },
-            title = { Text("预加载页数") },
+            title = { Text(stringResource(R.string.settings_preload_pages)) },
             text = {
                 Column {
-                    Text("向后预加载 ${sliderValue.toInt()} 页")
+                    Text(stringResource(R.string.settings_preload_slider, sliderValue.toInt()))
                     Slider(
                         value = sliderValue,
                         onValueChange = { sliderValue = it },
@@ -165,10 +185,10 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
                 TextButton(onClick = {
                     scope.launch { prefs.setPreloadPages(sliderValue.toInt()) }
                     showPreloadDialog = false
-                }) { Text("确定") }
+                }) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
-                TextButton(onClick = { showPreloadDialog = false }) { Text("取消") }
+                TextButton(onClick = { showPreloadDialog = false }) { Text(stringResource(R.string.cancel)) }
             }
         )
     }
@@ -176,14 +196,14 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
     if (showReadingDialog) {
         AlertDialog(
             onDismissRequest = { showReadingDialog = false },
-            title = { Text("阅读方向") },
+            title = { Text(stringResource(R.string.settings_reading_direction)) },
             text = {
                 Column {
-                    RadioOption("LTR", "从左向右", readingDirection) {
+                    RadioOption("LTR", stringResource(R.string.settings_reading_ltr), readingDirection) {
                         scope.launch { prefs.setReadingDirection(it) }
                         showReadingDialog = false
                     }
-                    RadioOption("RTL", "从右向左", readingDirection) {
+                    RadioOption("RTL", stringResource(R.string.settings_reading_rtl), readingDirection) {
                         scope.launch { prefs.setReadingDirection(it) }
                         showReadingDialog = false
                     }
@@ -196,14 +216,14 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
     if (showFitDialog) {
         AlertDialog(
             onDismissRequest = { showFitDialog = false },
-            title = { Text("页面适配") },
+            title = { Text(stringResource(R.string.settings_page_fit)) },
             text = {
                 Column {
-                    RadioOption("FIT", "完整显示页面", pageFit) {
+                    RadioOption("FIT", stringResource(R.string.settings_page_fit_fit), pageFit) {
                         scope.launch { prefs.setPageFit(it) }
                         showFitDialog = false
                     }
-                    RadioOption("WIDTH", "适合宽度", pageFit) {
+                    RadioOption("WIDTH", stringResource(R.string.settings_page_fit_width), pageFit) {
                         scope.launch { prefs.setPageFit(it) }
                         showFitDialog = false
                     }
@@ -216,8 +236,8 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text("清除缓存") },
-            text = { Text("确定要清除所有图片缓存吗？") },
+            title = { Text(stringResource(R.string.settings_clear_cache_title)) },
+            text = { Text(stringResource(R.string.settings_clear_cache_message)) },
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
@@ -228,12 +248,12 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
                         showClearDialog = false
                     }
                 }) {
-                    Text("确定")
+                    Text(stringResource(R.string.confirm))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) {
-                    Text("取消")
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -266,8 +286,14 @@ private data class CacheSizeUi(
     val imageBytes: Long,
     val readerBytes: Long
 ) {
-    val displayText: String
-        get() = "总计: ${formatFileSize(imageBytes + readerBytes)} · 封面: ${formatFileSize(imageBytes)} · 阅读页: ${formatFileSize(readerBytes)}"
+    @Composable
+    fun displayText(): String =
+        stringResource(
+            R.string.settings_cache_size,
+            formatFileSize(imageBytes + readerBytes),
+            formatFileSize(imageBytes),
+            formatFileSize(readerBytes)
+        )
 
     companion object {
         fun loading(): CacheSizeUi = CacheSizeUi(imageBytes = -1L, readerBytes = -1L)
@@ -275,7 +301,7 @@ private data class CacheSizeUi(
 }
 
 private fun formatFileSize(bytes: Long): String {
-    if (bytes < 0) return "计算中..."
+    if (bytes < 0) return ""
     return when {
         bytes < 1024 -> "$bytes B"
         bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024.0)

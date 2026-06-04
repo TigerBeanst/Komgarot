@@ -22,7 +22,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
 import fail.tiger.komgarot.data.local.thumbnailCacheKey
@@ -52,19 +54,24 @@ fun CollectionScreen(
     var query by remember { mutableStateOf(vm.search) }
     val listState = rememberLazyListState()
     AutoHideBottomBarOnLazyListScroll(listState, onBottomBarVisibleChange)
+    val collectionsTitle = stringResource(R.string.collections)
+    val newCollection = stringResource(R.string.new_collection)
+    val searchCollections = stringResource(R.string.search_collections)
+    val loadCollectionsFailed = stringResource(R.string.error_load_collections_failed)
+    val emptyCollections = stringResource(R.string.empty_collections)
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("集合") },
+                title = { Text(collectionsTitle) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { showEditor = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "新建集合")
+                        Icon(Icons.Default.Add, contentDescription = newCollection)
                     }
                 }
             )
@@ -83,15 +90,15 @@ fun CollectionScreen(
                         vm.updateSearch(it)
                     },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    label = { Text("搜索集合") },
+                    label = { Text(searchCollections) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(16.dp)
                 )
                 when {
                     vm.collections.isEmpty() && !vm.loading && vm.error != null ->
-                        ErrorState(message = vm.error ?: "加载集合失败", onRetry = vm::refresh)
+                        ErrorState(message = vm.error ?: loadCollectionsFailed, onRetry = vm::refresh)
                     vm.collections.isEmpty() && !vm.loading ->
-                        EmptyState(message = "没有集合")
+                        EmptyState(message = emptyCollections)
                     else ->
                         LazyColumn(
                             state = listState,
@@ -142,6 +149,15 @@ fun CollectionDetailScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val gridState = rememberLazyGridState()
+    val collectionTitle = stringResource(R.string.collection)
+    val editCollection = stringResource(R.string.edit_collection)
+    val deleteCollection = stringResource(R.string.delete_collection)
+    val loadCollectionsFailed = stringResource(R.string.error_load_collections_failed)
+    val emptyCollectionSeries = stringResource(R.string.empty_collection_series)
+    val saved = stringResource(R.string.saved)
+    val saveFailed = stringResource(R.string.save_failed)
+    val deleted = stringResource(R.string.deleted)
+    val deleteFailed = stringResource(R.string.delete_failed)
 
     LaunchedEffect(gridState, vm) {
         snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
@@ -153,18 +169,18 @@ fun CollectionDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(vm.selected?.name ?: "集合") },
+                title = { Text(vm.selected?.name ?: collectionTitle) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { showEditor = true }, enabled = vm.selected != null) {
-                        Icon(Icons.Default.Edit, contentDescription = "编辑集合")
+                        Icon(Icons.Default.Edit, contentDescription = editCollection)
                     }
                     IconButton(onClick = { showDeleteConfirm = true }, enabled = vm.selected != null) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除集合")
+                        Icon(Icons.Default.Delete, contentDescription = deleteCollection)
                     }
                 }
             )
@@ -177,9 +193,9 @@ fun CollectionDetailScreen(
         ) {
             when {
                 vm.series.isEmpty() && !vm.loading && vm.error != null ->
-                    ErrorState(message = vm.error ?: "加载集合失败", onRetry = { vm.loadCollection(collectionId, refresh = true) })
+                    ErrorState(message = vm.error ?: loadCollectionsFailed, onRetry = { vm.loadCollection(collectionId, refresh = true) })
                 vm.series.isEmpty() && !vm.loading ->
-                    EmptyState(message = "这个集合还没有系列")
+                    EmptyState(message = emptyCollectionSeries)
                 else ->
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(120.dp),
@@ -191,19 +207,19 @@ fun CollectionDetailScreen(
                     ) {
                         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                                InfoPill("${vm.selected?.seriesIds?.size ?: vm.series.size} 个系列")
-                                if (vm.selected?.ordered == true) InfoPill("有序")
-                                if (vm.selected?.filtered == true) InfoPill("过滤集合")
+                                InfoPill(stringResource(R.string.series_count_label, vm.selected?.seriesIds?.size ?: vm.series.size))
+                                if (vm.selected?.ordered == true) InfoPill(stringResource(R.string.ordered))
+                                if (vm.selected?.filtered == true) InfoPill(stringResource(R.string.filtered_collection))
                             }
                         }
                         items(vm.series, key = { it.id }) { series ->
                             val thumbnailVersion = ThumbnailVersion.get(series.id)
                             PosterCard(
                                 title = series.metadata.title.ifEmpty { series.name },
-                                subtitle = "${series.booksCount} 本",
+                                subtitle = stringResource(R.string.books_short_count, series.booksCount),
                                 imageUrl = KomgaUrls.seriesThumbnail(serverUrl, series.id, thumbnailVersion),
                                 imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(series.id)),
-                                badge = if (series.booksUnreadCount > 0) "${series.booksUnreadCount} 未读" else null,
+                                badge = if (series.booksUnreadCount > 0) stringResource(R.string.unread_count, series.booksUnreadCount) else null,
                                 onClick = { onSeriesClick(series.id, series.booksCount) }
                             )
                         }
@@ -218,7 +234,7 @@ fun CollectionDetailScreen(
             onDismiss = { showEditor = false },
             onSave = { name, ordered, _ ->
                 vm.update(collectionId, name, ordered) { ok ->
-                    Toast.makeText(context, if (ok) "已保存" else "保存失败", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (ok) saved else saveFailed, Toast.LENGTH_SHORT).show()
                     showEditor = false
                 }
             }
@@ -227,12 +243,12 @@ fun CollectionDetailScreen(
 
     if (showDeleteConfirm && vm.selected != null) {
         ConfirmActionDialog(
-            title = "删除集合",
-            text = "确定删除集合「${vm.selected?.name}」？\nID: $collectionId",
-            confirmText = "删除",
+            title = deleteCollection,
+            text = stringResource(R.string.delete_collection_message, vm.selected?.name.orEmpty(), collectionId),
+            confirmText = stringResource(R.string.delete),
             onConfirm = {
                 vm.delete(collectionId) { ok ->
-                    Toast.makeText(context, if (ok) "已删除" else "删除失败", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (ok) deleted else deleteFailed, Toast.LENGTH_SHORT).show()
                     showDeleteConfirm = false
                     if (ok) onBack()
                 }
@@ -265,10 +281,10 @@ private fun CollectionListItem(
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(collection.name, style = MaterialTheme.typography.titleMedium)
-                Text("${collection.seriesIds.size} 个系列", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.series_count_label, collection.seriesIds.size), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (collection.ordered) InfoPill("有序")
-                    if (collection.filtered) InfoPill("过滤")
+                    if (collection.ordered) InfoPill(stringResource(R.string.ordered))
+                    if (collection.filtered) InfoPill(stringResource(R.string.filtered))
                 }
             }
         }
@@ -287,17 +303,17 @@ private fun CollectionEditorSheet(
     var idsText by remember(collection) { mutableStateOf(collection?.seriesIds?.joinToString(", ").orEmpty()) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(if (collection == null) "新建集合" else "编辑集合", style = MaterialTheme.typography.titleLarge)
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Text(stringResource(if (collection == null) R.string.new_collection else R.string.edit_collection), style = MaterialTheme.typography.titleLarge)
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(stringResource(R.string.name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("保持手动排序", modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.manual_order), modifier = Modifier.weight(1f))
                 Switch(checked = ordered, onCheckedChange = { ordered = it })
             }
             if (collection == null) {
                 OutlinedTextField(
                     value = idsText,
                     onValueChange = { idsText = it },
-                    label = { Text("系列 ID，用英文逗号分隔") },
+                    label = { Text(stringResource(R.string.series_ids_comma)) },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -306,7 +322,7 @@ private fun CollectionEditorSheet(
                 onClick = { onSave(name.trim(), ordered, idsText.toIds()) },
                 enabled = name.isNotBlank() && (collection != null || idsText.toIds().isNotEmpty()),
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("保存") }
+            ) { Text(stringResource(R.string.save)) }
         }
     }
 }

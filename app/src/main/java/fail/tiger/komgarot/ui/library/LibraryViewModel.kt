@@ -3,11 +3,13 @@ package fail.tiger.komgarot.ui.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.LibraryDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.AuthRepository
 import fail.tiger.komgarot.data.repository.LibraryHomeSource
+import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +18,8 @@ import kotlinx.coroutines.supervisorScope
 
 class LibraryViewModel(
     private val repo: LibraryHomeSource,
-    private val authRepo: AuthRepository
+    private val authRepo: AuthRepository,
+    private val connectFailedMessage: String
 ) : ViewModel() {
     private val _libraries = MutableStateFlow<List<LibraryDto>>(emptyList())
     val libraries = _libraries.asStateFlow()
@@ -37,7 +40,7 @@ class LibraryViewModel(
         viewModelScope.launch {
             _loading.value = true
             _error.value = null
-            val result = loadLibraryHome(repo)
+            val result = loadLibraryHome(repo, connectFailedMessage)
             _libraries.value = result.libraries
             _onDeckBooks.value = result.onDeckBooks
             _latestBooks.value = result.latestBooks
@@ -54,9 +57,11 @@ class LibraryViewModel(
 
     class Factory(
         private val repo: LibraryHomeSource,
-        private val authRepo: AuthRepository
+        private val authRepo: AuthRepository,
+        private val textProvider: UiTextProvider
     ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = LibraryViewModel(repo, authRepo) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            LibraryViewModel(repo, authRepo, textProvider.get(R.string.error_connect_komga_failed)) as T
     }
 }
 
@@ -69,7 +74,10 @@ internal data class LibraryHomeLoadResult(
     val failures: List<String> = emptyList()
 )
 
-internal suspend fun loadLibraryHome(repo: LibraryHomeSource): LibraryHomeLoadResult = supervisorScope {
+internal suspend fun loadLibraryHome(
+    repo: LibraryHomeSource,
+    fallbackMessage: String = "Komga connection failed"
+): LibraryHomeLoadResult = supervisorScope {
     val libraries = async { runCatching { repo.getLibraries() } }
     val onDeckBooks = async { runCatching { repo.getBooksOnDeck() } }
     val latestBooks = async { runCatching { repo.getLatestBooks() } }
@@ -78,7 +86,7 @@ internal suspend fun loadLibraryHome(repo: LibraryHomeSource): LibraryHomeLoadRe
 
     val failures = mutableListOf<String>()
     fun <T> Result<T>.valueOrDefault(defaultValue: T): T =
-        onFailure { failures += it.readableMessage() }.getOrDefault(defaultValue)
+        onFailure { failures += it.readableMessage(fallbackMessage) }.getOrDefault(defaultValue)
 
     LibraryHomeLoadResult(
         libraries = libraries.await().valueOrDefault(emptyList()),
@@ -90,5 +98,5 @@ internal suspend fun loadLibraryHome(repo: LibraryHomeSource): LibraryHomeLoadRe
     )
 }
 
-private fun Throwable.readableMessage(): String =
-    message?.takeIf { it.isNotBlank() } ?: "连接 Komga 失败"
+private fun Throwable.readableMessage(fallbackMessage: String): String =
+    message?.takeIf { it.isNotBlank() } ?: fallbackMessage
