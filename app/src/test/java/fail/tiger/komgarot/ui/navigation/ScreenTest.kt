@@ -37,4 +37,21 @@ class ScreenTest {
             Screen.decodeArg(route.substringAfter("search="))
         )
     }
+
+    @Test
+    fun metadataCoverRouteEncodesCoverUri() {
+        val uri = "content://fail.tiger.komgarot.provider/cache/cover candidate+1.jpg"
+        val route = Screen.Metadata.goBookCover("book/1+2", uri)
+
+        assertEquals(
+            "metadata/book/book%2F1%2B2?coverUri=content%3A%2F%2Ffail.tiger.komgarot.provider%2Fcache%2Fcover%20candidate%2B1.jpg&coverFocus=true",
+            route
+        )
+        assertEquals(uri, Screen.decodeArg(route.substringAfter("coverUri=").substringBefore("&")))
+    }
+
+    @Test
+    fun metadataRouteWithoutCoverArgsKeepsExistingShape() {
+        assertEquals("metadata/series/series%2F1", Screen.Metadata.go("series", "series/1"))
+    }
 }

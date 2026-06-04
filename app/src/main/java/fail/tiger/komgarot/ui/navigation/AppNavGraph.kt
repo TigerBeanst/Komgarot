@@ -40,7 +40,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -50,6 +52,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import fail.tiger.komgarot.KomgarotApp
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.ui.admin.AdminScreen
@@ -61,6 +64,7 @@ import fail.tiger.komgarot.ui.bookdetail.BookDetailViewModel
 import fail.tiger.komgarot.ui.collection.CollectionDetailScreen
 import fail.tiger.komgarot.ui.collection.CollectionScreen
 import fail.tiger.komgarot.ui.collection.CollectionViewModel
+import fail.tiger.komgarot.ui.i18n.AndroidUiTextProvider
 import fail.tiger.komgarot.ui.library.LibraryScreen
 import fail.tiger.komgarot.ui.library.LibraryViewModel
 import fail.tiger.komgarot.ui.login.LoginScreen
@@ -81,6 +85,7 @@ import fail.tiger.komgarot.ui.settings.SettingsScreen
 fun AppNavGraph(app: KomgarotApp) {
     val navController = rememberNavController()
     val imageCacheInvalidator = remember(app) { ImageCacheInvalidator(app.applicationContext) }
+    val textProvider = remember(app) { AndroidUiTextProvider(app.applicationContext) }
     val sessionVm: SessionViewModel = viewModel(factory = SessionViewModel.Factory(app.userRepository))
     val serverUrl by app.authPreferences.serverUrl.collectAsState(initial = "")
     val alwaysIncognito by app.authPreferences.alwaysIncognito.collectAsState(initial = false)
@@ -184,13 +189,13 @@ fun AppNavGraph(app: KomgarotApp) {
             }
         ) {
         composable(Screen.Login.route) {
-            val vm: LoginViewModel = viewModel(factory = LoginViewModel.Factory(app.authRepository))
+            val vm: LoginViewModel = viewModel(factory = LoginViewModel.Factory(app.authRepository, textProvider))
             LoginScreen(onSuccess = {}, vm = vm)
         }
 
         composable(Screen.Library.route) {
             val vm: LibraryViewModel = viewModel(
-                factory = LibraryViewModel.Factory(app.libraryRepository, app.authRepository)
+                factory = LibraryViewModel.Factory(app.libraryRepository, app.authRepository, textProvider)
             )
             LibraryScreen(
                 onLibraryClick = { navController.navigate(Screen.Series.go(it)) },
@@ -222,7 +227,8 @@ fun AppNavGraph(app: KomgarotApp) {
             val vm: SeriesViewModel = viewModel(
                 factory = SeriesViewModel.Factory(
                     app.seriesRepository,
-                    SharedPreferencesSeriesSortStore(app.applicationContext)
+                    SharedPreferencesSeriesSortStore(app.applicationContext),
+                    textProvider
                 )
             )
             SeriesScreen(
@@ -237,7 +243,7 @@ fun AppNavGraph(app: KomgarotApp) {
         }
 
         composable(Screen.Collections.route) {
-            val vm: CollectionViewModel = viewModel(factory = CollectionViewModel.Factory(app.collectionRepository))
+            val vm: CollectionViewModel = viewModel(factory = CollectionViewModel.Factory(app.collectionRepository, textProvider))
             CollectionScreen(
                 serverUrl = serverUrl,
                 vm = vm,
@@ -252,7 +258,7 @@ fun AppNavGraph(app: KomgarotApp) {
             arguments = listOf(navArgument("collectionId") { type = NavType.StringType })
         ) { back ->
             val collectionId = back.arguments?.getString("collectionId")?.let { Screen.decodeArg(it) } ?: return@composable
-            val vm: CollectionViewModel = viewModel(factory = CollectionViewModel.Factory(app.collectionRepository))
+            val vm: CollectionViewModel = viewModel(factory = CollectionViewModel.Factory(app.collectionRepository, textProvider))
             CollectionDetailScreen(
                 collectionId = collectionId,
                 serverUrl = serverUrl,
@@ -263,7 +269,7 @@ fun AppNavGraph(app: KomgarotApp) {
         }
 
         composable(Screen.ReadLists.route) {
-            val vm: ReadListViewModel = viewModel(factory = ReadListViewModel.Factory(app.readListRepository))
+            val vm: ReadListViewModel = viewModel(factory = ReadListViewModel.Factory(app.readListRepository, textProvider))
             ReadListScreen(
                 serverUrl = serverUrl,
                 vm = vm,
@@ -278,7 +284,7 @@ fun AppNavGraph(app: KomgarotApp) {
             arguments = listOf(navArgument("readListId") { type = NavType.StringType })
         ) { back ->
             val readListId = back.arguments?.getString("readListId")?.let { Screen.decodeArg(it) } ?: return@composable
-            val vm: ReadListViewModel = viewModel(factory = ReadListViewModel.Factory(app.readListRepository))
+            val vm: ReadListViewModel = viewModel(factory = ReadListViewModel.Factory(app.readListRepository, textProvider))
             ReadListDetailScreen(
                 readListId = readListId,
                 serverUrl = serverUrl,
@@ -299,7 +305,7 @@ fun AppNavGraph(app: KomgarotApp) {
         }
 
         composable(Screen.Admin.route) {
-            val vm: AdminViewModel = viewModel(factory = AdminViewModel.Factory(app.adminRepository))
+            val vm: AdminViewModel = viewModel(factory = AdminViewModel.Factory(app.adminRepository, textProvider))
             AdminScreen(
                 isAdmin = user?.isAdmin == true,
                 vm = vm,
@@ -319,7 +325,8 @@ fun AppNavGraph(app: KomgarotApp) {
             val vm: SeriesViewModel = viewModel(
                 factory = SeriesViewModel.Factory(
                     app.seriesRepository,
-                    SharedPreferencesSeriesSortStore(app.applicationContext)
+                    SharedPreferencesSeriesSortStore(app.applicationContext),
+                    textProvider
                 )
             )
 
@@ -339,7 +346,7 @@ fun AppNavGraph(app: KomgarotApp) {
         ) { back ->
             val seriesId = back.arguments?.getString("seriesId")?.let { Screen.decodeArg(it) } ?: return@composable
             val vm: BookViewModel = viewModel(
-                factory = BookViewModel.Factory(app.bookRepository, app.seriesRepository, imageCacheInvalidator)
+                factory = BookViewModel.Factory(app.bookRepository, app.seriesRepository, imageCacheInvalidator, textProvider)
             )
             BookScreen(
                 seriesId = seriesId, serverUrl = serverUrl,
@@ -368,7 +375,12 @@ fun AppNavGraph(app: KomgarotApp) {
             val pageCount = back.arguments?.getInt("pageCount") ?: 0
             val isOneShot = back.arguments?.getBoolean("isOneShot") ?: false
             val vm: BookDetailViewModel = viewModel(
-                factory = BookDetailViewModel.Factory(app.bookRepository, app.seriesRepository, imageCacheInvalidator)
+                factory = BookDetailViewModel.Factory(
+                    app.bookRepository,
+                    app.seriesRepository,
+                    imageCacheInvalidator,
+                    textProvider
+                )
             )
             BookDetailScreen(
                 bookId = bookId,
@@ -413,7 +425,7 @@ fun AppNavGraph(app: KomgarotApp) {
             val page = back.arguments?.getInt("page") ?: 1
             val trackProgress = back.arguments?.getBoolean("trackProgress") ?: true
             val vm: ReaderViewModel = viewModel(
-                factory = ReaderViewModel.Factory(app.bookRepository, app.authPreferences, imageCacheInvalidator)
+                factory = ReaderViewModel.Factory(app.bookRepository, app.authPreferences, textProvider)
             )
             ReaderScreen(
                 bookId = bookId,
@@ -421,6 +433,15 @@ fun AppNavGraph(app: KomgarotApp) {
                 trackProgress = trackProgress,
                 onBack = { navController.popBackStack() },
                 onOpenBook = ::openReaderBookFromBoundary,
+                onSetBookCover = { coverUri ->
+                    navController.navigate(Screen.Metadata.goBookCover(bookId, coverUri))
+                },
+                onSetSeriesCover = { coverUri ->
+                    val seriesId = vm.currentSeriesId
+                    if (seriesId.isNotBlank()) {
+                        navController.navigate(Screen.Metadata.goSeriesCover(seriesId, coverUri))
+                    }
+                },
                 vm = vm
             )
         }
@@ -429,13 +450,27 @@ fun AppNavGraph(app: KomgarotApp) {
             Screen.Metadata.route,
             arguments = listOf(
                 navArgument("type") { type = NavType.StringType },
-                navArgument("id") { type = NavType.StringType }
+                navArgument("id") { type = NavType.StringType },
+                navArgument("coverUri") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("coverFocus") { type = NavType.BoolType; defaultValue = false }
             )
         ) { back ->
             val type = back.arguments?.getString("type")?.let { Screen.decodeArg(it) } ?: return@composable
             val id = back.arguments?.getString("id")?.let { Screen.decodeArg(it) } ?: return@composable
-            val vm: MetadataViewModel = viewModel(factory = MetadataViewModel.Factory(app.bookRepository))
-            MetadataScreen(type = type, id = id, onBack = { navController.popBackStack() }, vm = vm)
+            val coverUri = back.arguments?.getString("coverUri")?.let { Screen.decodeArg(it) }
+            val coverFocus = back.arguments?.getBoolean("coverFocus") ?: false
+            val vm: MetadataViewModel = viewModel(
+                factory = MetadataViewModel.Factory(app.bookRepository, imageCacheInvalidator)
+            )
+            MetadataScreen(
+                type = type,
+                id = id,
+                serverUrl = serverUrl,
+                coverUri = coverUri,
+                coverFocus = coverFocus,
+                onBack = { navController.popBackStack() },
+                vm = vm
+            )
         }
 
         composable(Screen.Settings.route) {
@@ -447,18 +482,18 @@ fun AppNavGraph(app: KomgarotApp) {
 
 private data class TopLevelDestination(
     val route: String,
-    val label: String,
+    @StringRes val labelRes: Int,
     val icon: ImageVector
 )
 
 private fun topLevelDestinations(isAdmin: Boolean): List<TopLevelDestination> =
     buildList {
-        add(TopLevelDestination(Screen.Library.route, "首页", Icons.Default.Home))
-        add(TopLevelDestination(Screen.Browse.route, "浏览", Icons.Default.Search))
-        add(TopLevelDestination(Screen.Collections.route, "集合", Icons.Default.CollectionsBookmark))
-        add(TopLevelDestination(Screen.ReadLists.route, "阅读列表", Icons.Default.FormatListBulleted))
-        if (isAdmin) add(TopLevelDestination(Screen.Admin.route, "管理", Icons.Default.AdminPanelSettings))
-        add(TopLevelDestination(Screen.Settings.route, "设置", Icons.Default.Settings))
+        add(TopLevelDestination(Screen.Library.route, R.string.home, Icons.Default.Home))
+        add(TopLevelDestination(Screen.Browse.route, R.string.browse, Icons.Default.Search))
+        add(TopLevelDestination(Screen.Collections.route, R.string.collections, Icons.Default.CollectionsBookmark))
+        add(TopLevelDestination(Screen.ReadLists.route, R.string.read_lists, Icons.Default.FormatListBulleted))
+        if (isAdmin) add(TopLevelDestination(Screen.Admin.route, R.string.admin, Icons.Default.AdminPanelSettings))
+        add(TopLevelDestination(Screen.Settings.route, R.string.settings, Icons.Default.Settings))
     }
 
 private fun usesOverlayBottomBar(route: String?): Boolean =
@@ -483,11 +518,12 @@ private fun AdaptiveShell(
                 AnimatedVisibility(visible = showTopLevelNav) {
                     NavigationRail {
                         destinations.forEach { destination ->
+                            val label = stringResource(destination.labelRes)
                             NavigationRailItem(
                                 selected = currentRoute == destination.route,
                                 onClick = { onDestinationClick(destination) },
-                                icon = { Icon(destination.icon, contentDescription = destination.label) },
-                                label = { Text(destination.label) }
+                                icon = { Icon(destination.icon, contentDescription = label) },
+                                label = { Text(label) }
                             )
                         }
                     }
@@ -507,11 +543,12 @@ private fun AdaptiveShell(
                     ) {
                         NavigationBar {
                             destinations.forEach { destination ->
+                                val label = stringResource(destination.labelRes)
                                 NavigationBarItem(
                                     selected = currentRoute == destination.route,
                                     onClick = { onDestinationClick(destination) },
-                                    icon = { Icon(destination.icon, contentDescription = destination.label) },
-                                    label = { Text(destination.label) }
+                                    icon = { Icon(destination.icon, contentDescription = label) },
+                                    label = { Text(label) }
                                 )
                             }
                         }

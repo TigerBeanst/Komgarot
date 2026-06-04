@@ -7,13 +7,14 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
-import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.PageDto
 import fail.tiger.komgarot.data.repository.BookRepository
+import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -41,7 +42,8 @@ private fun readerPageUrl(serverUrl: String, bookId: String, page: PageDto): Str
 class ReaderViewModel(
     private val repo: BookRepository,
     val prefs: AuthPreferences,
-    private val imageCacheInvalidator: ImageCacheInvalidator
+    private val loadBookFailed: String,
+    private val loadPagesFailed: String
 ) : ViewModel() {
     var pageUrls by mutableStateOf<List<String>>(emptyList())
     var currentPage by mutableIntStateOf(0)
@@ -82,7 +84,7 @@ class ReaderViewModel(
                     nextBook = repo.getNextBook(bookId).getOrNull()
                 }
                 .onFailure {
-                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: "加载书籍失败"
+                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: loadBookFailed
                 }
 
             runCatching { repo.getPages(bookId) }
@@ -91,7 +93,7 @@ class ReaderViewModel(
                     currentPage = if (pageUrls.isEmpty()) 0 else (startPage - 1).coerceIn(0, pageUrls.lastIndex)
                 }
                 .onFailure {
-                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: "加载页面失败"
+                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: loadPagesFailed
                 }
             loading = false
         }
@@ -136,28 +138,17 @@ class ReaderViewModel(
         }
     }
 
-    fun uploadBookThumbnail(imageBytes: ByteArray, onDone: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            val ok = runCatching { repo.uploadBookThumbnail(currentBookId, imageBytes, "image/jpeg") }.isSuccess
-            if (ok) imageCacheInvalidator.invalidateBookThumbnail(currentBookId)
-            onDone(ok)
-        }
-    }
-
-    fun uploadSeriesThumbnail(imageBytes: ByteArray, onDone: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            val ok = runCatching { repo.uploadSeriesThumbnail(currentSeriesId, imageBytes, "image/jpeg") }.isSuccess
-            if (ok) imageCacheInvalidator.invalidateSeriesThumbnail(currentSeriesId)
-            onDone(ok)
-        }
-    }
-
     class Factory(
         private val repo: BookRepository,
         private val prefs: AuthPreferences,
-        private val imageCacheInvalidator: ImageCacheInvalidator
+        private val textProvider: UiTextProvider
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            ReaderViewModel(repo, prefs, imageCacheInvalidator) as T
+            ReaderViewModel(
+                repo,
+                prefs,
+                textProvider.get(R.string.error_load_books_failed),
+                textProvider.get(R.string.error_load_pages_failed)
+            ) as T
     }
 }

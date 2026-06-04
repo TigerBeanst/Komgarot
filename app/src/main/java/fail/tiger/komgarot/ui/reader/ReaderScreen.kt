@@ -46,10 +46,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
@@ -60,6 +62,7 @@ import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import fail.tiger.komgarot.data.remote.dto.BookDto
+import fail.tiger.komgarot.ui.cover.writeTemporaryCoverImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -69,7 +72,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.engawapg.lib.zoomable.rememberZoomState
 import net.engawapg.lib.zoomable.zoomable
-import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
 private class ReaderPageProgressState {
@@ -207,6 +209,8 @@ fun ReaderScreen(
     trackProgress: Boolean = true,
     onBack: () -> Unit,
     onOpenBook: (BookDto, Boolean) -> Unit,
+    onSetBookCover: (String) -> Unit,
+    onSetSeriesCover: (String) -> Unit,
     vm: ReaderViewModel
 ) {
     LaunchedEffect(bookId) { vm.load(bookId, startPage, trackProgress) }
@@ -244,7 +248,7 @@ fun ReaderScreen(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (vm.mode) {
-            ReadingMode.PAGER -> PagerReader(vm, onOpenBook)
+            ReadingMode.PAGER -> PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover)
             ReadingMode.SCROLL -> ScrollReader(vm)
         }
 
@@ -265,7 +269,7 @@ fun ReaderScreen(
             Surface(color = Color.Black.copy(alpha = 0.6f), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back), tint = Color.White)
                     }
                     Text(
                         text = vm.book?.displayTitle() ?: "",
@@ -275,7 +279,7 @@ fun ReaderScreen(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = { vm.toggleMode() }) {
-                        Icon(Icons.Default.SwapHoriz, contentDescription = "切换阅读模式（翻页/滚动）", tint = Color.White)
+                        Icon(Icons.Default.SwapHoriz, contentDescription = stringResource(R.string.reader_switch_mode), tint = Color.White)
                     }
                 }
             }
@@ -304,7 +308,7 @@ fun ReaderScreen(
                                 onClick = { if (vm.currentPage > 0) vm.goToPage(vm.currentPage - 1) },
                                 enabled = vm.currentPage > 0
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = "Previous", tint = Color.White)
+                                Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = stringResource(R.string.reader_previous), tint = Color.White)
                             }
                             Slider(
                                 value = vm.currentPage.toFloat(),
@@ -317,11 +321,17 @@ fun ReaderScreen(
                                 onClick = { if (vm.currentPage < vm.pageUrls.size - 1) vm.goToPage(vm.currentPage + 1) },
                                 enabled = vm.currentPage < vm.pageUrls.size - 1
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = "Next", tint = Color.White)
+                                Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = stringResource(R.string.reader_next), tint = Color.White)
                             }
                         }
                         Text(
-                            text = "${vm.currentPage + 1} / ${vm.pageUrls.size} · 预加载 $preloadPages 页 · ${if (currentPageCached) "已缓存" else "联网加载"}",
+                            text = stringResource(
+                                R.string.reader_status_format,
+                                vm.currentPage + 1,
+                                vm.pageUrls.size,
+                                preloadPages,
+                                stringResource(if (currentPageCached) R.string.reader_cached else R.string.reader_network_loading)
+                            ),
                             color = Color.White.copy(alpha = 0.72f),
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -374,17 +384,22 @@ private fun ReaderStatusOverlay(
             ) {
                 Text(error, color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodyLarge)
                 OutlinedButton(onClick = onRetry) {
-                    Text("重试", color = Color.White)
+                    Text(stringResource(R.string.reader_retry), color = Color.White)
                 }
             }
-            else -> Text("没有可显示的页面", color = Color.White.copy(alpha = 0.72f))
+            else -> Text(stringResource(R.string.reader_no_pages), color = Color.White.copy(alpha = 0.72f))
         }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PagerReader(vm: ReaderViewModel, onOpenBook: (BookDto, Boolean) -> Unit) {
+fun PagerReader(
+    vm: ReaderViewModel,
+    onOpenBook: (BookDto, Boolean) -> Unit,
+    onSetBookCover: (String) -> Unit,
+    onSetSeriesCover: (String) -> Unit
+) {
     if (vm.pageUrls.isEmpty()) return
     val pagerPages = remember(vm.pageUrls, vm.previousBook, vm.nextBook) {
         buildReaderPagerPages(vm.pageUrls.size, vm.previousBook, vm.nextBook)
@@ -475,7 +490,7 @@ fun PagerReader(vm: ReaderViewModel, onOpenBook: (BookDto, Boolean) -> Unit) {
                     )
                     SubcomposeAsyncImage(
                         model = pageRequestState.request,
-                        contentDescription = "Page ${actualPageIndex + 1}",
+                        contentDescription = stringResource(R.string.reader_page_description, actualPageIndex + 1),
                         contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxSize()
@@ -534,6 +549,8 @@ fun PagerReader(vm: ReaderViewModel, onOpenBook: (BookDto, Boolean) -> Unit) {
             url = url,
             context = context,
             vm = vm,
+            onSetBookCover = onSetBookCover,
+            onSetSeriesCover = onSetSeriesCover,
             onDismiss = { longPressUrl = null },
         )
     }
@@ -548,16 +565,16 @@ private fun ReaderBoundaryPage(
 ) {
     val isNext = direction == ReaderBoundaryDirection.NEXT
     val title = when {
-        opening && isNext -> "正在打开下一本"
-        opening -> "正在打开上一本"
-        isNext -> "本书已看完"
-        else -> "已到达第一页"
+        opening && isNext -> stringResource(R.string.reader_boundary_opening_next)
+        opening -> stringResource(R.string.reader_boundary_opening_previous)
+        isNext -> stringResource(R.string.reader_boundary_finished)
+        else -> stringResource(R.string.reader_boundary_first_page)
     }
     val message = when {
-        target != null && isNext -> "继续翻下一页打开"
-        target != null -> "继续往前翻打开"
-        isNext -> "已到最后一本书"
-        else -> "已到第一本书"
+        target != null && isNext -> stringResource(R.string.reader_boundary_continue_next)
+        target != null -> stringResource(R.string.reader_boundary_continue_previous)
+        isNext -> stringResource(R.string.reader_boundary_last_book)
+        else -> stringResource(R.string.reader_boundary_first_book)
     }
 
     Box(
@@ -629,10 +646,10 @@ private fun ReaderPageError(onRetry: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("图片加载失败", color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.reader_image_load_failed), color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodyLarge)
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = onRetry) {
-            Text("重试", color = Color.White)
+            Text(stringResource(R.string.reader_retry), color = Color.White)
         }
     }
 }
@@ -643,9 +660,14 @@ private fun PageContextMenu(
     url: String,
     context: Context,
     vm: ReaderViewModel,
+    onSetBookCover: (String) -> Unit,
+    onSetSeriesCover: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val imageLoader = coil.Coil.imageLoader(context)
+    val operationFailed = stringResource(R.string.operation_failed_format)
+    val savedToGallery = stringResource(R.string.reader_action_saved_to_gallery)
+    val shareTitle = stringResource(R.string.reader_share_title)
 
     suspend fun loadBitmap(pageUrl: String): Bitmap? {
         val req = readerPageRequest(
@@ -661,12 +683,6 @@ private fun PageContextMenu(
         return (result as? SuccessResult)?.drawable?.let { (it as? BitmapDrawable)?.bitmap }
     }
 
-    fun bitmapToBytes(bitmap: Bitmap): ByteArray {
-        val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
-        return out.toByteArray()
-    }
-
     fun doAction(pageUrl: String, action: suspend (Bitmap) -> Unit) {
         onDismiss()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -675,7 +691,7 @@ private fun PageContextMenu(
                 action(bitmap)
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "操作失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, operationFailed.format(e.message.orEmpty()), Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -684,19 +700,19 @@ private fun PageContextMenu(
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(bottom = 16.dp)) {
             ListItem(
-                headlineContent = { Text("保存") },
+                headlineContent = { Text(stringResource(R.string.reader_action_save)) },
                 leadingContent = { Icon(Icons.Default.Download, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable {
                     val pageUrl = url
                     doAction(pageUrl) { bitmap ->
                         saveBitmapToGallery(context, bitmap)
-                        withContext(Dispatchers.Main) { Toast.makeText(context, "已保存到相册", Toast.LENGTH_SHORT).show() }
+                        withContext(Dispatchers.Main) { Toast.makeText(context, savedToGallery, Toast.LENGTH_SHORT).show() }
                     }
                 }
             )
             ListItem(
-                headlineContent = { Text("分享") },
+                headlineContent = { Text(stringResource(R.string.reader_action_share)) },
                 leadingContent = { Icon(Icons.Default.Share, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable {
@@ -710,34 +726,32 @@ private fun PageContextMenu(
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         withContext(Dispatchers.Main) {
-                            context.startActivity(Intent.createChooser(intent, "分享图片"))
+                            context.startActivity(Intent.createChooser(intent, shareTitle))
                         }
                     }
                 }
             )
             ListItem(
-                headlineContent = { Text("设置为书籍海报") },
+                headlineContent = { Text(stringResource(R.string.reader_action_set_book_cover)) },
                 leadingContent = { Icon(Icons.Default.Book, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable {
                     val pageUrl = url
                     doAction(pageUrl) { bitmap ->
-                        vm.uploadBookThumbnail(bitmapToBytes(bitmap)) { ok ->
-                            Toast.makeText(context, if (ok) "已设置为书籍海报" else "设置失败", Toast.LENGTH_SHORT).show()
-                        }
+                        val uri = writeTemporaryCoverImage(context, bitmap)
+                        withContext(Dispatchers.Main) { onSetBookCover(uri.toString()) }
                     }
                 }
             )
             ListItem(
-                headlineContent = { Text("设置为系列海报") },
+                headlineContent = { Text(stringResource(R.string.reader_action_set_series_cover)) },
                 leadingContent = { Icon(Icons.Default.Collections, null) },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable {
                     val pageUrl = url
                     doAction(pageUrl) { bitmap ->
-                        vm.uploadSeriesThumbnail(bitmapToBytes(bitmap)) { ok ->
-                            Toast.makeText(context, if (ok) "已设置为系列海报" else "设置失败", Toast.LENGTH_SHORT).show()
-                        }
+                        val uri = writeTemporaryCoverImage(context, bitmap)
+                        withContext(Dispatchers.Main) { onSetSeriesCover(uri.toString()) }
                     }
                 }
             )
@@ -828,7 +842,7 @@ fun ScrollReader(vm: ReaderViewModel) {
                 )
                 SubcomposeAsyncImage(
                     model = pageRequestState.request,
-                    contentDescription = "Page ${index + 1}",
+                    contentDescription = stringResource(R.string.reader_page_description, index + 1),
                     contentScale = ContentScale.FillWidth,
                     modifier = Modifier.fillMaxWidth()
                 ) {
