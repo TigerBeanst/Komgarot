@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
 import fail.tiger.komgarot.data.remote.dto.BookMetadataUpdateDto
 import fail.tiger.komgarot.data.remote.dto.SeriesMetadataDto
@@ -13,11 +14,15 @@ import fail.tiger.komgarot.data.remote.dto.SeriesMetadataUpdateDto
 import fail.tiger.komgarot.data.repository.BookRepository
 import kotlinx.coroutines.launch
 
-class MetadataViewModel(private val repo: BookRepository) : ViewModel() {
+class MetadataViewModel(
+    private val repo: BookRepository,
+    private val imageCacheInvalidator: ImageCacheInvalidator
+) : ViewModel() {
     var seriesMeta by mutableStateOf<SeriesMetadataDto?>(null)
     var bookMeta by mutableStateOf<BookMetadataDto?>(null)
     var saving by mutableStateOf(false)
     var saved by mutableStateOf(false)
+    var coverSaving by mutableStateOf(false)
 
     fun loadSeries(id: String) {
         viewModelScope.launch { runCatching { seriesMeta = repo.getSeriesMetadata(id) } }
@@ -105,7 +110,33 @@ class MetadataViewModel(private val repo: BookRepository) : ViewModel() {
         }
     }
 
-    class Factory(private val repo: BookRepository) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = MetadataViewModel(repo) as T
+    fun uploadBookCover(id: String, imageBytes: ByteArray, onDone: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            coverSaving = true
+            val ok = runCatching { repo.uploadBookThumbnail(id, imageBytes, "image/jpeg") }
+                .onSuccess { imageCacheInvalidator.invalidateBookThumbnail(id) }
+                .isSuccess
+            coverSaving = false
+            onDone(ok)
+        }
+    }
+
+    fun uploadSeriesCover(id: String, imageBytes: ByteArray, onDone: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            coverSaving = true
+            val ok = runCatching { repo.uploadSeriesThumbnail(id, imageBytes, "image/jpeg") }
+                .onSuccess { imageCacheInvalidator.invalidateSeriesThumbnail(id) }
+                .isSuccess
+            coverSaving = false
+            onDone(ok)
+        }
+    }
+
+    class Factory(
+        private val repo: BookRepository,
+        private val imageCacheInvalidator: ImageCacheInvalidator
+    ) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            MetadataViewModel(repo, imageCacheInvalidator) as T
     }
 }

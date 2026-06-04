@@ -34,8 +34,17 @@ sealed class Screen(val route: String) {
         fun go(id: String, page: Int = 1, trackProgress: Boolean = true) =
             "reader/${encodeArg(id)}/$page?trackProgress=$trackProgress"
     }
-    object Metadata : Screen("metadata/{type}/{id}") {
+    object Metadata : Screen("metadata/{type}/{id}?coverUri={coverUri}&coverFocus={coverFocus}") {
         fun go(type: String, id: String) = "metadata/${encodeArg(type)}/${encodeArg(id)}"
+
+        fun goBookCover(bookId: String, coverUri: String): String =
+            goCover(type = "book", id = bookId, coverUri = coverUri)
+
+        fun goSeriesCover(seriesId: String, coverUri: String): String =
+            goCover(type = "series", id = seriesId, coverUri = coverUri)
+
+        private fun goCover(type: String, id: String, coverUri: String): String =
+            "metadata/${encodeArg(type)}/${encodeArg(id)}?coverUri=${encodeArg(coverUri)}&coverFocus=true"
     }
     object Settings : Screen("settings")
 

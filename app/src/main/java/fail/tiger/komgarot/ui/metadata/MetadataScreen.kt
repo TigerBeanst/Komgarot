@@ -1,6 +1,26 @@
 package fail.tiger.komgarot.ui.metadata
 
-import androidx.compose.foundation.layout.*
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -10,32 +30,113 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import coil.compose.SubcomposeAsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import coil.size.Size
+import fail.tiger.komgarot.R
+import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.AlternateTitleDto
 import fail.tiger.komgarot.data.remote.dto.AuthorDto
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
 import fail.tiger.komgarot.data.remote.dto.SeriesMetadataDto
 import fail.tiger.komgarot.data.remote.dto.WebLinkDto
+import fail.tiger.komgarot.ui.cover.CoverCrop
+import fail.tiger.komgarot.ui.cover.bitmapToJpegBytes
+import fail.tiger.komgarot.ui.cover.cropCoverBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-fun MetadataScreen(type: String, id: String, onBack: () -> Unit, vm: MetadataViewModel) {
+fun MetadataScreen(
+    type: String,
+    id: String,
+    serverUrl: String,
+    coverUri: String?,
+    coverFocus: Boolean,
+    onBack: () -> Unit,
+    vm: MetadataViewModel
+) {
     LaunchedEffect(id) {
         if (type == "series") vm.loadSeries(id) else vm.loadBook(id)
     }
     var editing by remember { mutableStateOf(false) }
     if (type == "series") {
-        SeriesMetadataContent(id, onBack, vm, editing) { editing = !editing }
+        SeriesMetadataContent(
+            id = id,
+            serverUrl = serverUrl,
+            incomingCoverUri = coverUri,
+            coverFocus = coverFocus,
+            onBack = onBack,
+            vm = vm,
+            editing = editing,
+            onEditToggle = { editing = !editing }
+        )
     } else {
-        BookMetadataContent(id, onBack, vm, editing) { editing = !editing }
+        BookMetadataContent(
+            id = id,
+            serverUrl = serverUrl,
+            incomingCoverUri = coverUri,
+            coverFocus = coverFocus,
+            onBack = onBack,
+            vm = vm,
+            editing = editing,
+            onEditToggle = { editing = !editing }
+        )
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SeriesMetadataContent(id: String, onBack: () -> Unit, vm: MetadataViewModel, editing: Boolean, onEditToggle: () -> Unit) {
+fun SeriesMetadataContent(
+    id: String,
+    serverUrl: String,
+    incomingCoverUri: String?,
+    coverFocus: Boolean,
+    onBack: () -> Unit,
+    vm: MetadataViewModel,
+    editing: Boolean,
+    onEditToggle: () -> Unit
+) {
     val meta = vm.seriesMeta
     var title by remember(meta) { mutableStateOf(meta?.title ?: "") }
     var status by remember(meta) { mutableStateOf(meta?.status ?: "ONGOING") }
@@ -55,106 +156,97 @@ fun SeriesMetadataContent(id: String, onBack: () -> Unit, vm: MetadataViewModel,
     var tagsLock by remember(meta) { mutableStateOf(meta?.tagsLock ?: false) }
     var genresLock by remember(meta) { mutableStateOf(meta?.genresLock ?: false) }
     var linksLock by remember(meta) { mutableStateOf(meta?.linksLock ?: false) }
+    val thumbnailVersion = ThumbnailVersion.get(id)
+    val thumbnailUrl = remember(serverUrl, id, thumbnailVersion) {
+        KomgaUrls.seriesThumbnail(serverUrl, id, thumbnailVersion)
+    }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Series Metadata") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
-                actions = {
-                    IconButton(onClick = { vm.refreshMetadata("series", id) }) { Icon(Icons.Default.Refresh, null) }
-                    if (editing) {
-                        IconButton(onClick = {
-                            vm.saveSeriesMeta(
-                                id,
-                                SeriesMetadataDto(
-                                    title = title,
-                                    titleSort = title,
-                                    status = status,
-                                    summary = summary,
-                                    publisher = publisher,
-                                    ageRating = ageRating.toIntOrNull(),
-                                    language = language,
-                                    readingDirection = readingDirection.ifBlank { null },
-                                    alternateTitles = alternateTitles.filter { it.label.isNotBlank() && it.title.isNotBlank() },
-                                    genres = genresText.toListField(),
-                                    tags = tagsText.toListField(),
-                                    sharingLabels = sharingLabelsText.toListField(),
-                                    links = links.filter { it.label.isNotBlank() && it.url.isNotBlank() },
-                                    titleLock = titleLock,
-                                    titleSortLock = meta?.titleSortLock ?: false,
-                                    statusLock = meta?.statusLock ?: false,
-                                    summaryLock = summaryLock,
-                                    publisherLock = publisherLock,
-                                    ageRatingLock = meta?.ageRatingLock ?: false,
-                                    languageLock = meta?.languageLock ?: false,
-                                    readingDirectionLock = meta?.readingDirectionLock ?: false,
-                                    alternateTitlesLock = meta?.alternateTitlesLock ?: false,
-                                    genresLock = genresLock,
-                                    tagsLock = tagsLock,
-                                    sharingLabelsLock = meta?.sharingLabelsLock ?: false,
-                                    linksLock = linksLock,
-                                    totalBookCount = meta?.totalBookCount,
-                                    totalBookCountLock = meta?.totalBookCountLock ?: false
-                                )
-                            )
-                            onEditToggle()
-                        }) { Icon(Icons.Default.Check, null) }
-                    } else {
-                        IconButton(onClick = onEditToggle) { Icon(Icons.Default.Edit, null) }
-                    }
-                }
+    MetadataScaffold(
+        title = stringResource(R.string.metadata_series_title),
+        onBack = onBack,
+        onRefresh = { vm.refreshMetadata("series", id) },
+        editing = editing,
+        onEditToggle = onEditToggle,
+        onSave = {
+            vm.saveSeriesMeta(
+                id,
+                SeriesMetadataDto(
+                    title = title,
+                    titleSort = title,
+                    status = status,
+                    summary = summary,
+                    publisher = publisher,
+                    ageRating = ageRating.toIntOrNull(),
+                    language = language,
+                    readingDirection = readingDirection.ifBlank { null },
+                    alternateTitles = alternateTitles.filter { it.label.isNotBlank() && it.title.isNotBlank() },
+                    genres = genresText.toListField(),
+                    tags = tagsText.toListField(),
+                    sharingLabels = sharingLabelsText.toListField(),
+                    links = links.filter { it.label.isNotBlank() && it.url.isNotBlank() },
+                    titleLock = titleLock,
+                    titleSortLock = meta?.titleSortLock ?: false,
+                    statusLock = meta?.statusLock ?: false,
+                    summaryLock = summaryLock,
+                    publisherLock = publisherLock,
+                    ageRatingLock = meta?.ageRatingLock ?: false,
+                    languageLock = meta?.languageLock ?: false,
+                    readingDirectionLock = meta?.readingDirectionLock ?: false,
+                    alternateTitlesLock = meta?.alternateTitlesLock ?: false,
+                    genresLock = genresLock,
+                    tagsLock = tagsLock,
+                    sharingLabelsLock = meta?.sharingLabelsLock ?: false,
+                    linksLock = linksLock,
+                    totalBookCount = meta?.totalBookCount,
+                    totalBookCountLock = meta?.totalBookCountLock ?: false
+                )
             )
+            onEditToggle()
         }
     ) { padding ->
         if (meta == null) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            LoadingMetadata(padding)
         } else {
-            Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetadataSection("基础信息") {
-                    MetaField("标题", title, editing) { title = it }
-                    MetaField("出版社", publisher, editing) { publisher = it }
-                    MetaField("语言", language, editing) { language = it }
-                    MetaField("年龄分级", ageRating, editing) { ageRating = it.filter(Char::isDigit) }
-                    MetaField("阅读方向", readingDirection, editing) { readingDirection = it }
-                    if (editing) {
-                        var expanded by remember { mutableStateOf(false) }
-                        ExposedDropdownMenuBox(expanded, { expanded = it }) {
-                            OutlinedTextField(status, {}, label = { Text("状态") }, readOnly = true,
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable))
-                            ExposedDropdownMenu(expanded, { expanded = false }) {
-                                listOf("ONGOING", "ENDED", "ABANDONED", "HIATUS").forEach { s ->
-                                    DropdownMenuItem(text = { Text(s) }, onClick = { status = s; expanded = false })
-                                }
-                            }
-                        }
-                    } else {
-                        MetaField("状态", status, false)
-                    }
+            Column(
+                Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MetadataCoverSection(
+                    targetType = "series",
+                    id = id,
+                    thumbnailUrl = thumbnailUrl,
+                    incomingCoverUri = incomingCoverUri,
+                    coverFocus = coverFocus,
+                    vm = vm
+                )
+                MetadataSection(stringResource(R.string.metadata_basic_info)) {
+                    MetaField(stringResource(R.string.metadata_title), title, editing) { title = it }
+                    MetaField(stringResource(R.string.metadata_publisher), publisher, editing) { publisher = it }
+                    MetaField(stringResource(R.string.metadata_language), language, editing) { language = it }
+                    MetaField(stringResource(R.string.metadata_age_rating), ageRating, editing) { ageRating = it.filter(Char::isDigit) }
+                    MetaField(stringResource(R.string.metadata_reading_direction), readingDirection, editing) { readingDirection = it }
+                    SeriesStatusField(status = status, editing = editing, onChange = { status = it })
                 }
-                MetadataSection("简介") {
-                    MetaField("简介", summary, editing, maxLines = 6) { summary = it }
+                MetadataSection(stringResource(R.string.summary)) {
+                    MetaField(stringResource(R.string.summary), summary, editing, maxLines = 6) { summary = it }
                 }
-                MetadataSection("分类") {
-                    MetaField("类型", genresText, editing) { genresText = it }
-                    MetaField("标签", tagsText, editing) { tagsText = it }
-                    MetaField("分享标签", sharingLabelsText, editing) { sharingLabelsText = it }
+                MetadataSection(stringResource(R.string.metadata_classification)) {
+                    MetaField(stringResource(R.string.metadata_genres), genresText, editing) { genresText = it }
+                    MetaField(stringResource(R.string.metadata_label), tagsText, editing) { tagsText = it }
+                    MetaField(stringResource(R.string.metadata_sharing_labels), sharingLabelsText, editing) { sharingLabelsText = it }
                 }
-                MetadataSection("别名与外链") {
+                MetadataSection(stringResource(R.string.metadata_aliases_links)) {
                     AlternateTitlesEditor(alternateTitles, editing) { alternateTitles = it }
                     LinksEditor(links, editing) { links = it }
                 }
                 if (editing) {
-                    MetadataSection("锁定字段") {
-                        LockSwitch("标题", titleLock) { titleLock = it }
-                        LockSwitch("简介", summaryLock) { summaryLock = it }
-                        LockSwitch("出版社", publisherLock) { publisherLock = it }
-                        LockSwitch("类型", genresLock) { genresLock = it }
-                        LockSwitch("标签", tagsLock) { tagsLock = it }
-                        LockSwitch("外链", linksLock) { linksLock = it }
+                    MetadataSection(stringResource(R.string.metadata_lock_fields)) {
+                        LockSwitch(stringResource(R.string.metadata_title), titleLock) { titleLock = it }
+                        LockSwitch(stringResource(R.string.summary), summaryLock) { summaryLock = it }
+                        LockSwitch(stringResource(R.string.metadata_publisher), publisherLock) { publisherLock = it }
+                        LockSwitch(stringResource(R.string.metadata_genres), genresLock) { genresLock = it }
+                        LockSwitch(stringResource(R.string.metadata_label), tagsLock) { tagsLock = it }
+                        LockSwitch(stringResource(R.string.metadata_url), linksLock) { linksLock = it }
                     }
                 }
             }
@@ -162,9 +254,17 @@ fun SeriesMetadataContent(id: String, onBack: () -> Unit, vm: MetadataViewModel,
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BookMetadataContent(id: String, onBack: () -> Unit, vm: MetadataViewModel, editing: Boolean, onEditToggle: () -> Unit) {
+fun BookMetadataContent(
+    id: String,
+    serverUrl: String,
+    incomingCoverUri: String?,
+    coverFocus: Boolean,
+    onBack: () -> Unit,
+    vm: MetadataViewModel,
+    editing: Boolean,
+    onEditToggle: () -> Unit
+) {
     val meta = vm.bookMeta
     var title by remember(meta) { mutableStateOf(meta?.title ?: "") }
     var summary by remember(meta) { mutableStateOf(meta?.summary ?: "") }
@@ -181,87 +281,293 @@ fun BookMetadataContent(id: String, onBack: () -> Unit, vm: MetadataViewModel, e
     var authorsLock by remember(meta) { mutableStateOf(meta?.authorsLock ?: false) }
     var tagsLock by remember(meta) { mutableStateOf(meta?.tagsLock ?: false) }
     var linksLock by remember(meta) { mutableStateOf(meta?.linksLock ?: false) }
+    val thumbnailVersion = ThumbnailVersion.get(id)
+    val thumbnailUrl = remember(serverUrl, id, thumbnailVersion) {
+        KomgaUrls.bookThumbnail(serverUrl, id, thumbnailVersion)
+    }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Book Metadata") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
-                actions = {
-                    IconButton(onClick = { vm.refreshMetadata("book", id) }) { Icon(Icons.Default.Refresh, null) }
-                    if (editing) {
-                        IconButton(onClick = {
-                            vm.saveBookMeta(
-                                id,
-                                BookMetadataDto(
-                                    title = title,
-                                    summary = summary,
-                                    number = number,
-                                    numberSort = numberSort.toFloatOrNull(),
-                                    releaseDate = releaseDate.ifEmpty { null },
-                                    isbn = isbn,
-                                    authors = authors.filter { it.name.isNotBlank() || it.role.isNotBlank() },
-                                    tags = tagsText.toListField(),
-                                    links = links.filter { it.label.isNotBlank() && it.url.isNotBlank() },
-                                    titleLock = titleLock,
-                                    summaryLock = summaryLock,
-                                    numberLock = numberLock,
-                                    numberSortLock = meta?.numberSortLock ?: false,
-                                    releaseDateLock = meta?.releaseDateLock ?: false,
-                                    isbnLock = meta?.isbnLock ?: false,
-                                    authorsLock = authorsLock,
-                                    tagsLock = tagsLock,
-                                    linksLock = linksLock
-                                )
-                            )
-                            onEditToggle()
-                        }) { Icon(Icons.Default.Check, null) }
-                    } else {
-                        IconButton(onClick = onEditToggle) { Icon(Icons.Default.Edit, null) }
-                    }
-                }
+    MetadataScaffold(
+        title = stringResource(R.string.metadata_book_title),
+        onBack = onBack,
+        onRefresh = { vm.refreshMetadata("book", id) },
+        editing = editing,
+        onEditToggle = onEditToggle,
+        onSave = {
+            vm.saveBookMeta(
+                id,
+                BookMetadataDto(
+                    title = title,
+                    summary = summary,
+                    number = number,
+                    numberSort = numberSort.toFloatOrNull(),
+                    releaseDate = releaseDate.ifEmpty { null },
+                    isbn = isbn,
+                    authors = authors.filter { it.name.isNotBlank() || it.role.isNotBlank() },
+                    tags = tagsText.toListField(),
+                    links = links.filter { it.label.isNotBlank() && it.url.isNotBlank() },
+                    titleLock = titleLock,
+                    summaryLock = summaryLock,
+                    numberLock = numberLock,
+                    numberSortLock = meta?.numberSortLock ?: false,
+                    releaseDateLock = meta?.releaseDateLock ?: false,
+                    isbnLock = meta?.isbnLock ?: false,
+                    authorsLock = authorsLock,
+                    tagsLock = tagsLock,
+                    linksLock = linksLock
+                )
             )
+            onEditToggle()
         }
     ) { padding ->
         if (meta == null) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            LoadingMetadata(padding)
         } else {
-            Column(Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetadataSection("基础信息") {
-                    MetaField("标题", title, editing) { title = it }
-                    MetaField("册号", number, editing) { number = it }
-                    MetaField("排序册号", numberSort, editing) { numberSort = it }
-                    MetaField("发布日期", releaseDate, editing) { releaseDate = it }
-                    MetaField("ISBN", isbn, editing) { isbn = it }
+            Column(
+                Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                MetadataCoverSection(
+                    targetType = "book",
+                    id = id,
+                    thumbnailUrl = thumbnailUrl,
+                    incomingCoverUri = incomingCoverUri,
+                    coverFocus = coverFocus,
+                    vm = vm
+                )
+                MetadataSection(stringResource(R.string.metadata_basic_info)) {
+                    MetaField(stringResource(R.string.metadata_title), title, editing) { title = it }
+                    MetaField(stringResource(R.string.metadata_number), number, editing) { number = it }
+                    MetaField(stringResource(R.string.metadata_number_sort), numberSort, editing) { numberSort = it }
+                    MetaField(stringResource(R.string.metadata_release_date), releaseDate, editing) { releaseDate = it }
+                    MetaField(stringResource(R.string.metadata_isbn), isbn, editing) { isbn = it }
                 }
-                MetadataSection("简介") {
-                    MetaField("简介", summary, editing, maxLines = 6) { summary = it }
+                MetadataSection(stringResource(R.string.summary)) {
+                    MetaField(stringResource(R.string.summary), summary, editing, maxLines = 6) { summary = it }
                 }
-                MetadataSection("作者") {
-                    AuthorsEditor(
-                        authors = authors,
-                        editing = editing,
-                        onAuthorsChange = { authors = it }
-                    )
+                MetadataSection(stringResource(R.string.metadata_authors)) {
+                    AuthorsEditor(authors = authors, editing = editing, onAuthorsChange = { authors = it })
                 }
-                MetadataSection("标签与外链") {
-                    MetaField("标签", tagsText, editing) { tagsText = it }
+                MetadataSection(stringResource(R.string.metadata_tags_links)) {
+                    MetaField(stringResource(R.string.metadata_label), tagsText, editing) { tagsText = it }
                     LinksEditor(links, editing) { links = it }
                 }
                 if (editing) {
-                    MetadataSection("锁定字段") {
-                        LockSwitch("标题", titleLock) { titleLock = it }
-                        LockSwitch("简介", summaryLock) { summaryLock = it }
-                        LockSwitch("册号", numberLock) { numberLock = it }
-                        LockSwitch("作者", authorsLock) { authorsLock = it }
-                        LockSwitch("标签", tagsLock) { tagsLock = it }
-                        LockSwitch("外链", linksLock) { linksLock = it }
+                    MetadataSection(stringResource(R.string.metadata_lock_fields)) {
+                        LockSwitch(stringResource(R.string.metadata_title), titleLock) { titleLock = it }
+                        LockSwitch(stringResource(R.string.summary), summaryLock) { summaryLock = it }
+                        LockSwitch(stringResource(R.string.metadata_number), numberLock) { numberLock = it }
+                        LockSwitch(stringResource(R.string.metadata_authors), authorsLock) { authorsLock = it }
+                        LockSwitch(stringResource(R.string.metadata_label), tagsLock) { tagsLock = it }
+                        LockSwitch(stringResource(R.string.metadata_url), linksLock) { linksLock = it }
                     }
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MetadataScaffold(
+    title: String,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    editing: Boolean,
+    onEditToggle: () -> Unit,
+    onSave: () -> Unit,
+    content: @Composable (PaddingValues) -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onRefresh) {
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.metadata_refresh))
+                    }
+                    if (editing) {
+                        IconButton(onClick = onSave) {
+                            Icon(Icons.Default.Check, contentDescription = stringResource(R.string.metadata_save))
+                        }
+                    } else {
+                        IconButton(onClick = onEditToggle) {
+                            Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.metadata_edit))
+                        }
+                    }
+                }
+            )
+        },
+        content = content
+    )
+}
+
+@Composable
+private fun LoadingMetadata(padding: PaddingValues) {
+    Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator()
+    }
+}
+
+@Composable
+private fun MetadataCoverSection(
+    targetType: String,
+    id: String,
+    thumbnailUrl: String,
+    incomingCoverUri: String?,
+    coverFocus: Boolean,
+    vm: MetadataViewModel
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var candidate by remember(incomingCoverUri, thumbnailUrl) {
+        mutableStateOf(incomingCoverUri?.let { CoverCandidate(Uri.parse(it), R.string.metadata_cover_from_reader) })
+    }
+    var crop by remember { mutableStateOf(CoverCrop.Full) }
+    var previewBitmap by remember(candidate, crop) { mutableStateOf<Bitmap?>(null) }
+    var loadingPreview by remember(candidate, crop) { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) candidate = CoverCandidate(uri, R.string.metadata_cover_candidate)
+    }
+    val savedMessage = stringResource(R.string.metadata_cover_saved)
+    val failedMessage = stringResource(R.string.metadata_cover_save_failed)
+    val imageFailedMessage = stringResource(R.string.metadata_cover_image_failed)
+
+    LaunchedEffect(candidate, crop) {
+        val selected = candidate ?: return@LaunchedEffect
+        loadingPreview = true
+        previewBitmap = loadBitmap(context, selected.uri)?.let { cropCoverBitmap(it, crop) }
+        loadingPreview = false
+    }
+
+    MetadataSection(stringResource(R.string.metadata_cover_section)) {
+        if (coverFocus) {
+            Text(stringResource(R.string.metadata_cover_from_reader), color = MaterialTheme.colorScheme.primary)
+        }
+        Text(stringResource(R.string.metadata_cover_supporting), style = MaterialTheme.typography.bodyMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(Modifier.width(112.dp).aspectRatio(0.7f), contentAlignment = Alignment.Center) {
+                when {
+                    previewBitmap != null -> Image(
+                        bitmap = previewBitmap!!.asImageBitmap(),
+                        contentDescription = stringResource(candidate?.labelRes ?: R.string.metadata_cover_candidate),
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    loadingPreview -> CircularProgressIndicator()
+                    else -> SubcomposeAsyncImage(
+                        model = thumbnailUrl,
+                        contentDescription = stringResource(R.string.metadata_cover_current),
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                        loading = { CircularProgressIndicator(Modifier.size(24.dp)) }
+                    )
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                Button(onClick = { picker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Upload, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.metadata_cover_upload))
+                }
+                OutlinedButton(
+                    onClick = { candidate = CoverCandidate(Uri.parse(thumbnailUrl), R.string.metadata_cover_current) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.metadata_cover_edit_current))
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            CoverCrop.entries.forEach { option ->
+                FilterChip(
+                    selected = crop == option,
+                    onClick = { crop = option },
+                    label = { Text(stringResource(option.labelRes)) }
+                )
+            }
+        }
+        FilledTonalButton(
+            enabled = candidate != null && !vm.coverSaving,
+            onClick = {
+                val selected = candidate ?: return@FilledTonalButton
+                scope.launch {
+                    val bitmap = withContext(Dispatchers.IO) { loadBitmap(context, selected.uri) }
+                    if (bitmap == null) {
+                        Toast.makeText(context, imageFailedMessage, Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    val bytes = withContext(Dispatchers.Default) {
+                        bitmapToJpegBytes(cropCoverBitmap(bitmap, crop))
+                    }
+                    val onDone: (Boolean) -> Unit = { ok ->
+                        Toast.makeText(context, if (ok) savedMessage else failedMessage, Toast.LENGTH_SHORT).show()
+                    }
+                    if (targetType == "series") {
+                        vm.uploadSeriesCover(id, bytes, onDone)
+                    } else {
+                        vm.uploadBookCover(id, bytes, onDone)
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        ) {
+            if (vm.coverSaving) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                Text(stringResource(R.string.metadata_cover_save))
+            }
+        }
+    }
+}
+
+private data class CoverCandidate(val uri: Uri, val labelRes: Int)
+
+private val CoverCrop.labelRes: Int
+    get() = when (this) {
+        CoverCrop.Full -> R.string.metadata_cover_full
+        CoverCrop.LeftHalf -> R.string.metadata_cover_left
+        CoverCrop.RightHalf -> R.string.metadata_cover_right
+    }
+
+private suspend fun loadBitmap(context: android.content.Context, uri: Uri): Bitmap? {
+    val request = ImageRequest.Builder(context)
+        .data(uri)
+        .allowHardware(false)
+        .size(Size.ORIGINAL)
+        .build()
+    val result = context.imageLoader.execute(request)
+    return (result as? SuccessResult)?.drawable?.let { (it as? BitmapDrawable)?.bitmap }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SeriesStatusField(status: String, editing: Boolean, onChange: (String) -> Unit) {
+    if (editing) {
+        var expanded by remember { mutableStateOf(false) }
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+            OutlinedTextField(
+                value = status,
+                onValueChange = {},
+                label = { Text(stringResource(R.string.metadata_status)) },
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                listOf("ONGOING", "ENDED", "ABANDONED", "HIATUS").forEach { value ->
+                    DropdownMenuItem(text = { Text(value) }, onClick = { onChange(value); expanded = false })
+                }
+            }
+        }
+    } else {
+        MetaField(stringResource(R.string.metadata_status), status, false)
     }
 }
 
@@ -280,7 +586,7 @@ private fun MetadataSection(title: String, content: @Composable ColumnScope.() -
 
 @Composable
 private fun LockSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
@@ -293,12 +599,12 @@ private fun AlternateTitlesEditor(
     onChange: (List<AlternateTitleDto>) -> Unit
 ) {
     StructuredPairsEditor(
-        title = "别名",
-        firstLabel = "标签",
-        secondLabel = "标题",
+        title = stringResource(R.string.metadata_alternate_titles),
+        firstLabel = stringResource(R.string.metadata_label),
+        secondLabel = stringResource(R.string.metadata_title),
         items = titles.map { it.label to it.title },
         editing = editing,
-        emptyText = "没有别名",
+        emptyText = stringResource(R.string.metadata_no_alternate_titles),
         onChange = { onChange(it.map { pair -> AlternateTitleDto(pair.first, pair.second) }) }
     )
 }
@@ -310,12 +616,12 @@ private fun LinksEditor(
     onChange: (List<WebLinkDto>) -> Unit
 ) {
     StructuredPairsEditor(
-        title = "外链",
-        firstLabel = "名称",
-        secondLabel = "URL",
+        title = stringResource(R.string.metadata_url),
+        firstLabel = stringResource(R.string.metadata_link_name),
+        secondLabel = stringResource(R.string.metadata_url),
         items = links.map { it.label to it.url },
         editing = editing,
-        emptyText = "没有外链",
+        emptyText = stringResource(R.string.metadata_no_links),
         onChange = { onChange(it.map { pair -> WebLinkDto(pair.first, pair.second) }) }
     )
 }
@@ -352,24 +658,24 @@ private fun StructuredPairsEditor(
                     )
                     IconButton(
                         onClick = { onChange(editable.filterIndexed { itemIndex, _ -> itemIndex != index }) },
-                        modifier = Modifier.align(androidx.compose.ui.Alignment.CenterVertically)
+                        modifier = Modifier.align(Alignment.CenterVertically)
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除")
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.metadata_delete_item))
                     }
                 }
             }
             OutlinedButton(onClick = { onChange(editable + ("" to "")) }) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("添加$title")
+                Text(stringResource(R.string.metadata_add_item, title))
             }
         } else if (items.isEmpty()) {
             Text(emptyText, style = MaterialTheme.typography.bodyMedium)
         } else {
             items.forEach { item ->
                 ListItem(
-                    headlineContent = { Text(item.second.ifBlank { "—" }) },
-                    supportingContent = { Text(item.first.ifBlank { "—" }) },
+                    headlineContent = { Text(item.second.ifBlank { stringResource(R.string.empty_dash) }) },
+                    supportingContent = { Text(item.first.ifBlank { stringResource(R.string.empty_dash) }) },
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)
                 )
             }
@@ -384,44 +690,40 @@ private fun AuthorsEditor(
     onAuthorsChange: (List<AuthorDto>) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("作者", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.metadata_authors), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (editing) {
             val editableAuthors = authors.ifEmpty { listOf(AuthorDto()) }
             editableAuthors.forEachIndexed { index, author ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = author.name,
-                        onValueChange = { value ->
-                            onAuthorsChange(editableAuthors.updated(index, author.copy(name = value)))
-                        },
-                        label = { Text("名称") },
+                        onValueChange = { value -> onAuthorsChange(editableAuthors.updated(index, author.copy(name = value))) },
+                        label = { Text(stringResource(R.string.metadata_author_name)) },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
                         value = author.role,
-                        onValueChange = { value ->
-                            onAuthorsChange(editableAuthors.updated(index, author.copy(role = value)))
-                        },
-                        label = { Text("角色") },
+                        onValueChange = { value -> onAuthorsChange(editableAuthors.updated(index, author.copy(role = value))) },
+                        label = { Text(stringResource(R.string.metadata_author_role)) },
                         singleLine = true,
                         modifier = Modifier.weight(0.8f)
                     )
                     IconButton(
                         onClick = { onAuthorsChange(editableAuthors.filterIndexed { itemIndex, _ -> itemIndex != index }) },
-                        modifier = Modifier.align(androidx.compose.ui.Alignment.CenterVertically)
+                        modifier = Modifier.align(Alignment.CenterVertically)
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除")
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.metadata_delete_item))
                     }
                 }
             }
             OutlinedButton(onClick = { onAuthorsChange(editableAuthors + AuthorDto()) }) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("添加作者")
+                Text(stringResource(R.string.metadata_add_author))
             }
         } else if (authors.isEmpty()) {
-            Text("—", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.empty_dash), style = MaterialTheme.typography.bodyMedium)
         } else {
             authors.forEach { author ->
                 Text("${author.name} (${author.role})", style = MaterialTheme.typography.bodyMedium)
@@ -431,13 +733,19 @@ private fun AuthorsEditor(
 }
 
 @Composable
-private fun MetaField(label: String, value: String, editing: Boolean, maxLines: Int = 1, onValueChange: (String) -> Unit = {}) {
+private fun MetaField(
+    label: String,
+    value: String,
+    editing: Boolean,
+    maxLines: Int = 1,
+    onValueChange: (String) -> Unit = {}
+) {
     if (editing) {
         OutlinedTextField(value, onValueChange, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), maxLines = maxLines)
     } else {
         Column {
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value.ifEmpty { "—" }, style = MaterialTheme.typography.bodyMedium)
+            Text(value.ifEmpty { stringResource(R.string.empty_dash) }, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
