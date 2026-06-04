@@ -54,6 +54,10 @@ fun BookDetailScreen(
     LaunchedEffect(bookId) { vm.load(bookId) }
     val book = vm.book
     val meta = vm.metadata
+    val loadBookDetailFailed = stringResource(R.string.error_load_book_detail_failed)
+    val editMetadata = stringResource(R.string.edit_metadata)
+    val copied = stringResource(R.string.copied)
+    val unknown = stringResource(R.string.unknown)
 
     BackHandler { onBack() }
 
@@ -81,7 +85,7 @@ fun BookDetailScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             if (book == null && !vm.loading && vm.error != null) {
-                ErrorState(message = vm.error ?: "加载书籍详情失败", onRetry = { vm.load(bookId) })
+                ErrorState(message = vm.error ?: loadBookDetailFailed, onRetry = { vm.load(bookId) })
             } else {
                 val context = LocalContext.current
                 val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
@@ -106,7 +110,7 @@ fun BookDetailScreen(
                                 FloatingDetailIconButton(onClick = { onMetadataClick(bookId) }) {
                                     Icon(
                                         Icons.Default.Edit,
-                                        contentDescription = "编辑元数据",
+                                        contentDescription = editMetadata,
                                         tint = Color.White
                                     )
                                 }
@@ -142,21 +146,22 @@ fun BookDetailScreen(
                             }
                         }
                         Text(
-                            "ID: $bookId",
+                            stringResource(R.string.id_format, bookId),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.clickable {
                                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("id", bookId))
-                                android.widget.Toast.makeText(context, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, copied, android.widget.Toast.LENGTH_SHORT).show()
                             }
                         )
+                    },
+                    bodyContent = {
                         BookDetailReadingActions(
                             hasReadProgress = book?.readProgress != null,
                             onReadClick = { onReadClick(bookId, true) },
                             onIncognitoReadClick = { onReadClick(bookId, false) }
                         )
-                    },
-                    bodyContent = {
+
                         BookDetailReadStatusActions(
                             canMarkUnread = book?.readProgress != null,
                             canMarkRead = book != null,
@@ -191,9 +196,9 @@ fun BookDetailScreen(
                         HorizontalDivider()
 
                         if (book != null) {
-                            InfoRow(stringResource(R.string.file_size), formatFileSize(book.sizeBytes))
-                            InfoRow(stringResource(R.string.file_format), book.media.mediaType ?: stringResource(R.string.unknown))
-                            InfoRow(stringResource(R.string.file_source), book.url ?: stringResource(R.string.unknown))
+                            InfoRow(stringResource(R.string.file_size), formatFileSize(book.sizeBytes, unknown))
+                            InfoRow(stringResource(R.string.file_format), book.media.mediaType ?: unknown)
+                            InfoRow(stringResource(R.string.file_source), book.url ?: unknown)
                             if (book.created != null) InfoRow(stringResource(R.string.created_at), formatDateTime(book.created))
                             if (book.fileLastModified != null) InfoRow(stringResource(R.string.last_modified), formatDateTime(book.fileLastModified))
                         }
@@ -297,8 +302,8 @@ private fun InfoRow(label: String, value: String) {
     }
 }
 
-private fun formatFileSize(bytes: Long?): String {
-    if (bytes == null) return "未知"
+private fun formatFileSize(bytes: Long?, unknown: String): String {
+    if (bytes == null) return unknown
     return when {
         bytes < 1024 -> "$bytes B"
         bytes < 1024 * 1024 -> "%.1f KiB".format(bytes / 1024.0)
