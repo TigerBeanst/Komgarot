@@ -24,4 +24,14 @@ class CoverEditingTest {
         assertEquals(CoverCropRect(0, 0, 1, 200), coverCropRect(1, 200, CoverCrop.LeftHalf))
         assertEquals(CoverCropRect(0, 0, 1, 200), coverCropRect(1, 200, CoverCrop.RightHalf))
     }
+
+    @Test
+    fun largeCoverUploadIsScaledToMaxEdge() {
+        assertEquals(CoverSize(1440, 2048), scaledCoverSize(2880, 4096))
+    }
+
+    @Test
+    fun smallCoverUploadKeepsOriginalSize() {
+        assertEquals(CoverSize(900, 1200), scaledCoverSize(900, 1200))
+    }
 }

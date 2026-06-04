@@ -83,6 +83,7 @@ import fail.tiger.komgarot.data.remote.dto.WebLinkDto
 import fail.tiger.komgarot.ui.cover.CoverCrop
 import fail.tiger.komgarot.ui.cover.bitmapToJpegBytes
 import fail.tiger.komgarot.ui.cover.cropCoverBitmap
+import fail.tiger.komgarot.ui.cover.scaleCoverBitmapForUpload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -504,7 +505,7 @@ private fun MetadataCoverSection(
                         return@launch
                     }
                     val bytes = withContext(Dispatchers.Default) {
-                        bitmapToJpegBytes(cropCoverBitmap(bitmap, crop))
+                        bitmapToJpegBytes(scaleCoverBitmapForUpload(cropCoverBitmap(bitmap, crop)))
                     }
                     val onDone: (Boolean) -> Unit = { ok ->
                         Toast.makeText(context, if (ok) savedMessage else failedMessage, Toast.LENGTH_SHORT).show()
