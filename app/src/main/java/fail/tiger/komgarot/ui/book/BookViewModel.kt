@@ -6,11 +6,13 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.data.repository.SeriesRepository
+import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import fail.tiger.komgarot.ui.state.PagedListState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,11 +21,12 @@ import kotlinx.coroutines.withContext
 class BookViewModel(
     private val bookRepo: BookRepository,
     private val seriesRepo: SeriesRepository,
-    private val imageCacheInvalidator: ImageCacheInvalidator
+    private val imageCacheInvalidator: ImageCacheInvalidator,
+    fallbackErrorMessage: String
 ) : ViewModel() {
     private val paging = PagedListState<BookDto, String>(
         keySelector = { it.id },
-        fallbackErrorMessage = "加载书籍失败"
+        fallbackErrorMessage = fallbackErrorMessage
     )
     val books = paging.items
     var series by mutableStateOf<SeriesDto?>(null)
@@ -79,9 +82,15 @@ class BookViewModel(
     class Factory(
         private val bookRepo: BookRepository,
         private val seriesRepo: SeriesRepository,
-        private val imageCacheInvalidator: ImageCacheInvalidator
+        private val imageCacheInvalidator: ImageCacheInvalidator,
+        private val textProvider: UiTextProvider
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            BookViewModel(bookRepo, seriesRepo, imageCacheInvalidator) as T
+            BookViewModel(
+                bookRepo,
+                seriesRepo,
+                imageCacheInvalidator,
+                textProvider.get(R.string.error_load_books_failed)
+            ) as T
     }
 }

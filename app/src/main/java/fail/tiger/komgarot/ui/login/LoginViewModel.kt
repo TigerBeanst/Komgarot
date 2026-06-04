@@ -3,12 +3,17 @@ package fail.tiger.komgarot.ui.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.repository.AuthRepository
+import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class LoginViewModel(private val repo: AuthRepository) : ViewModel() {
+class LoginViewModel(
+    private val repo: AuthRepository,
+    private val textProvider: UiTextProvider
+) : ViewModel() {
     private val _state = MutableStateFlow<LoginState>(LoginState.Idle)
     val state = _state.asStateFlow()
 
@@ -17,12 +22,15 @@ class LoginViewModel(private val repo: AuthRepository) : ViewModel() {
             _state.value = LoginState.Loading
             repo.login(url, username, password)
                 .onSuccess { _state.value = LoginState.Success }
-                .onFailure { _state.value = LoginState.Error(it.message ?: "Login failed") }
+                .onFailure { _state.value = LoginState.Error(it.message ?: textProvider.get(R.string.login_failed)) }
         }
     }
 
-    class Factory(private val repo: AuthRepository) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = LoginViewModel(repo) as T
+    class Factory(
+        private val repo: AuthRepository,
+        private val textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = LoginViewModel(repo, textProvider) as T
     }
 }
 

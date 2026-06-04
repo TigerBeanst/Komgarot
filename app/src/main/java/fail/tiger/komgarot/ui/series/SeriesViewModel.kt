@@ -9,9 +9,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.SeriesFilters
 import fail.tiger.komgarot.data.repository.SeriesRepository
+import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import fail.tiger.komgarot.ui.state.PagedListState
 import kotlinx.coroutines.launch
 
@@ -36,10 +38,14 @@ class SharedPreferencesSeriesSortStore(context: Context) : SeriesSortStore {
     }
 }
 
-class SeriesViewModel(private val repo: SeriesRepository, private val sortStore: SeriesSortStore) : ViewModel() {
+class SeriesViewModel(
+    private val repo: SeriesRepository,
+    private val sortStore: SeriesSortStore,
+    fallbackErrorMessage: String
+) : ViewModel() {
     private val paging = PagedListState<SeriesDto, String>(
         keySelector = { it.id },
-        fallbackErrorMessage = "加载系列失败"
+        fallbackErrorMessage = fallbackErrorMessage
     )
     val series = paging.items
     val hasMore: Boolean get() = paging.hasMore
@@ -121,8 +127,13 @@ class SeriesViewModel(private val repo: SeriesRepository, private val sortStore:
         }
     }
 
-    class Factory(private val repo: SeriesRepository, private val sortStore: SeriesSortStore) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = SeriesViewModel(repo, sortStore) as T
+    class Factory(
+        private val repo: SeriesRepository,
+        private val sortStore: SeriesSortStore,
+        private val textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            SeriesViewModel(repo, sortStore, textProvider.get(R.string.error_load_series_failed)) as T
     }
 }
 

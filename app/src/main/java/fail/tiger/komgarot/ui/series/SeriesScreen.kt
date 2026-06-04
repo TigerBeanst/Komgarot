@@ -25,7 +25,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -79,8 +78,6 @@ fun SeriesScreen(
             }
         }
 
-    val context = LocalContext.current
-
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -97,7 +94,7 @@ fun SeriesScreen(
                             TextField(
                                 value = searchText,
                                 onValueChange = { searchText = it },
-                                placeholder = { Text(if (searchByAuthor) "搜索作者" else stringResource(R.string.search_hint)) },
+                                placeholder = { Text(stringResource(if (searchByAuthor) R.string.search_author else R.string.search_hint)) },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                                 keyboardActions = KeyboardActions(onSearch = { vm.search(searchText, searchByAuthor) }),
@@ -113,15 +110,17 @@ fun SeriesScreen(
                             FilterChip(
                                 selected = searchByAuthor,
                                 onClick = { searchByAuthor = !searchByAuthor },
-                                label = { Text("作者") }
+                                label = { Text(stringResource(R.string.author_filter)) }
                             )
                         }
                     } else {
                         val title = when {
-                            vm.searchQuery.isNotEmpty() && vm.searchByAuthor -> "作者: ${vm.displaySearchQuery}"
-                            vm.searchQuery.isNotEmpty() -> "搜索: ${vm.displaySearchQuery}"
-                            libraryId == null -> "全部系列"
-                            else -> "系列"
+                            vm.searchQuery.isNotEmpty() && vm.searchByAuthor ->
+                                stringResource(R.string.author_title, vm.displaySearchQuery)
+                            vm.searchQuery.isNotEmpty() ->
+                                stringResource(R.string.search_title, vm.displaySearchQuery)
+                            libraryId == null -> stringResource(R.string.all_series)
+                            else -> stringResource(R.string.series)
                         }
                         Text(title)
                     }
@@ -136,72 +135,112 @@ fun SeriesScreen(
                             onBack()
                         }
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     if (searchExpanded) {
                         IconButton(onClick = { vm.search(searchText, searchByAuthor) }) {
-                            Icon(Icons.Default.Search, contentDescription = "Search")
+                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.search))
                         }
                         IconButton(onClick = {
                             searchExpanded = false
                             searchText = ""
                             searchByAuthor = false
                         }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear")
+                            Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.clear))
                         }
                     } else {
                         IconButton(onClick = { sortMenuExpanded = true }) {
                             Icon(
                                 Icons.Default.Sort,
-                                contentDescription = "Sort",
+                                contentDescription = stringResource(R.string.sort),
                                 tint = if (vm.currentSort != "metadata.titleSort,asc") MaterialTheme.colorScheme.primary else LocalContentColor.current
                             )
                         }
                         DropdownMenu(expanded = sortMenuExpanded, onDismissRequest = { sortMenuExpanded = false }) {
                             DropdownMenuItem(
-                                text = { Text("名称 ${if (sortField == "metadata.titleSort") if (sortDirection == "asc") "↑" else "↓" else ""}") },
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            R.string.sort_menu_item,
+                                            seriesSortLabel("metadata.titleSort"),
+                                            activeSortIndicator(sortField, sortDirection, "metadata.titleSort")
+                                        )
+                                    )
+                                },
                                 onClick = {
                                     val newDir = if (sortField == "metadata.titleSort") if (sortDirection == "asc") "desc" else "asc" else "asc"
                                     vm.setSortBy("metadata.titleSort,$newDir"); sortMenuExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("添加时间 ${if (sortField == "created") if (sortDirection == "asc") "↑" else "↓" else ""}") },
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            R.string.sort_menu_item,
+                                            seriesSortLabel("created"),
+                                            activeSortIndicator(sortField, sortDirection, "created")
+                                        )
+                                    )
+                                },
                                 onClick = {
                                     val newDir = if (sortField == "created") if (sortDirection == "asc") "desc" else "asc" else "desc"
                                     vm.setSortBy("created,$newDir"); sortMenuExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("更新时间 ${if (sortField == "lastModified") if (sortDirection == "asc") "↑" else "↓" else ""}") },
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            R.string.sort_menu_item,
+                                            seriesSortLabel("lastModified"),
+                                            activeSortIndicator(sortField, sortDirection, "lastModified")
+                                        )
+                                    )
+                                },
                                 onClick = {
                                     val newDir = if (sortField == "lastModified") if (sortDirection == "asc") "desc" else "asc" else "desc"
                                     vm.setSortBy("lastModified,$newDir"); sortMenuExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("阅读日期 ${if (sortField == "lastReadDate") if (sortDirection == "asc") "↑" else "↓" else ""}") },
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            R.string.sort_menu_item,
+                                            seriesSortLabel("lastReadDate"),
+                                            activeSortIndicator(sortField, sortDirection, "lastReadDate")
+                                        )
+                                    )
+                                },
                                 onClick = {
                                     val newDir = if (sortField == "lastReadDate") if (sortDirection == "asc") "desc" else "asc" else "desc"
                                     vm.setSortBy("lastReadDate,$newDir"); sortMenuExpanded = false
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("发布日期 ${if (sortField == "metadata.releaseDate") if (sortDirection == "asc") "↑" else "↓" else ""}") },
+                                text = {
+                                    Text(
+                                        stringResource(
+                                            R.string.sort_menu_item,
+                                            seriesSortLabel("metadata.releaseDate"),
+                                            activeSortIndicator(sortField, sortDirection, "metadata.releaseDate")
+                                        )
+                                    )
+                                },
                                 onClick = {
                                     val newDir = if (sortField == "metadata.releaseDate") if (sortDirection == "asc") "desc" else "asc" else "desc"
                                     vm.setSortBy("metadata.releaseDate,$newDir"); sortMenuExpanded = false
                                 }
                             )
                             HorizontalDivider()
-                            DropdownMenuItem(text = { Text("随机") }, onClick = { vm.setSortBy("random,asc"); sortMenuExpanded = false })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.sort_random)) }, onClick = { vm.setSortBy("random,asc"); sortMenuExpanded = false })
                         }
                         IconButton(onClick = { showFilterSheet = true }) {
                             Icon(
                                 Icons.Default.FilterList,
-                                contentDescription = "筛选",
+                                contentDescription = stringResource(R.string.filter),
                                 tint = if (vm.activeFilterCount > 0) MaterialTheme.colorScheme.primary else LocalContentColor.current
                             )
                         }
@@ -210,7 +249,7 @@ fun SeriesScreen(
                             searchByAuthor = vm.searchByAuthor
                             searchExpanded = true
                         }) {
-                            Icon(Icons.Default.Search, contentDescription = "Search")
+                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.search))
                         }
                     }
                 }
@@ -232,9 +271,9 @@ fun SeriesScreen(
             modifier = Modifier.padding(padding)
         ) {
             if (vm.series.isEmpty() && !vm.loading && vm.error != null) {
-                ErrorState(message = vm.error ?: "加载系列失败", onRetry = vm::refresh)
+                ErrorState(message = vm.error ?: stringResource(R.string.error_load_series_failed), onRetry = vm::refresh)
             } else if (vm.series.isEmpty() && !vm.loading && vm.searchQuery.isNotEmpty()) {
-                EmptyState(message = "无搜索结果")
+                EmptyState(message = stringResource(R.string.no_search_results))
             } else {
                 Box(modifier = Modifier.fillMaxSize()) {
                     LazyVerticalGrid(
@@ -350,15 +389,7 @@ private fun SeriesStatusChips(
     searchByAuthor: Boolean,
     activeFilterCount: Int
 ) {
-    val sortLabel = when (sortField) {
-        "metadata.titleSort" -> "名称"
-        "created" -> "添加时间"
-        "lastModified" -> "更新时间"
-        "lastReadDate" -> "阅读日期"
-        "metadata.releaseDate" -> "发布日期"
-        "random" -> "随机"
-        else -> sortField
-    }
+    val sortLabel = seriesSortLabel(sortField)
     val showSort = sortField != "metadata.titleSort" || sortDirection != "asc"
     val hasStatus = showSort || searchQuery.isNotBlank() || activeFilterCount > 0
     if (!hasStatus) return
@@ -371,19 +402,27 @@ private fun SeriesStatusChips(
         if (showSort) {
             AssistChip(
                 onClick = {},
-                label = { Text("排序：$sortLabel ${if (sortDirection == "asc") "↑" else "↓"}") }
+                label = { Text(stringResource(R.string.sort_chip, sortLabel, sortArrow(sortDirection))) }
             )
         }
         if (searchQuery.isNotBlank()) {
             AssistChip(
                 onClick = {},
-                label = { Text("${if (searchByAuthor) "作者" else "搜索"}：$searchQuery") }
+                label = {
+                    Text(
+                        stringResource(
+                            R.string.search_chip,
+                            stringResource(if (searchByAuthor) R.string.author_filter else R.string.search),
+                            searchQuery
+                        )
+                    )
+                }
             )
         }
         if (activeFilterCount > 0) {
             AssistChip(
                 onClick = {},
-                label = { Text("筛选：$activeFilterCount 项") }
+                label = { Text(stringResource(R.string.filter_chip, activeFilterCount)) }
             )
         }
     }
@@ -405,28 +444,28 @@ private fun SeriesFilterSheet(
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("筛选系列", style = MaterialTheme.typography.titleLarge)
-            FilterGroup("阅读状态") {
-                FilterChip(selected = readStatus == null, onClick = { readStatus = null }, label = { Text("全部") })
-                FilterChip(selected = readStatus == "UNREAD", onClick = { readStatus = "UNREAD" }, label = { Text("未读") })
-                FilterChip(selected = readStatus == "IN_PROGRESS", onClick = { readStatus = "IN_PROGRESS" }, label = { Text("阅读中") })
-                FilterChip(selected = readStatus == "READ", onClick = { readStatus = "READ" }, label = { Text("已读") })
+            Text(stringResource(R.string.filter_series_title), style = MaterialTheme.typography.titleLarge)
+            FilterGroup(stringResource(R.string.filter_read_status)) {
+                FilterChip(selected = readStatus == null, onClick = { readStatus = null }, label = { Text(stringResource(R.string.all)) })
+                FilterChip(selected = readStatus == "UNREAD", onClick = { readStatus = "UNREAD" }, label = { Text(stringResource(R.string.read_status_unread)) })
+                FilterChip(selected = readStatus == "IN_PROGRESS", onClick = { readStatus = "IN_PROGRESS" }, label = { Text(stringResource(R.string.read_status_in_progress)) })
+                FilterChip(selected = readStatus == "READ", onClick = { readStatus = "READ" }, label = { Text(stringResource(R.string.read_status_read)) })
             }
-            FilterGroup("系列状态") {
-                FilterChip(selected = status == null, onClick = { status = null }, label = { Text("全部") })
-                FilterChip(selected = status == "ONGOING", onClick = { status = "ONGOING" }, label = { Text("连载中") })
-                FilterChip(selected = status == "ENDED", onClick = { status = "ENDED" }, label = { Text("已完结") })
-                FilterChip(selected = status == "HIATUS", onClick = { status = "HIATUS" }, label = { Text("暂停") })
-                FilterChip(selected = status == "ABANDONED", onClick = { status = "ABANDONED" }, label = { Text("放弃") })
+            FilterGroup(stringResource(R.string.filter_series_status)) {
+                FilterChip(selected = status == null, onClick = { status = null }, label = { Text(stringResource(R.string.all)) })
+                FilterChip(selected = status == "ONGOING", onClick = { status = "ONGOING" }, label = { Text(stringResource(R.string.series_status_ongoing)) })
+                FilterChip(selected = status == "ENDED", onClick = { status = "ENDED" }, label = { Text(stringResource(R.string.series_status_ended)) })
+                FilterChip(selected = status == "HIATUS", onClick = { status = "HIATUS" }, label = { Text(stringResource(R.string.series_status_hiatus)) })
+                FilterChip(selected = status == "ABANDONED", onClick = { status = "ABANDONED" }, label = { Text(stringResource(R.string.series_status_abandoned)) })
             }
-            FilterGroup("内容") {
-                FilterChip(selected = complete == true, onClick = { complete = if (complete == true) null else true }, label = { Text("完整") })
-                FilterChip(selected = complete == false, onClick = { complete = if (complete == false) null else false }, label = { Text("不完整") })
-                FilterChip(selected = oneshot == true, onClick = { oneshot = if (oneshot == true) null else true }, label = { Text("单本") })
-                FilterChip(selected = recentRelease, onClick = { recentRelease = !recentRelease }, label = { Text("最近一年发布") })
+            FilterGroup(stringResource(R.string.filter_content)) {
+                FilterChip(selected = complete == true, onClick = { complete = if (complete == true) null else true }, label = { Text(stringResource(R.string.complete)) })
+                FilterChip(selected = complete == false, onClick = { complete = if (complete == false) null else false }, label = { Text(stringResource(R.string.incomplete)) })
+                FilterChip(selected = oneshot == true, onClick = { oneshot = if (oneshot == true) null else true }, label = { Text(stringResource(R.string.oneshot)) })
+                FilterChip(selected = recentRelease, onClick = { recentRelease = !recentRelease }, label = { Text(stringResource(R.string.released_last_year)) })
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onClear, modifier = Modifier.weight(1f)) { Text("清除") }
+                OutlinedButton(onClick = onClear, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.clear)) }
                 Button(
                     onClick = {
                         onApply(
@@ -440,7 +479,7 @@ private fun SeriesFilterSheet(
                         )
                     },
                     modifier = Modifier.weight(1f)
-                ) { Text("应用") }
+                ) { Text(stringResource(R.string.apply)) }
             }
         }
     }
@@ -454,3 +493,21 @@ private fun FilterGroup(title: String, content: @Composable FlowRowScope.() -> U
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
     }
 }
+
+@Composable
+private fun seriesSortLabel(sortField: String): String =
+    when (sortField) {
+        "metadata.titleSort" -> stringResource(R.string.sort_name)
+        "created" -> stringResource(R.string.sort_created)
+        "lastModified" -> stringResource(R.string.sort_updated)
+        "lastReadDate" -> stringResource(R.string.sort_last_read)
+        "metadata.releaseDate" -> stringResource(R.string.sort_release_date)
+        "random" -> stringResource(R.string.sort_random)
+        else -> sortField
+    }
+
+private fun activeSortIndicator(sortField: String, sortDirection: String, field: String): String =
+    if (sortField == field) sortArrow(sortDirection) else ""
+
+private fun sortArrow(sortDirection: String): String =
+    if (sortDirection == "asc") "↑" else "↓"

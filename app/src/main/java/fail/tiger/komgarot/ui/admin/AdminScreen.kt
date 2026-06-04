@@ -17,8 +17,11 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.LibraryDto
 import fail.tiger.komgarot.data.remote.dto.SettingsUpdateDto
 import fail.tiger.komgarot.data.remote.dto.UserDto
@@ -27,13 +30,13 @@ import fail.tiger.komgarot.ui.components.EmptyState
 import fail.tiger.komgarot.ui.components.InfoPill
 import fail.tiger.komgarot.ui.components.SectionHeader
 
-private enum class AdminTab(val label: String) {
-    Overview("概览"),
-    Libraries("书库"),
-    Users("用户"),
-    Settings("设置"),
-    Integrity("维护"),
-    Activity("活动")
+private enum class AdminTab(@StringRes val labelRes: Int) {
+    Overview(R.string.admin_tab_overview),
+    Libraries(R.string.admin_tab_libraries),
+    Users(R.string.admin_tab_users),
+    Settings(R.string.admin_tab_settings),
+    Integrity(R.string.admin_tab_integrity),
+    Activity(R.string.admin_tab_activity)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,16 +55,16 @@ fun AdminScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("管理") },
+                    title = { Text(stringResource(R.string.admin)) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                         }
                     }
                 )
             }
         ) { padding ->
-            EmptyState(message = "当前用户没有管理员权限", modifier = Modifier.padding(padding))
+            EmptyState(message = stringResource(R.string.admin_no_permission), modifier = Modifier.padding(padding))
         }
         return
     }
@@ -69,15 +72,15 @@ fun AdminScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("管理") },
+                title = { Text(stringResource(R.string.admin)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = vm::load) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
                     }
                 }
             )
@@ -92,7 +95,7 @@ fun AdminScreen(
                 if (vm.error != null) {
                     AssistChip(
                         onClick = { vm.load() },
-                        label = { Text("部分管理信息加载失败：${vm.error}") },
+                        label = { Text(stringResource(R.string.admin_partial_load_failed, vm.error.orEmpty())) },
                         leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
@@ -102,7 +105,7 @@ fun AdminScreen(
                         Tab(
                             selected = tab == item,
                             onClick = { tab = item },
-                            text = { Text(item.label) }
+                            text = { Text(stringResource(item.labelRes)) }
                         )
                     }
                 }
@@ -121,9 +124,9 @@ fun AdminScreen(
     vm.feedback?.let {
         AlertDialog(
             onDismissRequest = vm::clearFeedback,
-            title = { Text("操作完成") },
+            title = { Text(stringResource(R.string.admin_operation_complete)) },
             text = { Text(it) },
-            confirmButton = { TextButton(onClick = vm::clearFeedback) { Text("确定") } }
+            confirmButton = { TextButton(onClick = vm::clearFeedback) { Text(stringResource(R.string.ok)) } }
         )
     }
 }
@@ -136,28 +139,31 @@ private fun AdminOverview(vm: AdminViewModel) {
         modifier = Modifier.fillMaxSize()
     ) {
         item {
-            SectionHeader("服务器概览")
+            SectionHeader(stringResource(R.string.admin_server_overview))
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                StatCard("书库", vm.libraries.size.toString(), Modifier.weight(1f))
-                StatCard("用户", vm.users.size.toString(), Modifier.weight(1f))
-                StatCard("重复书籍", vm.duplicateBooks.size.toString(), Modifier.weight(1f))
+                StatCard(stringResource(R.string.admin_libraries), vm.libraries.size.toString(), Modifier.weight(1f))
+                StatCard(stringResource(R.string.admin_users), vm.users.size.toString(), Modifier.weight(1f))
+                StatCard(stringResource(R.string.admin_duplicate_books), vm.duplicateBooks.size.toString(), Modifier.weight(1f))
             }
         }
         item {
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("服务器设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("缩略图: ${vm.settings?.thumbnailSize ?: "未知"}")
-                    Text("任务线程: ${vm.settings?.taskPoolSize ?: "未知"}")
-                    Text("Claim: ${if (vm.claimStatus?.claimed != false) "已声明" else "未声明"}")
-                    if (vm.oauthProviders.isNotEmpty()) Text("OAuth: ${vm.oauthProviders.joinToString { it.label.ifBlank { it.name } }}")
+                    val unknown = stringResource(R.string.unknown)
+                    Text(stringResource(R.string.admin_server_settings), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.admin_thumbnail_size, vm.settings?.thumbnailSize ?: unknown))
+                    Text(stringResource(R.string.admin_task_threads, vm.settings?.taskPoolSize?.toString() ?: unknown))
+                    Text(stringResource(R.string.admin_claim_status, if (vm.claimStatus?.claimed != false) stringResource(R.string.admin_claimed) else stringResource(R.string.admin_unclaimed)))
+                    if (vm.oauthProviders.isNotEmpty()) {
+                        Text(stringResource(R.string.admin_oauth_providers, vm.oauthProviders.joinToString { it.label.ifBlank { it.name } }))
+                    }
                 }
             }
         }
         item {
-            SectionHeader("最新活动")
+            SectionHeader(stringResource(R.string.admin_latest_activity))
         }
         items(vm.history.take(8), key = { it.id }) { event ->
             ListItem(
@@ -194,15 +200,19 @@ private fun LibrariesAdmin(vm: AdminViewModel) {
     ) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                SectionHeader("书库", modifier = Modifier.weight(1f))
+                SectionHeader(stringResource(R.string.admin_libraries), modifier = Modifier.weight(1f))
                 FilledTonalButton(onClick = { showCreate = true }) {
                     Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("新建")
+                    Text(stringResource(R.string.admin_new))
                 }
             }
         }
         items(vm.libraries, key = { it.id }) { library ->
+            val scanActionText = stringResource(R.string.admin_action_scan_library, library.name, library.id)
+            val analyzeActionText = stringResource(R.string.admin_action_analyze_library, library.name, library.id)
+            val refreshMetadataActionText = stringResource(R.string.admin_action_refresh_library, library.name, library.id)
+            val emptyTrashActionText = stringResource(R.string.admin_action_empty_trash, library.name, library.id)
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -211,22 +221,22 @@ private fun LibrariesAdmin(vm: AdminViewModel) {
                             Text(library.root.ifBlank { library.id }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         IconButton(onClick = { editing = library }) {
-                            Icon(Icons.Default.Edit, contentDescription = "编辑书库")
+                            Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.admin_edit_library))
                         }
                         IconButton(onClick = { pendingDelete = library }) {
-                            Icon(Icons.Default.Delete, contentDescription = "删除书库", tint = MaterialTheme.colorScheme.error)
+                            Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.admin_delete_library), tint = MaterialTheme.colorScheme.error)
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (library.unavailable) InfoPill("不可用")
-                        InfoPill(library.scanInterval ?: "DISABLED")
-                        if (library.scanOnStartup) InfoPill("启动扫描")
+                        if (library.unavailable) InfoPill(stringResource(R.string.admin_library_unavailable))
+                        InfoPill(library.scanInterval ?: stringResource(R.string.disabled))
+                        if (library.scanOnStartup) InfoPill(stringResource(R.string.admin_library_scan_startup))
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { pendingAction = "扫描「${library.name}」\nID: ${library.id}" to { vm.scanLibrary(library.id) } }) { Text("扫描") }
-                        OutlinedButton(onClick = { pendingAction = "分析「${library.name}」\nID: ${library.id}" to { vm.analyzeLibrary(library.id) } }) { Text("分析") }
-                        OutlinedButton(onClick = { pendingAction = "刷新「${library.name}」元数据\nID: ${library.id}" to { vm.refreshLibraryMetadata(library.id) } }) { Text("刷新元数据") }
-                        OutlinedButton(onClick = { pendingAction = "清空「${library.name}」回收站\nID: ${library.id}" to { vm.emptyLibraryTrash(library.id) } }) { Text("清空回收站") }
+                        OutlinedButton(onClick = { pendingAction = scanActionText to { vm.scanLibrary(library.id) } }) { Text(stringResource(R.string.admin_scan)) }
+                        OutlinedButton(onClick = { pendingAction = analyzeActionText to { vm.analyzeLibrary(library.id) } }) { Text(stringResource(R.string.admin_analyze)) }
+                        OutlinedButton(onClick = { pendingAction = refreshMetadataActionText to { vm.refreshLibraryMetadata(library.id) } }) { Text(stringResource(R.string.admin_refresh_metadata)) }
+                        OutlinedButton(onClick = { pendingAction = emptyTrashActionText to { vm.emptyLibraryTrash(library.id) } }) { Text(stringResource(R.string.admin_empty_trash)) }
                     }
                 }
             }
@@ -253,9 +263,9 @@ private fun LibrariesAdmin(vm: AdminViewModel) {
     }
     pendingDelete?.let { library ->
         ConfirmActionDialog(
-            title = "删除书库",
-            text = "确定删除书库「${library.name}」？\nID: ${library.id}\n此操作会删除 Komga 中的书库配置。",
-            confirmText = "删除",
+            title = stringResource(R.string.admin_delete_library),
+            text = stringResource(R.string.admin_delete_library_message, library.name, library.id),
+            confirmText = stringResource(R.string.delete),
             onConfirm = {
                 vm.deleteLibrary(library.id)
                 pendingDelete = null
@@ -265,9 +275,9 @@ private fun LibrariesAdmin(vm: AdminViewModel) {
     }
     pendingAction?.let { (text, action) ->
         ConfirmActionDialog(
-            title = "确认管理操作",
+            title = stringResource(R.string.admin_confirm_operation_title),
             text = text,
-            confirmText = "执行",
+            confirmText = stringResource(R.string.admin_execute),
             destructive = false,
             onConfirm = {
                 action()
@@ -293,11 +303,11 @@ private fun UsersAdmin(vm: AdminViewModel) {
     ) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                SectionHeader("用户", modifier = Modifier.weight(1f))
+                SectionHeader(stringResource(R.string.admin_users), modifier = Modifier.weight(1f))
                 FilledTonalButton(onClick = { showCreate = true }) {
                     Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("新建")
+                    Text(stringResource(R.string.admin_new))
                 }
             }
         }
@@ -306,41 +316,41 @@ private fun UsersAdmin(vm: AdminViewModel) {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(user.email, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text("ID: ${user.id}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.id_format, user.id), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             user.roles.forEach { InfoPill(it) }
-                            InfoPill(if (user.sharedAllLibraries) "全部书库" else "${user.sharedLibrariesIds.size} 个书库")
+                            InfoPill(if (user.sharedAllLibraries) stringResource(R.string.admin_all_libraries) else stringResource(R.string.admin_libraries_count, user.sharedLibrariesIds.size))
                         }
                     }
                     IconButton(onClick = { vm.updateUser(user, !user.isAdmin, user.sharedAllLibraries, user.sharedLibrariesIds) }) {
-                        Icon(Icons.Default.Security, contentDescription = "切换管理员")
+                        Icon(Icons.Default.Security, contentDescription = stringResource(R.string.admin_toggle_admin))
                     }
                     IconButton(onClick = { passwordUser = user }) {
-                        Icon(Icons.Default.Edit, contentDescription = "改密码")
+                        Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.admin_change_password))
                     }
                     IconButton(onClick = { pendingDelete = user }) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除用户", tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.admin_delete_user), tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }
         }
         item {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                SectionHeader("当前用户 API Key", modifier = Modifier.weight(1f))
+                SectionHeader(stringResource(R.string.admin_current_user_api_keys), modifier = Modifier.weight(1f))
                 FilledTonalButton(onClick = { showApiKeyCreate = true }) {
                     Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("新建")
+                    Text(stringResource(R.string.admin_new))
                 }
             }
         }
         items(vm.apiKeys, key = { it.id }) { key ->
             ListItem(
                 headlineContent = { Text(key.comment) },
-                supportingContent = { Text("ID: ${key.id}\n创建: ${key.createdDate.orEmpty()}") },
+                supportingContent = { Text(stringResource(R.string.admin_id_created, key.id, key.createdDate.orEmpty())) },
                 trailingContent = {
                     IconButton(onClick = { pendingApiKeyDelete = key.id }) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除 API Key", tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.admin_delete_api_key), tint = MaterialTheme.colorScheme.error)
                     }
                 },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
@@ -358,7 +368,7 @@ private fun UsersAdmin(vm: AdminViewModel) {
     }
     passwordUser?.let { user ->
         PasswordDialog(
-            title = "更新 ${user.email} 的密码",
+            title = stringResource(R.string.admin_update_user_password, user.email),
             onDismiss = { passwordUser = null },
             onSave = {
                 vm.updateUserPassword(user.id, it)
@@ -377,9 +387,9 @@ private fun UsersAdmin(vm: AdminViewModel) {
     }
     pendingApiKeyDelete?.let { keyId ->
         ConfirmActionDialog(
-            title = "删除 API Key",
-            text = "确定删除 API Key？\nID: $keyId",
-            confirmText = "删除",
+            title = stringResource(R.string.admin_delete_api_key),
+            text = stringResource(R.string.admin_delete_api_key_message, keyId),
+            confirmText = stringResource(R.string.delete),
             onConfirm = {
                 vm.deleteApiKey(keyId)
                 pendingApiKeyDelete = null
@@ -389,9 +399,9 @@ private fun UsersAdmin(vm: AdminViewModel) {
     }
     pendingDelete?.let { user ->
         ConfirmActionDialog(
-            title = "删除用户",
-            text = "确定删除用户「${user.email}」？\nID: ${user.id}",
-            confirmText = "删除",
+            title = stringResource(R.string.admin_delete_user),
+            text = stringResource(R.string.admin_delete_user_message, user.email, user.id),
+            confirmText = stringResource(R.string.delete),
             onConfirm = {
                 vm.deleteUser(user.id)
                 pendingDelete = null
@@ -409,16 +419,16 @@ private fun ApiKeyDialog(
     var comment by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建 API Key") },
+        title = { Text(stringResource(R.string.admin_new_api_key)) },
         text = {
-            OutlinedTextField(comment, { comment = it }, label = { Text("备注") }, singleLine = true)
+            OutlinedTextField(comment, { comment = it }, label = { Text(stringResource(R.string.admin_comment)) }, singleLine = true)
         },
         confirmButton = {
             TextButton(onClick = { onSave(comment.trim()) }, enabled = comment.isNotBlank()) {
-                Text("创建")
+                Text(stringResource(R.string.create))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
 
@@ -437,11 +447,11 @@ private fun SettingsAdmin(vm: AdminViewModel) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        item { SectionHeader("服务器设置") }
+        item { SectionHeader(stringResource(R.string.admin_server_settings)) }
         item {
             ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text("缩略图大小", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.admin_thumbnail_size_setting), style = MaterialTheme.typography.labelLarge)
                     SingleChoiceSegmentedButtonRow {
                         listOf("DEFAULT", "MEDIUM", "LARGE", "XLARGE").forEachIndexed { index, value ->
                             SegmentedButton(
@@ -451,10 +461,10 @@ private fun SettingsAdmin(vm: AdminViewModel) {
                             ) { Text(value) }
                         }
                     }
-                    OutlinedTextField(value = taskPool, onValueChange = { taskPool = it.filter(Char::isDigit) }, label = { Text("任务线程数") }, singleLine = true)
-                    SettingSwitch("删除空集合", deleteEmptyCollections) { deleteEmptyCollections = it }
-                    SettingSwitch("删除空阅读列表", deleteEmptyReadLists) { deleteEmptyReadLists = it }
-                    SettingSwitch("Kobo 代理", koboProxy) { koboProxy = it }
+                    OutlinedTextField(value = taskPool, onValueChange = { taskPool = it.filter(Char::isDigit) }, label = { Text(stringResource(R.string.admin_task_pool_size)) }, singleLine = true)
+                    SettingSwitch(stringResource(R.string.admin_delete_empty_collections), deleteEmptyCollections) { deleteEmptyCollections = it }
+                    SettingSwitch(stringResource(R.string.admin_delete_empty_read_lists), deleteEmptyReadLists) { deleteEmptyReadLists = it }
+                    SettingSwitch(stringResource(R.string.admin_kobo_proxy), koboProxy) { koboProxy = it }
                     Button(
                         onClick = {
                             vm.updateSettings(
@@ -468,7 +478,7 @@ private fun SettingsAdmin(vm: AdminViewModel) {
                             )
                         },
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("保存服务器设置") }
+                    ) { Text(stringResource(R.string.admin_save_server_settings)) }
                 }
             }
         }
@@ -486,38 +496,38 @@ private fun IntegrityAdmin(vm: AdminViewModel) {
     ) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                SectionHeader("维护", modifier = Modifier.weight(1f))
+                SectionHeader(stringResource(R.string.admin_integrity), modifier = Modifier.weight(1f))
                 Button(onClick = { clearTasks = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                    Text("清空任务")
+                    Text(stringResource(R.string.admin_clear_tasks))
                 }
             }
         }
-        item { SectionHeader("重复书籍") }
+        item { SectionHeader(stringResource(R.string.admin_duplicate_books)) }
         items(vm.duplicateBooks.take(20), key = { it.id }) { book ->
             ListItem(
                 headlineContent = { Text(book.metadata.title.ifEmpty { book.name }) },
-                supportingContent = { Text("${book.seriesTitle.orEmpty()} · ${book.sizeBytes ?: 0} bytes") },
+                supportingContent = { Text(stringResource(R.string.admin_bytes, book.seriesTitle.orEmpty(), book.sizeBytes ?: 0)) },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             )
         }
-        item { SectionHeader("已知重复页") }
+        item { SectionHeader(stringResource(R.string.admin_known_duplicate_pages)) }
         items(vm.knownHashes.take(20), key = { it.hash }) { hash ->
             ListItem(
                 headlineContent = { Text(hash.hash) },
-                supportingContent = { Text("${hash.matchCount} 个匹配 · ${hash.action.orEmpty()}") },
+                supportingContent = { Text(stringResource(R.string.admin_matches_action, hash.matchCount, hash.action.orEmpty())) },
                 trailingContent = {
-                    TextButton(onClick = { deleteHash = hash.hash }) { Text("删除全部") }
+                    TextButton(onClick = { deleteHash = hash.hash }) { Text(stringResource(R.string.admin_delete_all)) }
                 },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             )
         }
-        item { SectionHeader("未知重复页") }
+        item { SectionHeader(stringResource(R.string.admin_unknown_duplicate_pages)) }
         items(vm.unknownHashes.take(20), key = { it.hash }) { hash ->
             ListItem(
                 headlineContent = { Text(hash.hash) },
-                supportingContent = { Text("${hash.matchCount} 个匹配") },
+                supportingContent = { Text(stringResource(R.string.admin_matches, hash.matchCount)) },
                 trailingContent = {
-                    TextButton(onClick = { vm.markPageHashKnown(hash.hash, "IGNORE") }) { Text("忽略") }
+                    TextButton(onClick = { vm.markPageHashKnown(hash.hash, "IGNORE") }) { Text(stringResource(R.string.admin_ignore)) }
                 },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             )
@@ -525,9 +535,9 @@ private fun IntegrityAdmin(vm: AdminViewModel) {
     }
     if (clearTasks) {
         ConfirmActionDialog(
-            title = "清空任务队列",
-            text = "确定清空 Komga 当前任务队列？",
-            confirmText = "清空",
+            title = stringResource(R.string.admin_clear_task_queue_title),
+            text = stringResource(R.string.admin_clear_task_queue_message),
+            confirmText = stringResource(R.string.admin_clear_tasks),
             onConfirm = {
                 vm.clearTaskQueue()
                 clearTasks = false
@@ -537,9 +547,9 @@ private fun IntegrityAdmin(vm: AdminViewModel) {
     }
     deleteHash?.let { hash ->
         ConfirmActionDialog(
-            title = "删除重复页",
-            text = "确定删除 hash 为 $hash 的所有重复页？",
-            confirmText = "删除",
+            title = stringResource(R.string.admin_delete_duplicate_pages_title),
+            text = stringResource(R.string.admin_delete_duplicate_pages_message, hash),
+            confirmText = stringResource(R.string.delete),
             onConfirm = {
                 vm.deleteAllDuplicatePages(hash)
                 deleteHash = null
@@ -556,16 +566,16 @@ private fun ActivityAdmin(vm: AdminViewModel) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        item { SectionHeader("认证活动") }
+        item { SectionHeader(stringResource(R.string.admin_auth_activity)) }
         items(vm.authActivity.take(30)) { item ->
             ListItem(
-                headlineContent = { Text(item.email ?: item.userId ?: "未知用户") },
+                headlineContent = { Text(item.email ?: item.userId ?: stringResource(R.string.admin_unknown_user)) },
                 supportingContent = { Text("${item.dateTime} · ${item.ip.orEmpty()} · ${item.source.orEmpty()}") },
-                trailingContent = { InfoPill(if (item.success) "成功" else "失败") },
+                trailingContent = { InfoPill(if (item.success) stringResource(R.string.admin_success) else stringResource(R.string.admin_failure)) },
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             )
         }
-        item { SectionHeader("历史记录") }
+        item { SectionHeader(stringResource(R.string.admin_history)) }
         items(vm.history.take(30), key = { it.id }) { item ->
             ListItem(
                 headlineContent = { Text(item.type) },
@@ -576,15 +586,15 @@ private fun ActivityAdmin(vm: AdminViewModel) {
         if (vm.announcements.isNotEmpty()) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    SectionHeader("公告", modifier = Modifier.weight(1f))
-                    TextButton(onClick = vm::markAnnouncementsRead) { Text("全部已读") }
+                    SectionHeader(stringResource(R.string.admin_announcements), modifier = Modifier.weight(1f))
+                    TextButton(onClick = vm::markAnnouncementsRead) { Text(stringResource(R.string.admin_mark_all_read)) }
                 }
             }
             items(vm.announcements, key = { it.id }) { item ->
                 ListItem(
                     headlineContent = { Text(item.title) },
                     supportingContent = { Text(item.message) },
-                    trailingContent = { if (!item.read) InfoPill("未读") },
+                    trailingContent = { if (!item.read) InfoPill(stringResource(R.string.admin_unread)) },
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
                 )
             }
@@ -610,19 +620,19 @@ private fun LibraryEditorDialog(
     var root by remember(library) { mutableStateOf(library?.root.orEmpty()) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (library == null) "新建书库" else "编辑书库") },
+        title = { Text(stringResource(if (library == null) R.string.admin_new_library else R.string.admin_edit_library)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("名称") }, singleLine = true)
-                OutlinedTextField(root, { root = it }, label = { Text("路径") }, singleLine = true)
+                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.name)) }, singleLine = true)
+                OutlinedTextField(root, { root = it }, label = { Text(stringResource(R.string.path)) }, singleLine = true)
             }
         },
         confirmButton = {
             TextButton(onClick = { onSave(name.trim(), root.trim()) }, enabled = name.isNotBlank() && root.isNotBlank()) {
-                Text("保存")
+                Text(stringResource(R.string.save))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
 
@@ -636,20 +646,20 @@ private fun UserEditorDialog(
     var admin by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建用户") },
+        title = { Text(stringResource(R.string.admin_new_user)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(email, { email = it }, label = { Text("邮箱") }, singleLine = true)
-                OutlinedTextField(password, { password = it }, label = { Text("密码") }, singleLine = true)
-                SettingSwitch("管理员", admin) { admin = it }
+                OutlinedTextField(email, { email = it }, label = { Text(stringResource(R.string.email)) }, singleLine = true)
+                OutlinedTextField(password, { password = it }, label = { Text(stringResource(R.string.password)) }, singleLine = true)
+                SettingSwitch(stringResource(R.string.admin_admin_role), admin) { admin = it }
             }
         },
         confirmButton = {
             TextButton(onClick = { onSave(email.trim(), password, admin) }, enabled = email.isNotBlank() && password.isNotBlank()) {
-                Text("创建")
+                Text(stringResource(R.string.create))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }
 
@@ -664,13 +674,13 @@ private fun PasswordDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            OutlinedTextField(password, { password = it }, label = { Text("新密码") }, singleLine = true)
+            OutlinedTextField(password, { password = it }, label = { Text(stringResource(R.string.new_password)) }, singleLine = true)
         },
         confirmButton = {
             TextButton(onClick = { onSave(password) }, enabled = password.isNotBlank()) {
-                Text("保存")
+                Text(stringResource(R.string.save))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } }
     )
 }

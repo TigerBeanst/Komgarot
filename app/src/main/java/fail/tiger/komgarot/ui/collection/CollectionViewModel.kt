@@ -6,20 +6,26 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.CollectionDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.CollectionRepository
+import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import fail.tiger.komgarot.ui.state.PagedListState
 import kotlinx.coroutines.launch
 
-class CollectionViewModel(private val repo: CollectionRepository) : ViewModel() {
+class CollectionViewModel(
+    private val repo: CollectionRepository,
+    private val loadCollectionsFailed: String,
+    private val loadCollectionContentFailed: String
+) : ViewModel() {
     private val collectionPaging = PagedListState<CollectionDto, String>(
         keySelector = { it.id },
-        fallbackErrorMessage = "加载集合失败"
+        fallbackErrorMessage = loadCollectionsFailed
     )
     private val seriesPaging = PagedListState<SeriesDto, String>(
         keySelector = { it.id },
-        fallbackErrorMessage = "加载集合内容失败"
+        fallbackErrorMessage = loadCollectionContentFailed
     )
     val collections = collectionPaging.items
     val series = seriesPaging.items
@@ -66,7 +72,7 @@ class CollectionViewModel(private val repo: CollectionRepository) : ViewModel() 
             selectedLoading = true
             repo.getCollection(id)
                 .onSuccess { selected = it }
-                .onFailure { selectedError = it.message?.takeIf { message -> message.isNotBlank() } ?: "加载集合失败" }
+                .onFailure { selectedError = it.message?.takeIf { message -> message.isNotBlank() } ?: loadCollectionsFailed }
             selectedLoading = false
             loadMoreSeries()
         }
@@ -100,7 +106,15 @@ class CollectionViewModel(private val repo: CollectionRepository) : ViewModel() 
         }
     }
 
-    class Factory(private val repo: CollectionRepository) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = CollectionViewModel(repo) as T
+    class Factory(
+        private val repo: CollectionRepository,
+        private val textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            CollectionViewModel(
+                repo,
+                textProvider.get(R.string.error_load_collections_failed),
+                textProvider.get(R.string.error_load_collection_content_failed)
+            ) as T
     }
 }

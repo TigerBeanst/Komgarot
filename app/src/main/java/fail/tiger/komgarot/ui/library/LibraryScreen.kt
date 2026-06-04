@@ -19,7 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
 import fail.tiger.komgarot.data.local.thumbnailCacheKey
@@ -64,13 +66,13 @@ fun LibraryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Komgarot") },
+                title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings))
                     }
                     IconButton(onClick = { vm.logout(onLogout) }) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "Logout")
+                        Icon(Icons.Default.ExitToApp, contentDescription = stringResource(R.string.logout))
                     }
                 }
             )
@@ -82,7 +84,7 @@ fun LibraryScreen(
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
             if (error != null && !hasAnyContent && !loading) {
-                ErrorState(message = error ?: "连接 Komga 失败", onRetry = loadHome)
+                ErrorState(message = error ?: stringResource(R.string.error_connect_komga_failed), onRetry = loadHome)
             } else {
                 LazyColumn(
                     state = listState,
@@ -93,7 +95,7 @@ fun LibraryScreen(
                     if (error != null && hasAnyContent) {
                         item {
                             Text(
-                                "部分内容加载失败：$error",
+                                stringResource(R.string.partial_content_load_failed, error.orEmpty()),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -103,7 +105,7 @@ fun LibraryScreen(
                     if (onDeckBooks.isNotEmpty()) {
                         item {
                             BookSection(
-                                title = "继续阅读",
+                                title = stringResource(R.string.continue_reading_section),
                                 books = onDeckBooks,
                                 serverUrl = serverUrl,
                                 onBookClick = onBookClick
@@ -114,7 +116,7 @@ fun LibraryScreen(
                     if (latestBooks.isNotEmpty()) {
                         item {
                             BookSection(
-                                title = "最近加入",
+                                title = stringResource(R.string.recently_added),
                                 books = latestBooks,
                                 serverUrl = serverUrl,
                                 onBookClick = onBookClick
@@ -125,7 +127,7 @@ fun LibraryScreen(
                     if (updatedSeries.isNotEmpty()) {
                         item {
                             SeriesSection(
-                                title = "最近更新",
+                                title = stringResource(R.string.recently_updated),
                                 series = updatedSeries,
                                 serverUrl = serverUrl,
                                 onSeriesClick = onSeriesClick
@@ -136,7 +138,7 @@ fun LibraryScreen(
                     if (newSeries.isNotEmpty()) {
                         item {
                             SeriesSection(
-                                title = "新系列",
+                                title = stringResource(R.string.new_series),
                                 series = newSeries,
                                 serverUrl = serverUrl,
                                 onSeriesClick = onSeriesClick
@@ -145,7 +147,7 @@ fun LibraryScreen(
                     }
 
                     item {
-                        Text("书库", style = MaterialTheme.typography.titleLarge)
+                        Text(stringResource(R.string.libraries), style = MaterialTheme.typography.titleLarge)
                     }
                     item {
                         FlowRow(
@@ -153,7 +155,7 @@ fun LibraryScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            LibraryCard(name = "全部系列", modifier = Modifier.width(160.dp)) { onLibraryClick(null) }
+                            LibraryCard(name = stringResource(R.string.all_series), modifier = Modifier.width(160.dp)) { onLibraryClick(null) }
                             libraries.forEach { lib ->
                                 LibraryCard(name = lib.name, modifier = Modifier.width(160.dp)) { onLibraryClick(lib.id) }
                             }
@@ -235,7 +237,7 @@ private fun SeriesPosterCard(item: SeriesDto, serverUrl: String, onClick: () -> 
             imageUrl = thumbnailUrl,
             imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(item.id)),
             title = item.metadata.title.ifEmpty { item.name },
-            subtitle = "${item.booksCount} 本"
+            subtitle = stringResource(R.string.books_short_count, item.booksCount)
         )
     }
 }

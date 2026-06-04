@@ -7,14 +7,19 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.*
 import fail.tiger.komgarot.data.repository.AdminRepository
+import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 
-class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
+class AdminViewModel(
+    private val repo: AdminRepository,
+    private val textProvider: UiTextProvider
+) : ViewModel() {
     val libraries = mutableStateListOf<LibraryDto>()
     val users = mutableStateListOf<UserDto>()
     val apiKeys = mutableStateListOf<ApiKeyDto>()
@@ -39,19 +44,19 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
             error = null
             val failures = supervisorScope {
                 listOf(
-                    async { repo.getLibraries().applyResult("书库加载失败") { libraries.replaceAllWith(it) } },
-                    async { repo.getSettings().applyResult("服务器设置加载失败") { settings = it } },
-                    async { repo.getUsers().applyResult("用户加载失败") { users.replaceAllWith(it) } },
-                    async { repo.getApiKeys().applyResult("API Key 加载失败") { apiKeys.replaceAllWith(it) } },
-                    async { repo.getAuthenticationActivity().applyResult("认证活动加载失败") { authActivity.replaceAllWith(it.content) } },
-                    async { repo.getHistory().applyResult("历史记录加载失败") { history.replaceAllWith(it.content) } },
-                    async { repo.getDuplicateBooks().applyResult("重复书籍加载失败") { duplicateBooks.replaceAllWith(it.content) } },
-                    async { repo.getKnownPageHashes().applyResult("重复页加载失败") { knownHashes.replaceAllWith(it.content) } },
-                    async { repo.getUnknownPageHashes().applyResult("未知重复页加载失败") { unknownHashes.replaceAllWith(it.content) } },
-                    async { repo.getAnnouncements().applyResult("公告加载失败") { announcements.replaceAllWith(it) } },
-                    async { repo.getClaimStatus().applyResult("Claim 状态加载失败") { claimStatus = it } },
-                    async { repo.getOAuthProviders().applyResult("OAuth 提供方加载失败") { oauthProviders.replaceAllWith(it) } },
-                    async { repo.getReleases().applyResult("版本信息加载失败") { releases.replaceAllWith(it) } }
+                    async { repo.getLibraries().applyResult(textProvider.get(R.string.admin_library_load_failed)) { libraries.replaceAllWith(it) } },
+                    async { repo.getSettings().applyResult(textProvider.get(R.string.admin_settings_load_failed)) { settings = it } },
+                    async { repo.getUsers().applyResult(textProvider.get(R.string.admin_users_load_failed)) { users.replaceAllWith(it) } },
+                    async { repo.getApiKeys().applyResult(textProvider.get(R.string.admin_api_keys_load_failed)) { apiKeys.replaceAllWith(it) } },
+                    async { repo.getAuthenticationActivity().applyResult(textProvider.get(R.string.admin_auth_activity_load_failed)) { authActivity.replaceAllWith(it.content) } },
+                    async { repo.getHistory().applyResult(textProvider.get(R.string.admin_history_load_failed)) { history.replaceAllWith(it.content) } },
+                    async { repo.getDuplicateBooks().applyResult(textProvider.get(R.string.admin_duplicate_books_load_failed)) { duplicateBooks.replaceAllWith(it.content) } },
+                    async { repo.getKnownPageHashes().applyResult(textProvider.get(R.string.admin_duplicate_pages_load_failed)) { knownHashes.replaceAllWith(it.content) } },
+                    async { repo.getUnknownPageHashes().applyResult(textProvider.get(R.string.admin_unknown_duplicate_pages_load_failed)) { unknownHashes.replaceAllWith(it.content) } },
+                    async { repo.getAnnouncements().applyResult(textProvider.get(R.string.admin_announcements_load_failed)) { announcements.replaceAllWith(it) } },
+                    async { repo.getClaimStatus().applyResult(textProvider.get(R.string.admin_claim_load_failed)) { claimStatus = it } },
+                    async { repo.getOAuthProviders().applyResult(textProvider.get(R.string.admin_oauth_load_failed)) { oauthProviders.replaceAllWith(it) } },
+                    async { repo.getReleases().applyResult(textProvider.get(R.string.admin_releases_load_failed)) { releases.replaceAllWith(it) } }
                 ).awaitAll().filterNotNull()
             }
 
@@ -61,7 +66,7 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
     }
 
     fun createLibrary(name: String, root: String, onDone: (Boolean) -> Unit) {
-        runAction("已创建书库") {
+        runAction(textProvider.get(R.string.admin_library_created)) {
             repo.createLibrary(LibraryCreationDto(name = name, root = root))
                 .onSuccess { load() }
                 .map { Unit }
@@ -69,39 +74,39 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
     }
 
     fun updateLibrary(library: LibraryDto, name: String, root: String, onDone: (Boolean) -> Unit) {
-        runAction("已更新书库") {
+        runAction(textProvider.get(R.string.admin_library_updated)) {
             repo.updateLibrary(library.id, LibraryUpdateDto(name = name, root = root))
                 .onSuccess { load() }
                 .map { Unit }
         }.invokeOnCompletion { onDone(error == null) }
     }
 
-    fun deleteLibrary(id: String) = runAction("已删除书库") {
+    fun deleteLibrary(id: String) = runAction(textProvider.get(R.string.admin_library_deleted)) {
         repo.deleteLibrary(id).onSuccess { load() }
     }
 
-    fun scanLibrary(id: String, path: String? = null) = runAction("已请求扫描") {
+    fun scanLibrary(id: String, path: String? = null) = runAction(textProvider.get(R.string.admin_scan_requested)) {
         repo.scanLibrary(id, path)
     }
 
-    fun analyzeLibrary(id: String) = runAction("已请求分析") {
+    fun analyzeLibrary(id: String) = runAction(textProvider.get(R.string.admin_analyze_requested)) {
         repo.analyzeLibrary(id)
     }
 
-    fun refreshLibraryMetadata(id: String) = runAction("已请求刷新元数据") {
+    fun refreshLibraryMetadata(id: String) = runAction(textProvider.get(R.string.admin_metadata_refresh_requested)) {
         repo.refreshLibraryMetadata(id)
     }
 
-    fun emptyLibraryTrash(id: String) = runAction("已请求清空回收站") {
+    fun emptyLibraryTrash(id: String) = runAction(textProvider.get(R.string.admin_empty_trash_requested)) {
         repo.emptyLibraryTrash(id)
     }
 
-    fun updateSettings(body: SettingsUpdateDto) = runAction("已更新服务器设置") {
+    fun updateSettings(body: SettingsUpdateDto) = runAction(textProvider.get(R.string.admin_settings_updated)) {
         repo.updateSettings(body).onSuccess { settings = it }.map { Unit }
     }
 
     fun createUser(email: String, password: String, admin: Boolean, allLibraries: Boolean, libraryIds: List<String>, onDone: (Boolean) -> Unit) {
-        runAction("已创建用户") {
+        runAction(textProvider.get(R.string.admin_user_created)) {
             repo.createUser(
                 UserCreationDto(
                     email = email,
@@ -113,7 +118,7 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
         }.invokeOnCompletion { onDone(error == null) }
     }
 
-    fun updateUser(user: UserDto, admin: Boolean, allLibraries: Boolean, libraryIds: List<String>) = runAction("已更新用户") {
+    fun updateUser(user: UserDto, admin: Boolean, allLibraries: Boolean, libraryIds: List<String>) = runAction(textProvider.get(R.string.admin_user_updated)) {
         repo.updateUser(
             user.id,
             UserUpdateDto(
@@ -126,35 +131,35 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
         ).onSuccess { load() }.map { Unit }
     }
 
-    fun deleteUser(id: String) = runAction("已删除用户") {
+    fun deleteUser(id: String) = runAction(textProvider.get(R.string.admin_user_deleted)) {
         repo.deleteUser(id).onSuccess { load() }
     }
 
-    fun updateUserPassword(id: String, password: String) = runAction("已更新密码") {
+    fun updateUserPassword(id: String, password: String) = runAction(textProvider.get(R.string.admin_password_updated)) {
         repo.updateUserPassword(id, password)
     }
 
-    fun createApiKey(comment: String) = runAction("已创建 API Key") {
+    fun createApiKey(comment: String) = runAction(textProvider.get(R.string.admin_api_key_created)) {
         repo.createApiKey(comment).onSuccess { load() }.map { Unit }
     }
 
-    fun deleteApiKey(id: String) = runAction("已删除 API Key") {
+    fun deleteApiKey(id: String) = runAction(textProvider.get(R.string.admin_api_key_deleted)) {
         repo.deleteApiKey(id).onSuccess { load() }
     }
 
-    fun markAnnouncementsRead() = runAction("已标记公告为已读") {
+    fun markAnnouncementsRead() = runAction(textProvider.get(R.string.admin_announcements_read)) {
         repo.markAnnouncementsRead().onSuccess { load() }
     }
 
-    fun markPageHashKnown(hash: String, action: String) = runAction("已标记重复页") {
+    fun markPageHashKnown(hash: String, action: String) = runAction(textProvider.get(R.string.admin_duplicate_page_marked)) {
         repo.markPageHashKnown(hash, action).onSuccess { load() }
     }
 
-    fun deleteAllDuplicatePages(hash: String) = runAction("已删除重复页") {
+    fun deleteAllDuplicatePages(hash: String) = runAction(textProvider.get(R.string.admin_duplicate_page_deleted)) {
         repo.deleteAllDuplicatePages(hash).onSuccess { load() }
     }
 
-    fun clearTaskQueue() = runAction("已清空任务队列") {
+    fun clearTaskQueue() = runAction(textProvider.get(R.string.admin_task_queue_cleared)) {
         repo.clearTaskQueue().map { Unit }
     }
 
@@ -168,12 +173,16 @@ class AdminViewModel(private val repo: AdminRepository) : ViewModel() {
             error = null
             block()
                 .onSuccess { feedback = successMessage }
-                .onFailure { error = it.message ?: "操作失败" }
+                .onFailure { error = it.message ?: textProvider.get(R.string.operation_failed) }
             loading = false
         }
 
-    class Factory(private val repo: AdminRepository) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = AdminViewModel(repo) as T
+    class Factory(
+        private val repo: AdminRepository,
+        private val textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            AdminViewModel(repo, textProvider) as T
     }
 }
 

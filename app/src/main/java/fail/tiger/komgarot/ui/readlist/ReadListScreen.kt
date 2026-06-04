@@ -22,7 +22,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
 import fail.tiger.komgarot.data.local.thumbnailCacheKey
@@ -53,19 +55,24 @@ fun ReadListScreen(
     var query by remember { mutableStateOf(vm.search) }
     val listState = rememberLazyListState()
     AutoHideBottomBarOnLazyListScroll(listState, onBottomBarVisibleChange)
+    val readListsTitle = stringResource(R.string.read_lists)
+    val newReadList = stringResource(R.string.new_read_list)
+    val searchReadLists = stringResource(R.string.search_read_lists)
+    val loadReadListsFailed = stringResource(R.string.error_load_read_lists_failed)
+    val emptyReadLists = stringResource(R.string.empty_read_lists)
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("阅读列表") },
+                title = { Text(readListsTitle) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { showEditor = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "新建阅读列表")
+                        Icon(Icons.Default.Add, contentDescription = newReadList)
                     }
                 }
             )
@@ -84,15 +91,15 @@ fun ReadListScreen(
                         vm.updateSearch(it)
                     },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    label = { Text("搜索阅读列表") },
+                    label = { Text(searchReadLists) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(16.dp)
                 )
                 when {
                     vm.readLists.isEmpty() && !vm.loading && vm.error != null ->
-                        ErrorState(message = vm.error ?: "加载阅读列表失败", onRetry = vm::refresh)
+                        ErrorState(message = vm.error ?: loadReadListsFailed, onRetry = vm::refresh)
                     vm.readLists.isEmpty() && !vm.loading ->
-                        EmptyState(message = "没有阅读列表")
+                        EmptyState(message = emptyReadLists)
                     else ->
                         LazyColumn(
                             state = listState,
@@ -143,6 +150,15 @@ fun ReadListDetailScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val gridState = rememberLazyGridState()
+    val readListTitle = stringResource(R.string.read_list)
+    val editReadList = stringResource(R.string.edit_read_list)
+    val deleteReadList = stringResource(R.string.delete_read_list)
+    val loadReadListsFailed = stringResource(R.string.error_load_read_lists_failed)
+    val emptyReadListBooks = stringResource(R.string.empty_read_list_books)
+    val saved = stringResource(R.string.saved)
+    val saveFailed = stringResource(R.string.save_failed)
+    val deleted = stringResource(R.string.deleted)
+    val deleteFailed = stringResource(R.string.delete_failed)
 
     LaunchedEffect(gridState, vm) {
         snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
@@ -154,18 +170,18 @@ fun ReadListDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(vm.selected?.name ?: "阅读列表") },
+                title = { Text(vm.selected?.name ?: readListTitle) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { showEditor = true }, enabled = vm.selected != null) {
-                        Icon(Icons.Default.Edit, contentDescription = "编辑阅读列表")
+                        Icon(Icons.Default.Edit, contentDescription = editReadList)
                     }
                     IconButton(onClick = { showDeleteConfirm = true }, enabled = vm.selected != null) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除阅读列表")
+                        Icon(Icons.Default.Delete, contentDescription = deleteReadList)
                     }
                 }
             )
@@ -178,9 +194,9 @@ fun ReadListDetailScreen(
         ) {
             when {
                 vm.books.isEmpty() && !vm.loading && vm.error != null ->
-                    ErrorState(message = vm.error ?: "加载阅读列表失败", onRetry = { vm.loadReadList(readListId, refresh = true) })
+                    ErrorState(message = vm.error ?: loadReadListsFailed, onRetry = { vm.loadReadList(readListId, refresh = true) })
                 vm.books.isEmpty() && !vm.loading ->
-                    EmptyState(message = "这个阅读列表还没有书籍")
+                    EmptyState(message = emptyReadListBooks)
                 else ->
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(112.dp),
@@ -193,9 +209,9 @@ fun ReadListDetailScreen(
                         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                             Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    InfoPill("${vm.selected?.bookIds?.size ?: vm.books.size} 本")
-                                    if (vm.selected?.ordered == true) InfoPill("有序")
-                                    if (vm.selected?.filtered == true) InfoPill("过滤列表")
+                                    InfoPill(stringResource(R.string.books_count_label, vm.selected?.bookIds?.size ?: vm.books.size))
+                                    if (vm.selected?.ordered == true) InfoPill(stringResource(R.string.ordered))
+                                    if (vm.selected?.filtered == true) InfoPill(stringResource(R.string.filtered_read_list))
                                 }
                                 if (!vm.selected?.summary.isNullOrBlank()) {
                                     Text(vm.selected?.summary.orEmpty(), style = MaterialTheme.typography.bodyMedium)
@@ -226,7 +242,7 @@ fun ReadListDetailScreen(
             onDismiss = { showEditor = false },
             onSave = { name, summary, ordered, _ ->
                 vm.update(readListId, name, summary, ordered) { ok ->
-                    Toast.makeText(context, if (ok) "已保存" else "保存失败", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (ok) saved else saveFailed, Toast.LENGTH_SHORT).show()
                     showEditor = false
                 }
             }
@@ -235,12 +251,12 @@ fun ReadListDetailScreen(
 
     if (showDeleteConfirm && vm.selected != null) {
         ConfirmActionDialog(
-            title = "删除阅读列表",
-            text = "确定删除阅读列表「${vm.selected?.name}」？\nID: $readListId",
-            confirmText = "删除",
+            title = deleteReadList,
+            text = stringResource(R.string.delete_read_list_message, vm.selected?.name.orEmpty(), readListId),
+            confirmText = stringResource(R.string.delete),
             onConfirm = {
                 vm.delete(readListId) { ok ->
-                    Toast.makeText(context, if (ok) "已删除" else "删除失败", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, if (ok) deleted else deleteFailed, Toast.LENGTH_SHORT).show()
                     showDeleteConfirm = false
                     if (ok) onBack()
                 }
@@ -269,13 +285,13 @@ private fun ReadListItem(readList: ReadListDto, serverUrl: String, onClick: () -
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(readList.name, style = MaterialTheme.typography.titleMedium)
-                Text("${readList.bookIds.size} 本", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.books_count_label, readList.bookIds.size), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (readList.summary.isNotBlank()) {
                     Text(readList.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (readList.ordered) InfoPill("有序")
-                    if (readList.filtered) InfoPill("过滤")
+                    if (readList.ordered) InfoPill(stringResource(R.string.ordered))
+                    if (readList.filtered) InfoPill(stringResource(R.string.filtered))
                 }
             }
         }
@@ -295,18 +311,18 @@ private fun ReadListEditorSheet(
     var idsText by remember(readList) { mutableStateOf(readList?.bookIds?.joinToString(", ").orEmpty()) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text(if (readList == null) "新建阅读列表" else "编辑阅读列表", style = MaterialTheme.typography.titleLarge)
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = summary, onValueChange = { summary = it }, label = { Text("简介") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+            Text(stringResource(if (readList == null) R.string.new_read_list else R.string.edit_read_list), style = MaterialTheme.typography.titleLarge)
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(stringResource(R.string.name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = summary, onValueChange = { summary = it }, label = { Text(stringResource(R.string.read_list_summary)) }, minLines = 2, modifier = Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("保持手动排序", modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.manual_order), modifier = Modifier.weight(1f))
                 Switch(checked = ordered, onCheckedChange = { ordered = it })
             }
             if (readList == null) {
                 OutlinedTextField(
                     value = idsText,
                     onValueChange = { idsText = it },
-                    label = { Text("书籍 ID，用英文逗号分隔") },
+                    label = { Text(stringResource(R.string.book_ids_comma)) },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -315,7 +331,7 @@ private fun ReadListEditorSheet(
                 onClick = { onSave(name.trim(), summary.trim(), ordered, idsText.toIds()) },
                 enabled = name.isNotBlank() && (readList != null || idsText.toIds().isNotEmpty()),
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("保存") }
+            ) { Text(stringResource(R.string.save)) }
         }
     }
 }
