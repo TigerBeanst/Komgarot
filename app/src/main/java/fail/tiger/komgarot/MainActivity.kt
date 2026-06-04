@@ -92,8 +92,8 @@ class MainActivity : AppCompatActivity() {
         })
 
         val info = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("验证身份")
-            .setSubtitle("使用屏幕锁或生物识别解锁")
+            .setTitle(getString(R.string.biometric_title))
+            .setSubtitle(getString(R.string.biometric_subtitle))
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or
                 BiometricManager.Authenticators.BIOMETRIC_WEAK or
