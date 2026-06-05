@@ -69,6 +69,7 @@ import fail.tiger.komgarot.ui.library.LibraryScreen
 import fail.tiger.komgarot.ui.library.LibraryViewModel
 import fail.tiger.komgarot.ui.login.LoginScreen
 import fail.tiger.komgarot.ui.login.LoginViewModel
+import fail.tiger.komgarot.ui.metadata.canEditKomgaMetadata
 import fail.tiger.komgarot.ui.metadata.MetadataScreen
 import fail.tiger.komgarot.ui.metadata.MetadataViewModel
 import fail.tiger.komgarot.ui.readlist.ReadListDetailScreen
@@ -90,6 +91,7 @@ fun AppNavGraph(app: KomgarotApp) {
     val serverUrl by app.authPreferences.serverUrl.collectAsState(initial = "")
     val alwaysIncognito by app.authPreferences.alwaysIncognito.collectAsState(initial = false)
     val user by sessionVm.user.collectAsState()
+    val canEditMetadata = canEditKomgaMetadata(user)
     val startDest = if (serverUrl.isNotEmpty()) Screen.Library.route else Screen.Login.route
     val scope = rememberCoroutineScope()
 
@@ -307,7 +309,7 @@ fun AppNavGraph(app: KomgarotApp) {
         composable(Screen.Admin.route) {
             val vm: AdminViewModel = viewModel(factory = AdminViewModel.Factory(app.adminRepository, textProvider))
             AdminScreen(
-                isAdmin = user?.isAdmin == true,
+                isAdmin = canEditMetadata,
                 vm = vm,
                 onBack = { navController.navigate(Screen.Library.route) }
             )
@@ -442,6 +444,7 @@ fun AppNavGraph(app: KomgarotApp) {
                         navController.navigate(Screen.Metadata.goSeriesCover(seriesId, coverUri))
                     }
                 },
+                canEditMetadata = canEditMetadata,
                 vm = vm
             )
         }
@@ -460,7 +463,7 @@ fun AppNavGraph(app: KomgarotApp) {
             val coverUri = back.arguments?.getString("coverUri")?.let { Screen.decodeArg(it) }
             val coverFocus = back.arguments?.getBoolean("coverFocus") ?: false
             val vm: MetadataViewModel = viewModel(
-                factory = MetadataViewModel.Factory(app.bookRepository, imageCacheInvalidator)
+                factory = MetadataViewModel.Factory(app.bookRepository, imageCacheInvalidator, textProvider)
             )
             MetadataScreen(
                 type = type,
@@ -468,6 +471,7 @@ fun AppNavGraph(app: KomgarotApp) {
                 serverUrl = serverUrl,
                 coverUri = coverUri,
                 coverFocus = coverFocus,
+                canEditMetadata = canEditMetadata,
                 onBack = { navController.popBackStack() },
                 vm = vm
             )
