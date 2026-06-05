@@ -124,6 +124,11 @@
     <string name="read">阅读</string>
     <string name="continue_reading">继续阅读</string>
     <string name="incognito_reading">无痕阅读</string>
+    <string name="download_for_offline">下载</string>
+    <string name="download_for_offline_partial">已缓存 %1$d / %2$d</string>
+    <string name="download_for_offline_progress">下载中 %1$d / %2$d</string>
+    <string name="download_for_offline_cached">已缓存 %d 页</string>
+    <string name="download_for_offline_failed">下载失败</string>
     <string name="reading_status">阅读状态</string>
     <string name="mark_read">标记已读</string>
     <string name="mark_unread">标记未读</string>

@@ -125,6 +125,11 @@
     <string name="read">Read</string>
     <string name="continue_reading">Continue Reading</string>
     <string name="incognito_reading">Incognito Reading</string>
+    <string name="download_for_offline">Download</string>
+    <string name="download_for_offline_partial">Cached %1$d / %2$d</string>
+    <string name="download_for_offline_progress">Downloading %1$d / %2$d</string>
+    <string name="download_for_offline_cached">Cached %d pages</string>
+    <string name="download_for_offline_failed">Download failed</string>
     <string name="reading_status">Reading Status</string>
     <string name="mark_read">Mark Read</string>
     <string name="mark_unread">Mark Unread</string>

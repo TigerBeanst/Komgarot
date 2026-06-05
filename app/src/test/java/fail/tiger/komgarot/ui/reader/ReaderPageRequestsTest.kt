@@ -1,9 +1,30 @@
 package fail.tiger.komgarot.ui.reader
 
+import fail.tiger.komgarot.data.remote.dto.PageDto
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ReaderPageRequestsTest {
+    @Test
+    fun directImagePageUrlUsesOriginalEndpoint() {
+        val page = PageDto(number = 3, mediaType = "image/jpeg", width = 100, height = 200)
+
+        assertEquals(
+            "https://komga.test/api/v1/books/book-1/pages/3",
+            readerPageUrl("https://komga.test", "book-1", page)
+        )
+    }
+
+    @Test
+    fun nonDirectImagePageUrlRequestsPngConversion() {
+        val page = PageDto(number = 4, mediaType = "application/pdf", width = 100, height = 200)
+
+        assertEquals(
+            "https://komga.test/api/v1/books/book-1/pages/4?convert=png",
+            readerPageUrl("https://komga.test", "book-1", page)
+        )
+    }
+
     @Test
     fun readerPagerActualPreloadRangeMapsPagerPagesToActualPageIndices() {
         val pages = buildReaderPagerPages(

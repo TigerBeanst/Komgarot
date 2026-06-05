@@ -10,9 +10,7 @@ import androidx.lifecycle.viewModelScope
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
-import fail.tiger.komgarot.data.remote.KomgaUrls
 import fail.tiger.komgarot.data.remote.dto.BookDto
-import fail.tiger.komgarot.data.remote.dto.PageDto
 import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import kotlinx.coroutines.Job
@@ -23,21 +21,6 @@ import kotlinx.coroutines.launch
 data class PageImageInfo(val bookId: String, val seriesId: String, val pageUrl: String)
 
 enum class ReadingMode { PAGER, SCROLL }
-
-private val directImageMediaTypes = setOf(
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-    "image/jxl",
-    "image/heif",
-    "image/avif"
-)
-
-private fun readerPageUrl(serverUrl: String, bookId: String, page: PageDto): String {
-    val url = KomgaUrls.page(serverUrl, bookId, page.number)
-    return if (page.mediaType.lowercase() in directImageMediaTypes) url else "$url?convert=png"
-}
 
 class ReaderViewModel(
     private val repo: BookRepository,
