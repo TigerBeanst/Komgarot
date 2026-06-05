@@ -51,7 +51,6 @@ fun BookDetailScreen(
     vm: BookDetailViewModel,
     prefs: AuthPreferences
 ) {
-    LaunchedEffect(bookId) { vm.load(bookId) }
     val book = vm.book
     val meta = vm.metadata
     val loadBookDetailFailed = stringResource(R.string.error_load_book_detail_failed)
@@ -66,6 +65,9 @@ fun BookDetailScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         val serverUrl by prefs.serverUrl.collectAsState(initial = "")
+        LaunchedEffect(bookId, serverUrl) {
+            if (serverUrl.isNotBlank()) vm.load(bookId, serverUrl)
+        }
         val thumbnailVersion = ThumbnailVersion.get(bookId)
         val thumbnailUrl = remember(serverUrl, bookId, thumbnailVersion) {
             KomgaUrls.bookThumbnail(serverUrl, bookId, thumbnailVersion)
@@ -85,7 +87,7 @@ fun BookDetailScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             if (book == null && !vm.loading && vm.error != null) {
-                ErrorState(message = vm.error ?: loadBookDetailFailed, onRetry = { vm.load(bookId) })
+                ErrorState(message = vm.error ?: loadBookDetailFailed, onRetry = { vm.load(bookId, serverUrl) })
             } else {
                 val context = LocalContext.current
                 val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
@@ -160,6 +162,11 @@ fun BookDetailScreen(
                             hasReadProgress = book?.readProgress != null,
                             onReadClick = { onReadClick(bookId, true) },
                             onIncognitoReadClick = { onReadClick(bookId, false) }
+                        )
+
+                        BookDownloadAction(
+                            state = vm.downloadState,
+                            onClick = { vm.downloadForOffline(serverUrl) }
                         )
 
                         BookDetailReadStatusActions(
@@ -250,6 +257,37 @@ private fun BookDetailReadingActions(
                 style = MaterialTheme.typography.labelLarge
             )
         }
+    }
+}
+
+@Composable
+private fun BookDownloadAction(
+    state: BookDownloadState,
+    onClick: () -> Unit
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = !state.isRunning,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        shape = MaterialTheme.shapes.large,
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+    ) {
+        val text = when (state) {
+            BookDownloadState.Idle -> stringResource(R.string.download_for_offline)
+            is BookDownloadState.Partial -> stringResource(
+                R.string.download_for_offline_partial,
+                state.completedPages,
+                state.totalPages
+            )
+            is BookDownloadState.Downloading -> stringResource(
+                R.string.download_for_offline_progress,
+                state.completedPages,
+                state.totalPages
+            )
+            is BookDownloadState.Cached -> stringResource(R.string.download_for_offline_cached, state.totalPages)
+            is BookDownloadState.Failed -> stringResource(R.string.download_for_offline_failed)
+        }
+        Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
 

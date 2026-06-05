@@ -378,6 +378,7 @@ fun AppNavGraph(app: KomgarotApp) {
             val isOneShot = back.arguments?.getBoolean("isOneShot") ?: false
             val vm: BookDetailViewModel = viewModel(
                 factory = BookDetailViewModel.Factory(
+                    app.applicationContext,
                     app.bookRepository,
                     app.seriesRepository,
                     imageCacheInvalidator,
