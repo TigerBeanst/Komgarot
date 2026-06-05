@@ -211,6 +211,7 @@ fun ReaderScreen(
     onOpenBook: (BookDto, Boolean) -> Unit,
     onSetBookCover: (String) -> Unit,
     onSetSeriesCover: (String) -> Unit,
+    canEditMetadata: Boolean,
     vm: ReaderViewModel
 ) {
     LaunchedEffect(bookId) { vm.load(bookId, startPage, trackProgress) }
@@ -248,7 +249,7 @@ fun ReaderScreen(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (vm.mode) {
-            ReadingMode.PAGER -> PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover)
+            ReadingMode.PAGER -> PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata)
             ReadingMode.SCROLL -> ScrollReader(vm)
         }
 
@@ -398,7 +399,8 @@ fun PagerReader(
     vm: ReaderViewModel,
     onOpenBook: (BookDto, Boolean) -> Unit,
     onSetBookCover: (String) -> Unit,
-    onSetSeriesCover: (String) -> Unit
+    onSetSeriesCover: (String) -> Unit,
+    canEditMetadata: Boolean
 ) {
     if (vm.pageUrls.isEmpty()) return
     val pagerPages = remember(vm.pageUrls, vm.previousBook, vm.nextBook) {
@@ -551,6 +553,7 @@ fun PagerReader(
             vm = vm,
             onSetBookCover = onSetBookCover,
             onSetSeriesCover = onSetSeriesCover,
+            canEditMetadata = canEditMetadata,
             onDismiss = { longPressUrl = null },
         )
     }
@@ -662,6 +665,7 @@ private fun PageContextMenu(
     vm: ReaderViewModel,
     onSetBookCover: (String) -> Unit,
     onSetSeriesCover: (String) -> Unit,
+    canEditMetadata: Boolean,
     onDismiss: () -> Unit,
 ) {
     val imageLoader = coil.Coil.imageLoader(context)
@@ -731,30 +735,32 @@ private fun PageContextMenu(
                     }
                 }
             )
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.reader_action_set_book_cover)) },
-                leadingContent = { Icon(Icons.Default.Book, null) },
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                modifier = Modifier.clickable {
-                    val pageUrl = url
-                    doAction(pageUrl) { bitmap ->
-                        val uri = writeTemporaryCoverImage(context, bitmap)
-                        withContext(Dispatchers.Main) { onSetBookCover(uri.toString()) }
+            if (canEditMetadata) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.reader_action_set_book_cover)) },
+                    leadingContent = { Icon(Icons.Default.Book, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        val pageUrl = url
+                        doAction(pageUrl) { bitmap ->
+                            val uri = writeTemporaryCoverImage(context, bitmap)
+                            withContext(Dispatchers.Main) { onSetBookCover(uri.toString()) }
+                        }
                     }
-                }
-            )
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.reader_action_set_series_cover)) },
-                leadingContent = { Icon(Icons.Default.Collections, null) },
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                modifier = Modifier.clickable {
-                    val pageUrl = url
-                    doAction(pageUrl) { bitmap ->
-                        val uri = writeTemporaryCoverImage(context, bitmap)
-                        withContext(Dispatchers.Main) { onSetSeriesCover(uri.toString()) }
+                )
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.reader_action_set_series_cover)) },
+                    leadingContent = { Icon(Icons.Default.Collections, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        val pageUrl = url
+                        doAction(pageUrl) { bitmap ->
+                            val uri = writeTemporaryCoverImage(context, bitmap)
+                            withContext(Dispatchers.Main) { onSetSeriesCover(uri.toString()) }
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }

@@ -6,22 +6,25 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
-import fail.tiger.komgarot.data.remote.dto.BookMetadataUpdateDto
 import fail.tiger.komgarot.data.remote.dto.SeriesMetadataDto
-import fail.tiger.komgarot.data.remote.dto.SeriesMetadataUpdateDto
 import fail.tiger.komgarot.data.repository.BookRepository
+import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import kotlinx.coroutines.launch
 
 class MetadataViewModel(
     private val repo: BookRepository,
-    private val imageCacheInvalidator: ImageCacheInvalidator
+    private val imageCacheInvalidator: ImageCacheInvalidator,
+    private val saveFailedMessage: String,
+    private val metadataAdminRequiredMessage: String
 ) : ViewModel() {
     var seriesMeta by mutableStateOf<SeriesMetadataDto?>(null)
     var bookMeta by mutableStateOf<BookMetadataDto?>(null)
     var saving by mutableStateOf(false)
     var saved by mutableStateOf(false)
+    var saveError by mutableStateOf<String?>(null)
     var coverSaving by mutableStateOf(false)
 
     fun loadSeries(id: String) {
@@ -32,69 +35,57 @@ class MetadataViewModel(
         viewModelScope.launch { runCatching { bookMeta = repo.getBookMetadata(id) } }
     }
 
-    fun saveSeriesMeta(id: String, meta: SeriesMetadataDto) {
+    fun saveSeriesMeta(id: String, meta: SeriesMetadataDto, onDone: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             saving = true
-            val body = SeriesMetadataUpdateDto(
-                title = meta.title,
-                titleSort = meta.titleSort,
-                status = meta.status,
-                summary = meta.summary,
-                publisher = meta.publisher,
-                ageRating = meta.ageRating,
-                language = meta.language,
-                readingDirection = meta.readingDirection,
-                alternateTitles = meta.alternateTitles,
-                genres = meta.genres,
-                tags = meta.tags,
-                sharingLabels = meta.sharingLabels,
-                links = meta.links,
-                totalBookCount = meta.totalBookCount,
-                titleLock = meta.titleLock,
-                titleSortLock = meta.titleSortLock,
-                statusLock = meta.statusLock,
-                summaryLock = meta.summaryLock,
-                publisherLock = meta.publisherLock,
-                ageRatingLock = meta.ageRatingLock,
-                languageLock = meta.languageLock,
-                readingDirectionLock = meta.readingDirectionLock,
-                alternateTitlesLock = meta.alternateTitlesLock,
-                genresLock = meta.genresLock,
-                tagsLock = meta.tagsLock,
-                sharingLabelsLock = meta.sharingLabelsLock,
-                linksLock = meta.linksLock,
-                totalBookCountLock = meta.totalBookCountLock
+            saved = false
+            saveError = null
+            val result = saveSeriesMetadata(
+                meta = meta,
+                fallbackErrorMessage = saveFailedMessage,
+                forbiddenErrorMessage = metadataAdminRequiredMessage,
+                update = { body -> repo.updateSeriesMetadata(id, body) }
             )
-            runCatching { repo.updateSeriesMetadata(id, body) }.onSuccess { saved = true }
+            val ok = when (result) {
+                is MetadataSaveResult.Success -> {
+                    seriesMeta = result.metadata
+                    saved = true
+                    true
+                }
+                is MetadataSaveResult.Failure -> {
+                    saveError = result.message
+                    false
+                }
+            }
             saving = false
+            onDone(ok)
         }
     }
 
-    fun saveBookMeta(id: String, meta: BookMetadataDto) {
+    fun saveBookMeta(id: String, meta: BookMetadataDto, onDone: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             saving = true
-            val body = BookMetadataUpdateDto(
-                title = meta.title,
-                summary = meta.summary,
-                number = meta.number,
-                numberSort = meta.numberSort,
-                releaseDate = meta.releaseDate,
-                isbn = meta.isbn,
-                authors = meta.authors,
-                tags = meta.tags,
-                links = meta.links,
-                titleLock = meta.titleLock,
-                summaryLock = meta.summaryLock,
-                numberLock = meta.numberLock,
-                numberSortLock = meta.numberSortLock,
-                releaseDateLock = meta.releaseDateLock,
-                isbnLock = meta.isbnLock,
-                authorsLock = meta.authorsLock,
-                tagsLock = meta.tagsLock,
-                linksLock = meta.linksLock
+            saved = false
+            saveError = null
+            val result = saveBookMetadata(
+                meta = meta,
+                fallbackErrorMessage = saveFailedMessage,
+                forbiddenErrorMessage = metadataAdminRequiredMessage,
+                update = { body -> repo.updateBookMetadata(id, body) }
             )
-            runCatching { repo.updateBookMetadata(id, body) }.onSuccess { saved = true }
+            val ok = when (result) {
+                is MetadataSaveResult.Success -> {
+                    bookMeta = result.metadata
+                    saved = true
+                    true
+                }
+                is MetadataSaveResult.Failure -> {
+                    saveError = result.message
+                    false
+                }
+            }
             saving = false
+            onDone(ok)
         }
     }
 
@@ -134,9 +125,15 @@ class MetadataViewModel(
 
     class Factory(
         private val repo: BookRepository,
-        private val imageCacheInvalidator: ImageCacheInvalidator
+        private val imageCacheInvalidator: ImageCacheInvalidator,
+        private val textProvider: UiTextProvider
     ) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            MetadataViewModel(repo, imageCacheInvalidator) as T
+            MetadataViewModel(
+                repo,
+                imageCacheInvalidator,
+                textProvider.get(R.string.save_failed),
+                textProvider.get(R.string.metadata_admin_required)
+            ) as T
     }
 }

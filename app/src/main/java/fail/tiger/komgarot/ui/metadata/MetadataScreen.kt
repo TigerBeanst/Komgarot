@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,6 +74,7 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Size
+import androidx.compose.material3.AssistChip
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.remote.KomgaUrls
@@ -95,6 +98,7 @@ fun MetadataScreen(
     serverUrl: String,
     coverUri: String?,
     coverFocus: Boolean,
+    canEditMetadata: Boolean,
     onBack: () -> Unit,
     vm: MetadataViewModel
 ) {
@@ -102,16 +106,21 @@ fun MetadataScreen(
         if (type == "series") vm.loadSeries(id) else vm.loadBook(id)
     }
     var editing by remember { mutableStateOf(false) }
+    LaunchedEffect(canEditMetadata) {
+        if (!canEditMetadata) editing = false
+    }
+    val effectiveEditing = editing && canEditMetadata
     if (type == "series") {
         SeriesMetadataContent(
             id = id,
             serverUrl = serverUrl,
             incomingCoverUri = coverUri,
             coverFocus = coverFocus,
+            canEditMetadata = canEditMetadata,
             onBack = onBack,
             vm = vm,
-            editing = editing,
-            onEditToggle = { editing = !editing }
+            editing = effectiveEditing,
+            onEditToggle = { if (canEditMetadata) editing = !editing }
         )
     } else {
         BookMetadataContent(
@@ -119,10 +128,11 @@ fun MetadataScreen(
             serverUrl = serverUrl,
             incomingCoverUri = coverUri,
             coverFocus = coverFocus,
+            canEditMetadata = canEditMetadata,
             onBack = onBack,
             vm = vm,
-            editing = editing,
-            onEditToggle = { editing = !editing }
+            editing = effectiveEditing,
+            onEditToggle = { if (canEditMetadata) editing = !editing }
         )
     }
 }
@@ -133,6 +143,7 @@ fun SeriesMetadataContent(
     serverUrl: String,
     incomingCoverUri: String?,
     coverFocus: Boolean,
+    canEditMetadata: Boolean,
     onBack: () -> Unit,
     vm: MetadataViewModel,
     editing: Boolean,
@@ -161,6 +172,7 @@ fun SeriesMetadataContent(
     val thumbnailUrl = remember(serverUrl, id, thumbnailVersion) {
         KomgaUrls.seriesThumbnail(serverUrl, id, thumbnailVersion)
     }
+    val context = LocalContext.current
 
     MetadataScaffold(
         title = stringResource(R.string.metadata_series_title),
@@ -168,6 +180,8 @@ fun SeriesMetadataContent(
         onRefresh = { vm.refreshMetadata("series", id) },
         editing = editing,
         onEditToggle = onEditToggle,
+        canEditMetadata = canEditMetadata,
+        saving = vm.saving,
         onSave = {
             vm.saveSeriesMeta(
                 id,
@@ -201,8 +215,13 @@ fun SeriesMetadataContent(
                     totalBookCount = meta?.totalBookCount,
                     totalBookCountLock = meta?.totalBookCountLock ?: false
                 )
-            )
-            onEditToggle()
+            ) { ok ->
+                if (ok) {
+                    onEditToggle()
+                } else {
+                    Toast.makeText(context, vm.saveError ?: context.getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     ) { padding ->
         if (meta == null) {
@@ -218,6 +237,7 @@ fun SeriesMetadataContent(
                     thumbnailUrl = thumbnailUrl,
                     incomingCoverUri = incomingCoverUri,
                     coverFocus = coverFocus,
+                    canEditMetadata = canEditMetadata,
                     vm = vm
                 )
                 MetadataSection(stringResource(R.string.metadata_basic_info)) {
@@ -236,9 +256,11 @@ fun SeriesMetadataContent(
                     MetaField(stringResource(R.string.metadata_label), tagsText, editing) { tagsText = it }
                     MetaField(stringResource(R.string.metadata_sharing_labels), sharingLabelsText, editing) { sharingLabelsText = it }
                 }
-                MetadataSection(stringResource(R.string.metadata_aliases_links)) {
-                    AlternateTitlesEditor(alternateTitles, editing) { alternateTitles = it }
-                    LinksEditor(links, editing) { links = it }
+                MetadataSection(stringResource(R.string.metadata_alternate_titles)) {
+                    AlternateTitlesEditor(alternateTitles, editing, showTitle = false) { alternateTitles = it }
+                }
+                MetadataSection(stringResource(R.string.metadata_links)) {
+                    LinksEditor(links, editing, showTitle = false) { links = it }
                 }
                 if (editing) {
                     MetadataSection(stringResource(R.string.metadata_lock_fields)) {
@@ -247,7 +269,7 @@ fun SeriesMetadataContent(
                         LockSwitch(stringResource(R.string.metadata_publisher), publisherLock) { publisherLock = it }
                         LockSwitch(stringResource(R.string.metadata_genres), genresLock) { genresLock = it }
                         LockSwitch(stringResource(R.string.metadata_label), tagsLock) { tagsLock = it }
-                        LockSwitch(stringResource(R.string.metadata_url), linksLock) { linksLock = it }
+                        LockSwitch(stringResource(R.string.metadata_links), linksLock) { linksLock = it }
                     }
                 }
             }
@@ -261,6 +283,7 @@ fun BookMetadataContent(
     serverUrl: String,
     incomingCoverUri: String?,
     coverFocus: Boolean,
+    canEditMetadata: Boolean,
     onBack: () -> Unit,
     vm: MetadataViewModel,
     editing: Boolean,
@@ -286,6 +309,7 @@ fun BookMetadataContent(
     val thumbnailUrl = remember(serverUrl, id, thumbnailVersion) {
         KomgaUrls.bookThumbnail(serverUrl, id, thumbnailVersion)
     }
+    val context = LocalContext.current
 
     MetadataScaffold(
         title = stringResource(R.string.metadata_book_title),
@@ -293,6 +317,8 @@ fun BookMetadataContent(
         onRefresh = { vm.refreshMetadata("book", id) },
         editing = editing,
         onEditToggle = onEditToggle,
+        canEditMetadata = canEditMetadata,
+        saving = vm.saving,
         onSave = {
             vm.saveBookMeta(
                 id,
@@ -316,8 +342,13 @@ fun BookMetadataContent(
                     tagsLock = tagsLock,
                     linksLock = linksLock
                 )
-            )
-            onEditToggle()
+            ) { ok ->
+                if (ok) {
+                    onEditToggle()
+                } else {
+                    Toast.makeText(context, vm.saveError ?: context.getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     ) { padding ->
         if (meta == null) {
@@ -333,6 +364,7 @@ fun BookMetadataContent(
                     thumbnailUrl = thumbnailUrl,
                     incomingCoverUri = incomingCoverUri,
                     coverFocus = coverFocus,
+                    canEditMetadata = canEditMetadata,
                     vm = vm
                 )
                 MetadataSection(stringResource(R.string.metadata_basic_info)) {
@@ -348,9 +380,11 @@ fun BookMetadataContent(
                 MetadataSection(stringResource(R.string.metadata_authors)) {
                     AuthorsEditor(authors = authors, editing = editing, onAuthorsChange = { authors = it })
                 }
-                MetadataSection(stringResource(R.string.metadata_tags_links)) {
-                    MetaField(stringResource(R.string.metadata_label), tagsText, editing) { tagsText = it }
-                    LinksEditor(links, editing) { links = it }
+                MetadataSection(stringResource(R.string.metadata_label)) {
+                    MetaField(stringResource(R.string.metadata_label), tagsText, editing, showLabel = false) { tagsText = it }
+                }
+                MetadataSection(stringResource(R.string.metadata_links)) {
+                    LinksEditor(links, editing, showTitle = false) { links = it }
                 }
                 if (editing) {
                     MetadataSection(stringResource(R.string.metadata_lock_fields)) {
@@ -359,7 +393,7 @@ fun BookMetadataContent(
                         LockSwitch(stringResource(R.string.metadata_number), numberLock) { numberLock = it }
                         LockSwitch(stringResource(R.string.metadata_authors), authorsLock) { authorsLock = it }
                         LockSwitch(stringResource(R.string.metadata_label), tagsLock) { tagsLock = it }
-                        LockSwitch(stringResource(R.string.metadata_url), linksLock) { linksLock = it }
+                        LockSwitch(stringResource(R.string.metadata_links), linksLock) { linksLock = it }
                     }
                 }
             }
@@ -375,6 +409,8 @@ private fun MetadataScaffold(
     onRefresh: () -> Unit,
     editing: Boolean,
     onEditToggle: () -> Unit,
+    canEditMetadata: Boolean,
+    saving: Boolean,
     onSave: () -> Unit,
     content: @Composable (PaddingValues) -> Unit
 ) {
@@ -388,14 +424,20 @@ private fun MetadataScaffold(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onRefresh) {
-                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.metadata_refresh))
+                    if (canEditMetadata) {
+                        IconButton(onClick = onRefresh) {
+                            Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.metadata_refresh))
+                        }
                     }
                     if (editing) {
-                        IconButton(onClick = onSave) {
-                            Icon(Icons.Default.Check, contentDescription = stringResource(R.string.metadata_save))
+                        IconButton(onClick = onSave, enabled = !saving) {
+                            if (saving) {
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Check, contentDescription = stringResource(R.string.metadata_save))
+                            }
                         }
-                    } else {
+                    } else if (canEditMetadata) {
                         IconButton(onClick = onEditToggle) {
                             Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.metadata_edit))
                         }
@@ -421,12 +463,15 @@ private fun MetadataCoverSection(
     thumbnailUrl: String,
     incomingCoverUri: String?,
     coverFocus: Boolean,
+    canEditMetadata: Boolean,
     vm: MetadataViewModel
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var candidate by remember(incomingCoverUri, thumbnailUrl) {
-        mutableStateOf(incomingCoverUri?.let { CoverCandidate(Uri.parse(it), R.string.metadata_cover_from_reader) })
+    var candidate by remember(incomingCoverUri, thumbnailUrl, canEditMetadata) {
+        mutableStateOf(
+            if (canEditMetadata) incomingCoverUri?.let { CoverCandidate(Uri.parse(it), R.string.metadata_cover_from_reader) } else null
+        )
     }
     var crop by remember { mutableStateOf(CoverCrop.Full) }
     var previewBitmap by remember(candidate, crop) { mutableStateOf<Bitmap?>(null) }
@@ -446,10 +491,12 @@ private fun MetadataCoverSection(
     }
 
     MetadataSection(stringResource(R.string.metadata_cover_section)) {
-        if (coverFocus) {
+        if (coverFocus && canEditMetadata) {
             Text(stringResource(R.string.metadata_cover_from_reader), color = MaterialTheme.colorScheme.primary)
         }
-        Text(stringResource(R.string.metadata_cover_supporting), style = MaterialTheme.typography.bodyMedium)
+        if (canEditMetadata) {
+            Text(stringResource(R.string.metadata_cover_supporting), style = MaterialTheme.typography.bodyMedium)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
             Box(Modifier.width(112.dp).aspectRatio(0.7f), contentAlignment = Alignment.Center) {
                 when {
@@ -469,60 +516,64 @@ private fun MetadataCoverSection(
                     )
                 }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                Button(onClick = { picker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Upload, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.metadata_cover_upload))
-                }
-                OutlinedButton(
-                    onClick = { candidate = CoverCandidate(Uri.parse(thumbnailUrl), R.string.metadata_cover_current) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Edit, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.metadata_cover_edit_current))
+            if (canEditMetadata) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                    Button(onClick = { picker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Upload, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.metadata_cover_upload))
+                    }
+                    OutlinedButton(
+                        onClick = { candidate = CoverCandidate(Uri.parse(thumbnailUrl), R.string.metadata_cover_current) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.metadata_cover_edit_current))
+                    }
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            CoverCrop.entries.forEach { option ->
-                FilterChip(
-                    selected = crop == option,
-                    onClick = { crop = option },
-                    label = { Text(stringResource(option.labelRes)) }
-                )
-            }
-        }
-        FilledTonalButton(
-            enabled = candidate != null && !vm.coverSaving,
-            onClick = {
-                val selected = candidate ?: return@FilledTonalButton
-                scope.launch {
-                    val bitmap = withContext(Dispatchers.IO) { loadBitmap(context, selected.uri) }
-                    if (bitmap == null) {
-                        Toast.makeText(context, imageFailedMessage, Toast.LENGTH_SHORT).show()
-                        return@launch
-                    }
-                    val bytes = withContext(Dispatchers.Default) {
-                        bitmapToJpegBytes(scaleCoverBitmapForUpload(cropCoverBitmap(bitmap, crop)))
-                    }
-                    val onDone: (Boolean) -> Unit = { ok ->
-                        Toast.makeText(context, if (ok) savedMessage else failedMessage, Toast.LENGTH_SHORT).show()
-                    }
-                    if (targetType == "series") {
-                        vm.uploadSeriesCover(id, bytes, onDone)
-                    } else {
-                        vm.uploadBookCover(id, bytes, onDone)
-                    }
+        if (canEditMetadata) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                CoverCrop.entries.forEach { option ->
+                    FilterChip(
+                        selected = crop == option,
+                        onClick = { crop = option },
+                        label = { Text(stringResource(option.labelRes)) }
+                    )
                 }
-            },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-        ) {
-            if (vm.coverSaving) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-            } else {
-                Text(stringResource(R.string.metadata_cover_save))
+            }
+            FilledTonalButton(
+                enabled = candidate != null && !vm.coverSaving,
+                onClick = {
+                    val selected = candidate ?: return@FilledTonalButton
+                    scope.launch {
+                        val bitmap = withContext(Dispatchers.IO) { loadBitmap(context, selected.uri) }
+                        if (bitmap == null) {
+                            Toast.makeText(context, imageFailedMessage, Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
+                        val bytes = withContext(Dispatchers.Default) {
+                            bitmapToJpegBytes(scaleCoverBitmapForUpload(cropCoverBitmap(bitmap, crop)))
+                        }
+                        val onDone: (Boolean) -> Unit = { ok ->
+                            Toast.makeText(context, if (ok) savedMessage else failedMessage, Toast.LENGTH_SHORT).show()
+                        }
+                        if (targetType == "series") {
+                            vm.uploadSeriesCover(id, bytes, onDone)
+                        } else {
+                            vm.uploadBookCover(id, bytes, onDone)
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            ) {
+                if (vm.coverSaving) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(stringResource(R.string.metadata_cover_save))
+                }
             }
         }
     }
@@ -597,10 +648,12 @@ private fun LockSwitch(label: String, checked: Boolean, onCheckedChange: (Boolea
 private fun AlternateTitlesEditor(
     titles: List<AlternateTitleDto>,
     editing: Boolean,
+    showTitle: Boolean = true,
     onChange: (List<AlternateTitleDto>) -> Unit
 ) {
     StructuredPairsEditor(
         title = stringResource(R.string.metadata_alternate_titles),
+        showTitle = showTitle,
         firstLabel = stringResource(R.string.metadata_label),
         secondLabel = stringResource(R.string.metadata_title),
         items = titles.map { it.label to it.title },
@@ -614,10 +667,42 @@ private fun AlternateTitlesEditor(
 private fun LinksEditor(
     links: List<WebLinkDto>,
     editing: Boolean,
+    showTitle: Boolean = true,
     onChange: (List<WebLinkDto>) -> Unit
 ) {
+    if (!editing) {
+        val context = LocalContext.current
+        val visibleLinks = links.filter { normalizeExternalUrl(it.url) != null }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (showTitle) {
+                Text(
+                    stringResource(R.string.metadata_links),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (visibleLinks.isEmpty()) {
+                Text(stringResource(R.string.metadata_no_links), style = MaterialTheme.typography.bodyMedium)
+            } else {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    visibleLinks.forEach { link ->
+                        AssistChip(
+                            onClick = { openExternalUrl(context, link.url) },
+                            label = { Text(link.label.ifBlank { link.url }) }
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
     StructuredPairsEditor(
-        title = stringResource(R.string.metadata_url),
+        title = stringResource(R.string.metadata_links),
+        showTitle = showTitle,
         firstLabel = stringResource(R.string.metadata_link_name),
         secondLabel = stringResource(R.string.metadata_url),
         items = links.map { it.label to it.url },
@@ -630,6 +715,7 @@ private fun LinksEditor(
 @Composable
 private fun StructuredPairsEditor(
     title: String,
+    showTitle: Boolean = true,
     firstLabel: String,
     secondLabel: String,
     items: List<Pair<String, String>>,
@@ -638,7 +724,9 @@ private fun StructuredPairsEditor(
     onChange: (List<Pair<String, String>>) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (showTitle) {
+            Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (editing) {
             val editable = items.ifEmpty { listOf("" to "") }
             editable.forEachIndexed { index, item ->
@@ -739,13 +827,26 @@ private fun MetaField(
     value: String,
     editing: Boolean,
     maxLines: Int = 1,
+    showLabel: Boolean = true,
     onValueChange: (String) -> Unit = {}
 ) {
     if (editing) {
-        OutlinedTextField(value, onValueChange, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), maxLines = maxLines)
+        OutlinedTextField(
+            value,
+            onValueChange,
+            label = if (showLabel) {
+                { Text(label) }
+            } else {
+                null
+            },
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = maxLines
+        )
     } else {
         Column {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (showLabel) {
+                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Text(value.ifEmpty { stringResource(R.string.empty_dash) }, style = MaterialTheme.typography.bodyMedium)
         }
     }

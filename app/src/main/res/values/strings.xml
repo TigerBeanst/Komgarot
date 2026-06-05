@@ -178,6 +178,7 @@
     <!-- Metadata -->
     <string name="metadata_book_title">Book Metadata</string>
     <string name="metadata_series_title">Series Metadata</string>
+    <string name="metadata_admin_required">Komga admin permission is required to edit metadata.</string>
     <string name="metadata_refresh">Refresh metadata</string>
     <string name="metadata_save">Save metadata</string>
     <string name="metadata_edit">Edit metadata</string>
@@ -201,6 +202,7 @@
     <string name="metadata_alternate_titles">Alternate Titles</string>
     <string name="metadata_label">Label</string>
     <string name="metadata_link_name">Name</string>
+    <string name="metadata_links">Links</string>
     <string name="metadata_url">URL</string>
     <string name="metadata_no_alternate_titles">No alternate titles</string>
     <string name="metadata_no_links">No links</string>

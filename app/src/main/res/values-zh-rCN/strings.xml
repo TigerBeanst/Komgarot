@@ -175,13 +175,14 @@
     <!-- 元数据 -->
     <string name="metadata_book_title">书籍元数据</string>
     <string name="metadata_series_title">系列元数据</string>
+    <string name="metadata_admin_required">需要 Komga 管理员权限才能编辑元数据。</string>
     <string name="metadata_refresh">刷新元数据</string>
     <string name="metadata_save">保存元数据</string>
     <string name="metadata_edit">编辑元数据</string>
     <string name="metadata_basic_info">基础信息</string>
     <string name="metadata_classification">分类</string>
-    <string name="metadata_aliases_links">别名与外链</string>
-    <string name="metadata_tags_links">标签与外链</string>
+    <string name="metadata_aliases_links">别名与链接</string>
+    <string name="metadata_tags_links">标签与链接</string>
     <string name="metadata_lock_fields">锁定字段</string>
     <string name="metadata_title">标题</string>
     <string name="metadata_publisher">出版社</string>
@@ -198,9 +199,10 @@
     <string name="metadata_alternate_titles">别名</string>
     <string name="metadata_label">标签</string>
     <string name="metadata_link_name">名称</string>
+    <string name="metadata_links">链接</string>
     <string name="metadata_url">URL</string>
     <string name="metadata_no_alternate_titles">没有别名</string>
-    <string name="metadata_no_links">没有外链</string>
+    <string name="metadata_no_links">没有链接</string>
     <string name="metadata_add_item">添加%s</string>
     <string name="metadata_delete_item">删除</string>
     <string name="metadata_authors">作者</string>
