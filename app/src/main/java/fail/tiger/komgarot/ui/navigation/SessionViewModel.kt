@@ -16,16 +16,23 @@ class SessionViewModel(private val repo: UserRepository) : ViewModel() {
     val error = _error.asStateFlow()
 
     fun refresh() {
-        viewModelScope.launch {
-            repo.getCurrentUser()
-                .onSuccess {
-                    _user.value = it
-                    _error.value = null
-                }
-                .onFailure {
-                    _error.value = it.message
-                }
-        }
+        viewModelScope.launch { refreshCurrentUser() }
+    }
+
+    suspend fun refreshCurrentUser() {
+        repo.getCurrentUser()
+            .onSuccess {
+                _user.value = it
+                _error.value = null
+            }
+            .onFailure {
+                _error.value = it.message
+            }
+    }
+
+    fun clear() {
+        _user.value = null
+        _error.value = null
     }
 
     class Factory(private val repo: UserRepository) : ViewModelProvider.Factory {

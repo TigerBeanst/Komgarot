@@ -44,6 +44,8 @@
     <string name="home">Home</string>
     <string name="browse">Browse</string>
     <string name="ok">OK</string>
+    <string name="me">Me</string>
+    <string name="user_role">User</string>
 
     <!-- Login -->
     <string name="login_server_url">Server URL</string>
@@ -259,6 +261,8 @@
     <string name="settings_clear_cache_message">Clear all image caches?</string>
     <string name="settings_cache_loading">Calculating…</string>
     <string name="settings_cache_size">Total: %1$s · Covers: %2$s · Reader pages: %3$s</string>
+    <string name="settings_entry_desc">Reading, cache, and app lock</string>
+    <string name="admin_entry_desc">Server administration, users, libraries, and settings</string>
 
     <!-- Collections and read lists -->
     <string name="collections">Collections</string>

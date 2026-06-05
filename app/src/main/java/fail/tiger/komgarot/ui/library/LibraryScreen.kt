@@ -8,9 +8,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -42,8 +39,6 @@ fun LibraryScreen(
     onSeriesClick: (String, Int) -> Unit,
     serverUrl: String,
     vm: LibraryViewModel,
-    onLogout: () -> Unit,
-    onSettings: () -> Unit = {},
     onBottomBarVisibleChange: (Boolean) -> Unit = {}
 ) {
     val libraries by vm.libraries.collectAsState()
@@ -66,15 +61,7 @@ fun LibraryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
-                actions = {
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings))
-                    }
-                    IconButton(onClick = { vm.logout(onLogout) }) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = stringResource(R.string.logout))
-                    }
-                }
+                title = { Text(stringResource(R.string.app_name)) }
             )
         }
     ) { padding ->

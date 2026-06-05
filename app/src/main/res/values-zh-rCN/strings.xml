@@ -44,6 +44,8 @@
     <string name="home">首页</string>
     <string name="browse">浏览</string>
     <string name="ok">确定</string>
+    <string name="me">我的</string>
+    <string name="user_role">用户</string>
 
     <!-- 登录 -->
     <string name="login_server_url">服务器地址</string>
@@ -256,6 +258,8 @@
     <string name="settings_clear_cache_message">确定要清除所有图片缓存吗？</string>
     <string name="settings_cache_loading">计算中...</string>
     <string name="settings_cache_size">总计: %1$s · 封面: %2$s · 阅读页: %3$s</string>
+    <string name="settings_entry_desc">阅读、缓存和应用锁</string>
+    <string name="admin_entry_desc">服务器管理、用户、书库和设置</string>
 
     <!-- 集合和阅读列表 -->
     <string name="collections">集合</string>

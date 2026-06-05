@@ -14,12 +14,11 @@ import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.CollectionsBookmark
-import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -80,6 +79,7 @@ import fail.tiger.komgarot.ui.reader.ReaderViewModel
 import fail.tiger.komgarot.ui.series.SharedPreferencesSeriesSortStore
 import fail.tiger.komgarot.ui.series.SeriesScreen
 import fail.tiger.komgarot.ui.series.SeriesViewModel
+import fail.tiger.komgarot.ui.settings.MeScreen
 import fail.tiger.komgarot.ui.settings.SettingsScreen
 
 @Composable
@@ -96,8 +96,10 @@ fun AppNavGraph(app: KomgarotApp) {
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(serverUrl) {
-        if (serverUrl.isNotEmpty() && navController.currentDestination?.route != Screen.Library.route) {
+        if (serverUrl.isNotEmpty()) {
             sessionVm.refresh()
+        }
+        if (serverUrl.isNotEmpty() && navController.currentDestination?.route != Screen.Library.route) {
             navController.navigate(Screen.Library.route) {
                 popUpTo(Screen.Login.route) { inclusive = true }
             }
@@ -130,7 +132,7 @@ fun AppNavGraph(app: KomgarotApp) {
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val topLevelDestinations = topLevelDestinations(user?.isAdmin == true)
+    val topLevelDestinations = topLevelDestinations()
     val showTopLevelNav = currentRoute in topLevelDestinations.map { it.route }
     var bottomBarVisible by rememberSaveable { mutableStateOf(true) }
 
@@ -192,7 +194,15 @@ fun AppNavGraph(app: KomgarotApp) {
         ) {
         composable(Screen.Login.route) {
             val vm: LoginViewModel = viewModel(factory = LoginViewModel.Factory(app.authRepository, textProvider))
-            LoginScreen(onSuccess = {}, vm = vm)
+            LoginScreen(onSuccess = {
+                scope.launch {
+                    sessionVm.refreshCurrentUser()
+                    navController.navigate(Screen.Library.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            }, vm = vm)
         }
 
         composable(Screen.Library.route) {
@@ -214,12 +224,6 @@ fun AppNavGraph(app: KomgarotApp) {
                 },
                 onSeriesClick = openSeries,
                 serverUrl = serverUrl,
-                onLogout = {
-                    navController.navigate(Screen.Login.route) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
-                onSettings = { navigateTopLevel(Screen.Settings.route) },
                 onBottomBarVisibleChange = { bottomBarVisible = it },
                 vm = vm
             )
@@ -478,6 +482,24 @@ fun AppNavGraph(app: KomgarotApp) {
             )
         }
 
+        composable(Screen.Me.route) {
+            MeScreen(
+                userEmail = user?.email,
+                isAdmin = canEditMetadata,
+                onAdminClick = { navController.navigate(Screen.Admin.route) },
+                onSettingsClick = { navController.navigate(Screen.Settings.route) },
+                onLogout = {
+                    scope.launch {
+                        app.authRepository.logout()
+                        sessionVm.clear()
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                }
+            )
+        }
+
         composable(Screen.Settings.route) {
             SettingsScreen(onBack = { navController.popBackStack() }, prefs = app.authPreferences)
         }
@@ -491,21 +513,21 @@ private data class TopLevelDestination(
     val icon: ImageVector
 )
 
-private fun topLevelDestinations(isAdmin: Boolean): List<TopLevelDestination> =
+private fun topLevelDestinations(): List<TopLevelDestination> =
     buildList {
         add(TopLevelDestination(Screen.Library.route, R.string.home, Icons.Default.Home))
         add(TopLevelDestination(Screen.Browse.route, R.string.browse, Icons.Default.Search))
         add(TopLevelDestination(Screen.Collections.route, R.string.collections, Icons.Default.CollectionsBookmark))
-        add(TopLevelDestination(Screen.ReadLists.route, R.string.read_lists, Icons.Default.FormatListBulleted))
-        if (isAdmin) add(TopLevelDestination(Screen.Admin.route, R.string.admin, Icons.Default.AdminPanelSettings))
-        add(TopLevelDestination(Screen.Settings.route, R.string.settings, Icons.Default.Settings))
+        add(TopLevelDestination(Screen.ReadLists.route, R.string.read_lists, Icons.AutoMirrored.Filled.FormatListBulleted))
+        add(TopLevelDestination(Screen.Me.route, R.string.me, Icons.Default.Person))
     }
 
 private fun usesOverlayBottomBar(route: String?): Boolean =
     route == Screen.Library.route ||
         route == Screen.Browse.route ||
         route == Screen.Collections.route ||
-        route == Screen.ReadLists.route
+        route == Screen.ReadLists.route ||
+        route == Screen.Me.route
 
 @Composable
 private fun AdaptiveShell(
