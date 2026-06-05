@@ -290,15 +290,6 @@ fun SeriesScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            SeriesStatusChips(
-                                sortField = sortField,
-                                sortDirection = sortDirection,
-                                searchQuery = vm.displaySearchQuery,
-                                searchByAuthor = vm.searchByAuthor,
-                                activeFilterCount = vm.activeFilterCount
-                            )
-                        }
                         items(vm.series, key = { it.id }) { series ->
                         val thumbnailVersion = ThumbnailVersion.get(series.id)
                         val thumbnailUrl = remember(serverUrl, series.id, thumbnailVersion) {
@@ -378,54 +369,6 @@ fun SeriesScreen(
                 showFilterSheet = false
             }
         )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SeriesStatusChips(
-    sortField: String,
-    sortDirection: String,
-    searchQuery: String,
-    searchByAuthor: Boolean,
-    activeFilterCount: Int
-) {
-    val sortLabel = seriesSortLabel(sortField)
-    val showSort = sortField != "metadata.titleSort" || sortDirection != "asc"
-    val hasStatus = showSort || searchQuery.isNotBlank() || activeFilterCount > 0
-    if (!hasStatus) return
-
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)
-    ) {
-        if (showSort) {
-            AssistChip(
-                onClick = {},
-                label = { Text(stringResource(R.string.sort_chip, sortLabel, sortArrow(sortDirection))) }
-            )
-        }
-        if (searchQuery.isNotBlank()) {
-            AssistChip(
-                onClick = {},
-                label = {
-                    Text(
-                        stringResource(
-                            R.string.search_chip,
-                            stringResource(if (searchByAuthor) R.string.author_filter else R.string.search),
-                            searchQuery
-                        )
-                    )
-                }
-            )
-        }
-        if (activeFilterCount > 0) {
-            AssistChip(
-                onClick = {},
-                label = { Text(stringResource(R.string.filter_chip, activeFilterCount)) }
-            )
-        }
     }
 }
 
