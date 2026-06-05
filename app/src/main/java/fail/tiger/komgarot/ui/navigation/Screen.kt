@@ -16,6 +16,8 @@ sealed class Screen(val route: String) {
         fun go(id: String) = "readlists/${encodeArg(id)}"
     }
     object Admin : Screen("admin")
+    object Me : Screen("me")
+    object Settings : Screen("settings")
     object Series : Screen("series/{libraryId}?search={search}") {
         fun go(id: String?, search: String? = null) = if (search != null) {
             "series/${encodeArg(id ?: "all")}?search=${encodeArg(search)}"
@@ -46,7 +48,6 @@ sealed class Screen(val route: String) {
         private fun goCover(type: String, id: String, coverUri: String): String =
             "metadata/${encodeArg(type)}/${encodeArg(id)}?coverUri=${encodeArg(coverUri)}&coverFocus=true"
     }
-    object Settings : Screen("settings")
 
     companion object {
         fun decodeArg(value: String): String =

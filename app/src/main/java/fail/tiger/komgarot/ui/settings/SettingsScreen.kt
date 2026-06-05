@@ -2,8 +2,13 @@ package fail.tiger.komgarot.ui.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -22,6 +27,70 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalCoilApi::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
+    SettingsContent(
+        prefs = prefs,
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.settings)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                    }
+                }
+            )
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalCoilApi::class)
+@Composable
+fun MeScreen(
+    userEmail: String?,
+    isAdmin: Boolean,
+    onAdminClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    onLogout: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(title = { Text(stringResource(R.string.me)) })
+        }
+    ) { padding ->
+        Column(Modifier.padding(padding)) {
+            ListItem(
+                headlineContent = { Text(userEmail?.takeIf { it.isNotBlank() } ?: stringResource(R.string.unknown)) },
+                supportingContent = { Text(stringResource(if (isAdmin) R.string.admin_admin_role else R.string.user_role)) }
+            )
+            if (isAdmin) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.admin)) },
+                    supportingContent = { Text(stringResource(R.string.admin_entry_desc)) },
+                    leadingContent = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null) },
+                    modifier = Modifier.clickable(onClick = onAdminClick)
+                )
+            }
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings)) },
+                supportingContent = { Text(stringResource(R.string.settings_entry_desc)) },
+                leadingContent = { Icon(Icons.Default.Settings, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onSettingsClick)
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.logout)) },
+                leadingContent = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onLogout)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalCoilApi::class)
+@Composable
+private fun SettingsContent(
+    prefs: AuthPreferences,
+    topBar: @Composable () -> Unit,
+    headerContent: @Composable ColumnScope.() -> Unit = {}
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var cacheSize by remember { mutableStateOf(CacheSizeUi.loading()) }
@@ -42,19 +111,9 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
         cacheSize = getCacheSize(context)
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(Modifier.padding(padding)) {
+    Scaffold(topBar = topBar) { padding ->
+        Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
+            headerContent()
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_clear_image_cache)) },
                 supportingContent = { Text(cacheSize.displayText()) },
