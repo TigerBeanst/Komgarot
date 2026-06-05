@@ -61,8 +61,9 @@ class SeriesViewModel(
     private var libraryId: String? = null
     private var initialized = false
 
-    fun init(id: String?, initialSearch: String? = null) {
+    fun init(id: String?, initialSearch: String? = null, initialTag: String? = null) {
         val normalizedInitialSearch = initialSearch?.trim().orEmpty()
+        val normalizedInitialTag = initialTag?.trim()?.takeIf { it.isNotEmpty() }
         if (libraryId != id) {
             libraryId = id
             paging.reset()
@@ -72,6 +73,11 @@ class SeriesViewModel(
             initialized = false
             paging.reset()
             applySearchState(normalizedInitialSearch)
+        }
+        if (normalizedInitialTag != filters.tag) {
+            initialized = false
+            paging.reset()
+            filters = filters.copy(tag = normalizedInitialTag)
         }
         if (!initialized) {
             initialized = true

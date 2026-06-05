@@ -31,6 +31,17 @@ class SeriesRepositoryTest {
     }
 
     @Test
+    fun tagFilterCreatesSeriesTagCondition() {
+        val search = buildSeriesSearch(libraryId = null, filters = SeriesFilters(tag = "sci fi"))
+
+        val condition = search.condition.orEmpty()
+        assertEquals("SERIES", condition["operator"])
+        val tag = condition["tag"].asMap()
+        assertEquals("IS", tag["operator"])
+        assertEquals("sci fi", tag["value"])
+    }
+
+    @Test
     fun libraryAndRoleAuthorSearchKeepLibraryConditionAndFullTextAuthorScope() {
         val search = buildSeriesSearch(libraryId = "library-1", search = "author:Sean Murphy,writer")
 

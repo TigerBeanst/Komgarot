@@ -39,6 +39,13 @@ class ScreenTest {
     }
 
     @Test
+    fun seriesRouteEncodesTagFilter() {
+        val route = Screen.Series.go(id = null, tag = "sci fi")
+
+        assertEquals("series/all?tag=sci%20fi", route)
+    }
+
+    @Test
     fun metadataCoverRouteEncodesCoverUri() {
         val uri = "content://fail.tiger.komgarot.provider/cache/cover candidate+1.jpg"
         val route = Screen.Metadata.goBookCover("book/1+2", uri)

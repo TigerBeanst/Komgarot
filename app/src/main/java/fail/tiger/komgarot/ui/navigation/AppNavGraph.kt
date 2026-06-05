@@ -323,11 +323,13 @@ fun AppNavGraph(app: KomgarotApp) {
             Screen.Series.route,
             arguments = listOf(
                 navArgument("libraryId") { type = NavType.StringType },
-                navArgument("search") { type = NavType.StringType; nullable = true; defaultValue = null }
+                navArgument("search") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("tag") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { back ->
             val libraryId = back.arguments?.getString("libraryId")?.let { Screen.decodeArg(it) }?.takeIf { it != "all" }
             val searchQuery = back.arguments?.getString("search")?.let { Screen.decodeArg(it) }
+            val tag = back.arguments?.getString("tag")?.let { Screen.decodeArg(it) }
             val vm: SeriesViewModel = viewModel(
                 factory = SeriesViewModel.Factory(
                     app.seriesRepository,
@@ -339,6 +341,7 @@ fun AppNavGraph(app: KomgarotApp) {
             SeriesScreen(
                 libraryId = libraryId,
                 initialSearch = searchQuery,
+                initialTag = tag,
                 serverUrl = serverUrl,
                 onSeriesClick = openSeries,
                 onMetadataClick = { navController.navigate(Screen.Metadata.go("series", it)) },
@@ -362,6 +365,7 @@ fun AppNavGraph(app: KomgarotApp) {
                     }
                 },
                 onMetadataClick = { navController.navigate(Screen.Metadata.go("series", it)) },
+                onTagClick = { tag -> navController.navigate(Screen.Series.go(id = null, tag = tag)) },
                 onBack = { navController.popBackStack() }, vm = vm
             )
         }
@@ -411,6 +415,7 @@ fun AppNavGraph(app: KomgarotApp) {
                 onAuthorClick = { authorName, _ ->
                     navController.navigate(Screen.Series.go(null, "author:$authorName"))
                 },
+                onTagClick = { tag -> navController.navigate(Screen.Series.go(id = null, tag = tag)) },
                 vm = vm,
                 prefs = app.authPreferences
             )

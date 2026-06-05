@@ -32,12 +32,14 @@ import fail.tiger.komgarot.ui.components.ErrorState
 import fail.tiger.komgarot.ui.components.FloatingDetailActions
 import fail.tiger.komgarot.ui.components.FloatingDetailIconButton
 import fail.tiger.komgarot.ui.components.ImmersiveDetailScaffold
+import fail.tiger.komgarot.ui.metadata.normalizeExternalUrl
+import fail.tiger.komgarot.ui.metadata.openExternalUrl
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BookDetailScreen(
     bookId: String,
@@ -48,6 +50,7 @@ fun BookDetailScreen(
     onReadClick: (String, Boolean) -> Unit,
     onMetadataClick: (String) -> Unit,
     onAuthorClick: (String, String) -> Unit = { _, _ -> },
+    onTagClick: (String) -> Unit = {},
     vm: BookDetailViewModel,
     prefs: AuthPreferences
 ) {
@@ -197,7 +200,22 @@ fun BookDetailScreen(
                         }
 
                         if (!meta?.tags.isNullOrEmpty()) {
-                            InfoRow(stringResource(R.string.tags, "").dropLast(2), meta!!.tags.joinToString(", "))
+                            MetadataChipRows(
+                                title = stringResource(R.string.metadata_label),
+                                items = meta!!.tags.map { tag -> tag to { onTagClick(tag) } }
+                            )
+                        }
+
+                        if (!meta?.links.isNullOrEmpty()) {
+                            val visibleLinks = meta!!.links.filter { normalizeExternalUrl(it.url) != null }
+                            if (visibleLinks.isNotEmpty()) {
+                                MetadataChipRows(
+                                    title = stringResource(R.string.metadata_links),
+                                    items = visibleLinks.map { link ->
+                                        link.label.ifBlank { link.url } to { openExternalUrl(context, link.url) }
+                                    }
+                                )
+                            }
                         }
 
                         HorizontalDivider()
@@ -215,6 +233,28 @@ fun BookDetailScreen(
                         }
                     }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetadataChipRows(
+    title: String,
+    items: List<Pair<String, () -> Unit>>
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items.forEach { (label, onClick) ->
+                AssistChip(onClick = onClick, label = { Text(label) })
             }
         }
     }

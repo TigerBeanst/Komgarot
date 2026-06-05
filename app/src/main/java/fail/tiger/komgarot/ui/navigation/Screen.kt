@@ -18,11 +18,14 @@ sealed class Screen(val route: String) {
     object Admin : Screen("admin")
     object Me : Screen("me")
     object Settings : Screen("settings")
-    object Series : Screen("series/{libraryId}?search={search}") {
-        fun go(id: String?, search: String? = null) = if (search != null) {
-            "series/${encodeArg(id ?: "all")}?search=${encodeArg(search)}"
-        } else {
-            "series/${encodeArg(id ?: "all")}"
+    object Series : Screen("series/{libraryId}?search={search}&tag={tag}") {
+        fun go(id: String?, search: String? = null, tag: String? = null): String {
+            val base = "series/${encodeArg(id ?: "all")}"
+            val params = listOfNotNull(
+                search?.let { "search=${encodeArg(it)}" },
+                tag?.let { "tag=${encodeArg(it)}" }
+            )
+            return if (params.isEmpty()) base else "$base?${params.joinToString("&")}"
         }
     }
     object Books : Screen("books/{seriesId}") {

@@ -40,13 +40,14 @@ import fail.tiger.komgarot.ui.components.ThumbnailImage
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BookScreen(
     seriesId: String,
     serverUrl: String,
     onBookClick: (String, String, Int, Boolean) -> Unit,
     onMetadataClick: (String) -> Unit,
+    onTagClick: (String) -> Unit = {},
     onBack: () -> Unit,
     vm: BookViewModel
 ) {
@@ -178,7 +179,19 @@ fun BookScreen(
                                     Text(series.metadata.summary, style = MaterialTheme.typography.bodyMedium)
                                 }
                                 if (series.metadata.tags.isNotEmpty()) {
-                                    Text(stringResource(R.string.tags, series.metadata.tags.joinToString(", ")), style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        stringResource(R.string.metadata_label),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        series.metadata.tags.forEach { tag ->
+                                            AssistChip(onClick = { onTagClick(tag) }, label = { Text(tag) })
+                                        }
+                                    }
                                 }
                                 val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
                                 Text(

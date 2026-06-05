@@ -49,6 +49,7 @@ import kotlinx.coroutines.flow.map
 fun SeriesScreen(
     libraryId: String?,
     initialSearch: String? = null,
+    initialTag: String? = null,
     serverUrl: String,
     onSeriesClick: (String, Int) -> Unit,
     onMetadataClick: (String) -> Unit,
@@ -56,7 +57,7 @@ fun SeriesScreen(
     vm: SeriesViewModel,
     onBottomBarVisibleChange: (Boolean) -> Unit = {}
 ) {
-    LaunchedEffect(libraryId, initialSearch) { vm.init(libraryId, initialSearch) }
+    LaunchedEffect(libraryId, initialSearch, initialTag) { vm.init(libraryId, initialSearch, initialTag) }
     var searchExpanded by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
     var searchByAuthor by remember { mutableStateOf(false) }
