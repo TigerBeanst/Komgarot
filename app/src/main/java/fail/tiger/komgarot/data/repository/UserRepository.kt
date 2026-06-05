@@ -11,7 +11,9 @@ import fail.tiger.komgarot.data.remote.dto.UserDto
 class UserRepository(private val api: KomgaApi) {
     suspend fun getCurrentUser(): Result<UserDto> = runCatching { api.getCurrentUser() }
 
-    suspend fun getApiKeys(): Result<List<ApiKeyDto>> = runCatching { api.getApiKeysForCurrentUser() }
+    suspend fun getApiKeys(): Result<List<ApiKeyDto>> = runCatching {
+        api.getApiKeysForCurrentUserRaw().toFlexibleList("apiKeys", "keys")
+    }
 
     suspend fun createApiKey(comment: String): Result<ApiKeyDto> =
         runCatching { api.createApiKeyForCurrentUser(ApiKeyRequestDto(comment)) }
@@ -19,7 +21,7 @@ class UserRepository(private val api: KomgaApi) {
     suspend fun deleteApiKey(id: String): Result<Unit> = runCatching { api.deleteApiKey(id) }
 
     suspend fun getMyAuthenticationActivity(page: Int = 0): Result<PagedDto<AuthenticationActivityDto>> =
-        runCatching { api.getMyAuthenticationActivity(page = page) }
+        runCatching { api.getMyAuthenticationActivityRaw(page = page).toFlexiblePage("authenticationActivity") }
 
     suspend fun updatePassword(password: String): Result<Unit> =
         runCatching { api.updateCurrentUserPassword(PasswordUpdateDto(password)) }

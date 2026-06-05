@@ -14,7 +14,8 @@ interface LibraryHomeSource {
 }
 
 class LibraryRepository(private val api: KomgaApi) : LibraryHomeSource {
-    override suspend fun getLibraries(): List<LibraryDto> = api.getLibraries()
+    override suspend fun getLibraries(): List<LibraryDto> =
+        api.getLibrariesRaw().toFlexibleList("libraries")
 
     override suspend fun getBooksOnDeck(size: Int): List<BookDto> =
         api.getBooksOnDeck(size = size).content
