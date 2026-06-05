@@ -2,6 +2,7 @@ package fail.tiger.komgarot.data.remote
 
 import fail.tiger.komgarot.data.remote.dto.*
 import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 import retrofit2.http.*
 
 interface KomgaApi :
@@ -15,6 +16,9 @@ interface KomgaApi :
 interface BrowseApi {
     @GET("api/v1/libraries")
     suspend fun getLibraries(): List<LibraryDto>
+
+    @GET("api/v1/libraries")
+    suspend fun getLibrariesRaw(): ResponseBody
 
     @POST("api/v1/series/list")
     suspend fun getSeries(
@@ -247,6 +251,9 @@ interface UserApi {
     @GET("api/v2/users/me/api-keys")
     suspend fun getApiKeysForCurrentUser(): List<ApiKeyDto>
 
+    @GET("api/v2/users/me/api-keys")
+    suspend fun getApiKeysForCurrentUserRaw(): ResponseBody
+
     @POST("api/v2/users/me/api-keys")
     suspend fun createApiKeyForCurrentUser(@Body body: ApiKeyRequestDto): ApiKeyDto
 
@@ -260,6 +267,13 @@ interface UserApi {
         @Query("sort") sort: List<String> = listOf("dateTime,desc")
     ): PagedDto<AuthenticationActivityDto>
 
+    @GET("api/v2/users/me/authentication-activity")
+    suspend fun getMyAuthenticationActivityRaw(
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20,
+        @Query("sort") sort: List<String> = listOf("dateTime,desc")
+    ): ResponseBody
+
     @PATCH("api/v2/users/me/password")
     suspend fun updateCurrentUserPassword(@Body body: PasswordUpdateDto)
 }
@@ -267,6 +281,9 @@ interface UserApi {
 interface AdminApi {
     @GET("api/v2/users")
     suspend fun getUsers(): List<UserDto>
+
+    @GET("api/v2/users")
+    suspend fun getUsersRaw(): ResponseBody
 
     @POST("api/v2/users")
     suspend fun createUser(@Body body: UserCreationDto): UserDto
@@ -286,6 +303,13 @@ interface AdminApi {
         @Query("size") size: Int = 20,
         @Query("sort") sort: List<String> = listOf("dateTime,desc")
     ): PagedDto<AuthenticationActivityDto>
+
+    @GET("api/v2/users/authentication-activity")
+    suspend fun getAuthenticationActivityRaw(
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20,
+        @Query("sort") sort: List<String> = listOf("dateTime,desc")
+    ): ResponseBody
 
     @GET("api/v1/libraries/{libraryId}")
     suspend fun getLibrary(@Path("libraryId") libraryId: String): LibraryDto
@@ -324,11 +348,24 @@ interface AdminApi {
         @Query("sort") sort: List<String> = listOf("timestamp,desc")
     ): PagedDto<HistoricalEventDto>
 
+    @GET("api/v1/history")
+    suspend fun getHistoryRaw(
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 30,
+        @Query("sort") sort: List<String> = listOf("timestamp,desc")
+    ): ResponseBody
+
     @GET("api/v1/books/duplicates")
     suspend fun getDuplicateBooks(
         @Query("page") page: Int = 0,
         @Query("size") size: Int = 20
     ): PagedDto<BookDto>
+
+    @GET("api/v1/books/duplicates")
+    suspend fun getDuplicateBooksRaw(
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20
+    ): ResponseBody
 
     @GET("api/v1/page-hashes")
     suspend fun getKnownPageHashes(
@@ -336,11 +373,23 @@ interface AdminApi {
         @Query("size") size: Int = 20
     ): PagedDto<PageHashKnownDto>
 
+    @GET("api/v1/page-hashes")
+    suspend fun getKnownPageHashesRaw(
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20
+    ): ResponseBody
+
     @GET("api/v1/page-hashes/unknown")
     suspend fun getUnknownPageHashes(
         @Query("page") page: Int = 0,
         @Query("size") size: Int = 20
     ): PagedDto<PageHashUnknownDto>
+
+    @GET("api/v1/page-hashes/unknown")
+    suspend fun getUnknownPageHashesRaw(
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20
+    ): ResponseBody
 
     @PUT("api/v1/page-hashes")
     suspend fun markPageHashKnown(@Body body: PageHashCreationDto)
@@ -358,7 +407,7 @@ interface AdminApi {
     suspend fun clearTaskQueue(): Int
 
     @GET("api/v1/announcements")
-    suspend fun getAnnouncements(): List<AnnouncementDto>
+    suspend fun getAnnouncementsRaw(): ResponseBody
 
     @PUT("api/v1/announcements")
     suspend fun markAnnouncementsRead()
@@ -369,6 +418,12 @@ interface AdminApi {
     @GET("api/v1/oauth2/providers")
     suspend fun getOAuthProviders(): List<OAuth2ClientDto>
 
+    @GET("api/v1/oauth2/providers")
+    suspend fun getOAuthProvidersRaw(): ResponseBody
+
     @GET("api/v1/releases")
     suspend fun getReleases(): List<ReleaseDto>
+
+    @GET("api/v1/releases")
+    suspend fun getReleasesRaw(): ResponseBody
 }

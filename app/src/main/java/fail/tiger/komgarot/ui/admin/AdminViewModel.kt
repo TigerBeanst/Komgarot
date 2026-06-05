@@ -197,5 +197,10 @@ private inline fun <T> Result<T>.applyResult(defaultMessage: String, onSuccess: 
             onSuccess(it)
             null
         },
-        onFailure = { it.message ?: defaultMessage }
+        onFailure = { adminLoadFailureMessage(defaultMessage, it) }
     )
+
+internal fun adminLoadFailureMessage(defaultMessage: String, error: Throwable): String {
+    val detail = error.message.orEmpty()
+    return if (detail.isBlank()) defaultMessage else "$defaultMessage: $detail"
+}

@@ -1,5 +1,7 @@
 package fail.tiger.komgarot.data.remote.dto
 
+import com.google.gson.annotations.SerializedName
+
 data class LibraryDto(
     val id: String = "",
     val name: String = "",
@@ -441,6 +443,23 @@ data class AnnouncementDto(
     val title: String = "",
     val message: String = "",
     val date: String? = null,
+    val read: Boolean = false
+)
+
+data class JsonFeedDto(
+    val items: List<JsonFeedItemDto> = emptyList()
+)
+
+data class JsonFeedItemDto(
+    val id: String = "",
+    val title: String = "",
+    val summary: String? = null,
+    @SerializedName("content_html") val contentHtml: String? = null,
+    @SerializedName("date_modified") val dateModified: String? = null,
+    @SerializedName("_komga") val komga: KomgaExtensionDto? = null
+)
+
+data class KomgaExtensionDto(
     val read: Boolean = false
 )
 
