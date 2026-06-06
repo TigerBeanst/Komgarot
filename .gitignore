@@ -17,7 +17,9 @@ buildSrc/build/
 .cxx
 local.properties
 app/release/
+.superpower/
 .superpowers/
+docs/superpowers/
 *.apk
 *.aab
 *.apks
