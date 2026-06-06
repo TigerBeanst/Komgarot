@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.data.repository
 
 import fail.tiger.komgarot.data.remote.KomgaApi
+import fail.tiger.komgarot.data.remote.dto.LibraryDto
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -8,11 +9,20 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import java.lang.reflect.ParameterizedType
 import org.junit.Test
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 class FlexibleRepositoryParsingTest {
+    @Test
+    fun repositoryListTypeKeepsConcreteDtoArgument() {
+        val type = repositoryListType<LibraryDto>() as ParameterizedType
+
+        assertEquals(List::class.java, type.rawType)
+        assertEquals(LibraryDto::class.java, type.actualTypeArguments.single())
+    }
+
     @Test
     fun libraryRepositoryAcceptsWrappedLibraries() = runBlocking {
         val api = retrofitApi(
