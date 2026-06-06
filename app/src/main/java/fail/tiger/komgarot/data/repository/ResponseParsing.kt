@@ -7,12 +7,16 @@ import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import fail.tiger.komgarot.data.remote.dto.PagedDto
 import okhttp3.ResponseBody
+import java.lang.reflect.Type
 
 internal val repositoryGson = Gson()
 
+internal inline fun <reified T> repositoryListType(): Type =
+    TypeToken.getParameterized(List::class.java, T::class.java).type
+
 internal inline fun <reified T> ResponseBody.toFlexibleList(vararg objectKeys: String): List<T> =
     parseListJson(objectKeys.toList()).let { array ->
-        repositoryGson.fromJson(array, object : TypeToken<List<T>>() {}.type)
+        repositoryGson.fromJson(array, repositoryListType<T>())
     }
 
 internal inline fun <reified T> ResponseBody.toFlexiblePage(vararg objectKeys: String): PagedDto<T> {
@@ -22,7 +26,7 @@ internal inline fun <reified T> ResponseBody.toFlexiblePage(vararg objectKeys: S
         element.isJsonObject -> element.arrayFromObject(objectKeys.toList() + listOf("content", "items", "data"))
         else -> JsonArray()
     }
-    val content: List<T> = repositoryGson.fromJson(array, object : TypeToken<List<T>>() {}.type)
+    val content: List<T> = repositoryGson.fromJson(array, repositoryListType<T>())
     val obj = element.takeIf { it.isJsonObject }?.asJsonObject
     return PagedDto(
         content = content,

@@ -2,7 +2,6 @@ package fail.tiger.komgarot.data.repository
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
-import com.google.gson.reflect.TypeToken
 import fail.tiger.komgarot.data.remote.KomgaApi
 import fail.tiger.komgarot.data.remote.dto.*
 import okhttp3.ResponseBody
@@ -63,10 +62,10 @@ class AdminRepository(private val api: KomgaApi) {
 private fun ResponseBody.toAnnouncements(): List<AnnouncementDto> {
     val element = parseJsonElement()
     return when {
-        element.isJsonArray -> repositoryGson.fromJson(element, object : TypeToken<List<AnnouncementDto>>() {}.type)
+        element.isJsonArray -> repositoryGson.fromJson(element, repositoryListType<AnnouncementDto>())
         element.isJsonObject -> {
             val array = element.arrayFromObject(listOf("items", "announcements", "content"))
-            repositoryGson.fromJson<List<JsonFeedItemDto>>(array, object : TypeToken<List<JsonFeedItemDto>>() {}.type)
+            repositoryGson.fromJson<List<JsonFeedItemDto>>(array, repositoryListType<JsonFeedItemDto>())
                 .map { it.toAnnouncementDto() }
         }
         else -> emptyList()
