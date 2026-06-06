@@ -47,6 +47,18 @@ class BookDetailActionHierarchyTest {
     }
 
     @Test
+    fun cacheActionUsesIconAndClearConfirmationDialog() {
+        val cacheActionStart = source.indexOf("private fun BookDownloadAction(")
+        val cacheActionEnd = source.indexOf("@Composable", cacheActionStart + 1)
+        val cacheActionSource = source.substring(cacheActionStart, cacheActionEnd)
+
+        assertTrue(cacheActionSource.contains("Icon(Icons.Default.Download"))
+        assertTrue(source.contains("clear_book_cache_title"))
+        assertTrue(source.contains("clear_book_cache_message"))
+        assertTrue(source.contains("vm.clearOfflineCache()"))
+    }
+
+    @Test
     fun fileSourceDisplaysApiReturnedBookUrlDirectly() {
         assertTrue(source.contains("InfoRow(stringResource(R.string.file_source), book.url ?: unknown)"))
         assertTrue(!source.contains("bookFileSource("))

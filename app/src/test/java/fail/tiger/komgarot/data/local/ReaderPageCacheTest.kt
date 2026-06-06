@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.data.local
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -53,8 +54,31 @@ class ReaderPageCacheTest {
         assertTrue(secondSeriesPage.isFile)
     }
 
+    @Test
+    fun pruneKeepsReaderPagesWithinTargetSize() {
+        val cacheDir = temporaryFolder.newFolder("cache")
+        val oldestPage = ReaderPageCache.cacheFile(cacheDir, "series-1", "book-1", "https://example.test/books/book-1/pages/1")
+        val newestPage = ReaderPageCache.cacheFile(cacheDir, "series-1", "book-1", "https://example.test/books/book-1/pages/2")
+
+        oldestPage.writeBytesCreatingParents(ByteArray(6))
+        newestPage.writeBytesCreatingParents(ByteArray(6))
+        oldestPage.setLastModified(100)
+        newestPage.setLastModified(200)
+
+        ReaderPageCache.prune(cacheDir, maxSizeBytes = 10, targetSizeBytes = 6)
+
+        assertFalse(oldestPage.exists())
+        assertTrue(newestPage.isFile)
+        assertEquals(6, ReaderPageCache.size(cacheDir))
+    }
+
     private fun File.writeTextCreatingParents(value: String) {
         parentFile?.mkdirs()
         writeText(value)
+    }
+
+    private fun File.writeBytesCreatingParents(value: ByteArray) {
+        parentFile?.mkdirs()
+        writeBytes(value)
     }
 }

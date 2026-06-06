@@ -6,6 +6,7 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.local.CacheMaintenance
 import fail.tiger.komgarot.data.remote.AuthInterceptor
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressInterceptor
 import fail.tiger.komgarot.data.remote.KomgaApi
@@ -24,7 +25,6 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
-private const val IMAGE_CACHE_MAX_SIZE_BYTES = 2L * 1024 * 1024 * 1024
 private const val RETROFIT_PLACEHOLDER_BASE_URL = "https://komgarot.invalid/"
 
 class KomgarotApp : Application(), ImageLoaderFactory {
@@ -42,6 +42,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         authPreferences = AuthPreferences(this)
+        CacheMaintenance.clearOnStartupIfNeeded(this, authPreferences)
         val authInterceptor = AuthInterceptor(authPreferences)
         val urlInterceptor = UrlInterceptor(authPreferences)
         okHttpClient = OkHttpClient.Builder()
@@ -77,7 +78,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         .diskCache {
             DiskCache.Builder()
                 .directory(cacheDir.resolve("image_cache"))
-                .maxSizeBytes(IMAGE_CACHE_MAX_SIZE_BYTES)
+                .maxSizeBytes(authPreferences.coverCacheSizeBytesBlocking)
                 .build()
         }
         .build()
