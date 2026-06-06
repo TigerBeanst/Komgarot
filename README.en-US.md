@@ -11,6 +11,7 @@
 Komgarot is an Android comic reader client for Komga servers, built with Kotlin and Jetpack Compose.
 
 > This project is fully written by AI. The only human-written part is this README.
+
 > Feel free to suggest features in the issues. I don't use every part of Komga, so I probably won't have considered adding them yet.
 
 ## Features
