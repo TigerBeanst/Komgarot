@@ -17,6 +17,7 @@ buildSrc/build/
 .cxx
 local.properties
 app/release/
+.claude/
 .superpower/
 .superpowers/
 docs/superpowers/

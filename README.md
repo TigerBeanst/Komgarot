@@ -11,6 +11,7 @@
 Komgarot 是一个面向 Komga 服务器的 Android 漫画阅读客户端，使用 Kotlin 与 Jetpack Compose 构建。
 
 > 本项目完全由 AI 编写，唯一一份有人类参与编写的只有 README.md
+
 > 欢迎在 issues 里提需求，因为我自己用 Komga 的时候很多功能也不会用到，最开始就不会考虑做
 
 ## 功能
