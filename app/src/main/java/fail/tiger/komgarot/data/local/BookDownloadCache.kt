@@ -18,6 +18,8 @@ class BookDownloadCache(
     private val context: Context,
     private val repo: BookRepository
 ) {
+    private val index = BookDownloadIndex(context.cacheDir)
+
     suspend fun cacheBook(
         serverUrl: String,
         bookId: String,
@@ -29,7 +31,13 @@ class BookDownloadCache(
         val imageLoader = context.imageLoader
         cacheThumbnail(serverUrl, book.id)
         var completed = 0
-        onProgress(BookDownloadProgress(completed, pages.size))
+        fun report(progress: BookDownloadProgress) {
+            onProgress(progress)
+            if (progress.completedPages > 0) {
+                index.record(cachedBookEntry(book, progress))
+            }
+        }
+        report(BookDownloadProgress(completed, pages.size))
         pages.forEach { page ->
             val url = readerPageUrl(serverUrl, book.id, page)
             if (!ReaderPageCache.hasCachedFile(context, book.seriesId, book.id, url)) {
@@ -46,7 +54,7 @@ class BookDownloadCache(
                 if (result is ErrorResult) throw result.throwable
             }
             completed++
-            onProgress(BookDownloadProgress(completed, pages.size))
+            report(BookDownloadProgress(completed, pages.size))
         }
         return pages.size
     }
@@ -57,7 +65,20 @@ class BookDownloadCache(
             val url = readerPageUrl(serverUrl, book.id, page)
             ReaderPageCache.hasCachedFile(context, book.seriesId, book.id, url)
         }
-        return BookDownloadProgress(completed, pages.size)
+        return BookDownloadProgress(completed, pages.size).also { progress ->
+            if (progress.completedPages > 0) {
+                index.record(cachedBookEntry(book, progress))
+            } else {
+                index.remove(book.id)
+            }
+        }
+    }
+
+    fun listCachedBooks(): List<CachedBookEntry> = index.list()
+
+    fun clearBook(bookId: String) {
+        ReaderPageCache.clearBook(context, bookId)
+        index.remove(bookId)
     }
 
     private suspend fun cacheThumbnail(serverUrl: String, bookId: String) {

@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -60,6 +61,7 @@ fun BookDetailScreen(
     val editMetadata = stringResource(R.string.edit_metadata)
     val copied = stringResource(R.string.copied)
     val unknown = stringResource(R.string.unknown)
+    var showClearCacheDialog by remember { mutableStateOf(false) }
 
     BackHandler { onBack() }
 
@@ -169,7 +171,13 @@ fun BookDetailScreen(
 
                         BookDownloadAction(
                             state = vm.downloadState,
-                            onClick = { vm.downloadForOffline(serverUrl) }
+                            onClick = {
+                                when (vm.downloadState) {
+                                    is BookDownloadState.Cached,
+                                    is BookDownloadState.Partial -> showClearCacheDialog = true
+                                    else -> vm.downloadForOffline(serverUrl)
+                                }
+                            }
                         )
 
                         BookDetailReadStatusActions(
@@ -235,6 +243,27 @@ fun BookDetailScreen(
                 )
             }
         }
+    }
+
+    if (showClearCacheDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearCacheDialog = false },
+            title = { Text(stringResource(R.string.clear_book_cache_title)) },
+            text = { Text(stringResource(R.string.clear_book_cache_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.clearOfflineCache()
+                    showClearCacheDialog = false
+                }) {
+                    Text(stringResource(R.string.clear))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearCacheDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
     }
 }
 
@@ -327,6 +356,8 @@ private fun BookDownloadAction(
             is BookDownloadState.Cached -> stringResource(R.string.download_for_offline_cached, state.totalPages)
             is BookDownloadState.Failed -> stringResource(R.string.download_for_offline_failed)
         }
+        Icon(Icons.Default.Download, contentDescription = null)
+        Spacer(Modifier.width(8.dp))
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }

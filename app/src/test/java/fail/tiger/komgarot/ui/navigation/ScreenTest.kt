@@ -61,4 +61,9 @@ class ScreenTest {
     fun metadataRouteWithoutCoverArgsKeepsExistingShape() {
         assertEquals("metadata/series/series%2F1", Screen.Metadata.go("series", "series/1"))
     }
+
+    @Test
+    fun cachedBooksRouteIsStable() {
+        assertEquals("cached-books", Screen.CachedBooks.route)
+    }
 }

@@ -60,6 +60,8 @@ import fail.tiger.komgarot.ui.book.BookScreen
 import fail.tiger.komgarot.ui.book.BookViewModel
 import fail.tiger.komgarot.ui.bookdetail.BookDetailScreen
 import fail.tiger.komgarot.ui.bookdetail.BookDetailViewModel
+import fail.tiger.komgarot.ui.cached.CachedBooksScreen
+import fail.tiger.komgarot.ui.cached.CachedBooksViewModel
 import fail.tiger.komgarot.ui.collection.CollectionDetailScreen
 import fail.tiger.komgarot.ui.collection.CollectionScreen
 import fail.tiger.komgarot.ui.collection.CollectionViewModel
@@ -491,6 +493,7 @@ fun AppNavGraph(app: KomgarotApp) {
             MeScreen(
                 userEmail = user?.email,
                 isAdmin = canEditMetadata,
+                onCachedBooksClick = { navController.navigate(Screen.CachedBooks.route) },
                 onAdminClick = { navController.navigate(Screen.Admin.route) },
                 onSettingsClick = { navController.navigate(Screen.Settings.route) },
                 onLogout = {
@@ -502,6 +505,25 @@ fun AppNavGraph(app: KomgarotApp) {
                         }
                     }
                 }
+            )
+        }
+
+        composable(Screen.CachedBooks.route) {
+            val vm: CachedBooksViewModel = viewModel(factory = CachedBooksViewModel.Factory(app.applicationContext.cacheDir))
+            CachedBooksScreen(
+                vm = vm,
+                onBookClick = { entry ->
+                    navController.navigate(
+                        Screen.BookDetail.go(
+                            entry.bookId,
+                            entry.title,
+                            entry.seriesTitle,
+                            entry.pageCount,
+                            entry.isOneShot
+                        )
+                    )
+                },
+                onBack = { navController.popBackStack() }
             )
         }
 

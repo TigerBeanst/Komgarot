@@ -17,6 +17,7 @@ sealed class Screen(val route: String) {
     }
     object Admin : Screen("admin")
     object Me : Screen("me")
+    object CachedBooks : Screen("cached-books")
     object Settings : Screen("settings")
     object Series : Screen("series/{libraryId}?search={search}&tag={tag}") {
         fun go(id: String?, search: String? = null, tag: String? = null): String {

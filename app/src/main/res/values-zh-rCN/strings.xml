@@ -126,11 +126,16 @@
     <string name="read">阅读</string>
     <string name="continue_reading">继续阅读</string>
     <string name="incognito_reading">无痕阅读</string>
-    <string name="download_for_offline">下载</string>
+    <string name="download_for_offline">缓存到本地</string>
     <string name="download_for_offline_partial">已缓存 %1$d / %2$d</string>
     <string name="download_for_offline_progress">下载中 %1$d / %2$d</string>
     <string name="download_for_offline_cached">已缓存 %d 页</string>
     <string name="download_for_offline_failed">下载失败</string>
+    <string name="clear_book_cache_title">清除本书缓存</string>
+    <string name="clear_book_cache_message">确定清除这本书的本地缓存页吗？</string>
+    <string name="cached_books">已缓存</string>
+    <string name="empty_cached_books">暂无已缓存书籍</string>
+    <string name="cached_book_progress">%1$s · %2$d / %3$d 页</string>
     <string name="reading_status">阅读状态</string>
     <string name="mark_read">标记已读</string>
     <string name="mark_unread">标记未读</string>
@@ -234,6 +239,14 @@
 
     <!-- 设置 -->
     <string name="settings_clear_image_cache">清除图片缓存</string>
+    <string name="settings_clear_cache">清除缓存</string>
+    <string name="settings_cover_cache_size">封面缓存上限</string>
+    <string name="settings_reader_cache_size">阅读页缓存上限</string>
+    <string name="settings_clear_cache_on_startup">启动时清除缓存</string>
+    <string name="settings_clear_cache_on_startup_desc">每次启动应用时清除封面和阅读页缓存</string>
+    <string name="settings_section_cache">缓存</string>
+    <string name="settings_section_reading">阅读</string>
+    <string name="settings_section_security">安全</string>
     <string name="settings_always_incognito">始终无痕</string>
     <string name="settings_always_incognito_desc">阅读和继续阅读均不记录进度</string>
     <string name="settings_preload_pages">预加载页数</string>
@@ -255,9 +268,13 @@
     <string name="settings_lock_after_minutes">离开 %d 分钟后锁定</string>
     <string name="settings_preload_slider">向后预加载 %d 页</string>
     <string name="settings_clear_cache_title">清除缓存</string>
-    <string name="settings_clear_cache_message">确定要清除所有图片缓存吗？</string>
+    <string name="settings_clear_cache_message">选择要清除的缓存类型。</string>
+    <string name="settings_clear_cache_all">清除全部缓存</string>
+    <string name="settings_clear_cache_covers">仅清除封面缓存</string>
+    <string name="settings_clear_cache_reader_pages">仅清除阅读页缓存</string>
     <string name="settings_cache_loading">计算中...</string>
     <string name="settings_cache_size">总计: %1$s · 封面: %2$s · 阅读页: %3$s</string>
+    <string name="cached_books_entry_desc">查看本机已缓存的书籍</string>
     <string name="settings_entry_desc">阅读、缓存和应用锁</string>
     <string name="admin_entry_desc">服务器管理、用户、书库和设置</string>
 

@@ -76,7 +76,10 @@ object ReaderPageCache {
         return Entry(url = url, file = file, tempFile = tempFile)
     }
 
-    fun commit(context: Context, entry: Entry): Boolean {
+    fun commit(context: Context, entry: Entry): Boolean =
+        commit(context, entry, READER_PAGE_CACHE_MAX_SIZE_BYTES)
+
+    fun commit(context: Context, entry: Entry, maxSizeBytes: Long): Boolean {
         if (!entry.tempFile.isFile || entry.tempFile.length() == 0L) {
             entry.tempFile.delete()
             return false
@@ -90,7 +93,7 @@ object ReaderPageCache {
         }
         if (committed) {
             entry.file.setLastModified(System.currentTimeMillis())
-            prune(context)
+            prune(context, maxSizeBytes)
         } else {
             entry.tempFile.delete()
         }
@@ -142,6 +145,31 @@ object ReaderPageCache {
             .filter { it.isFile }
             .sumOf { it.length() }
 
+    fun size(cacheDir: File): Long =
+        readerPageCacheDir(cacheDir)
+            .walkTopDown()
+            .filter { it.isFile }
+            .sumOf { it.length() }
+
+    fun prune(context: Context, maxSizeBytes: Long) {
+        prune(context.cacheDir, maxSizeBytes, targetSizeBytes(maxSizeBytes))
+    }
+
+    fun prune(cacheDir: File, maxSizeBytes: Long, targetSizeBytes: Long = targetSizeBytes(maxSizeBytes)) {
+        val dir = readerPageCacheDir(cacheDir)
+        val files = dir.listFiles { file -> file.isFile && !file.name.endsWith(".tmp") }.orEmpty()
+        var totalSize = files.sumOf { it.length() }
+        if (totalSize <= maxSizeBytes) return
+
+        for (file in files.sortedBy { it.lastModified() }) {
+            val length = file.length()
+            if (file.delete()) {
+                totalSize -= length
+            }
+            if (totalSize <= targetSizeBytes) break
+        }
+    }
+
     fun cacheFile(cacheDir: File, bookId: String, url: String): File {
         return File(readerPageCacheDir(cacheDir), "${sanitizeId(bookId)}-${sha256(url)}")
     }
@@ -154,25 +182,17 @@ object ReaderPageCache {
         return File(cacheDir(context), sha256(url))
     }
 
-    private fun prune(context: Context) {
-        val dir = cacheDir(context)
-        val files = dir.listFiles { file -> file.isFile && !file.name.endsWith(".tmp") }.orEmpty()
-        var totalSize = files.sumOf { it.length() }
-        if (totalSize <= READER_PAGE_CACHE_MAX_SIZE_BYTES) return
-
-        for (file in files.sortedBy { it.lastModified() }) {
-            val length = file.length()
-            if (file.delete()) {
-                totalSize -= length
-            }
-            if (totalSize <= READER_PAGE_CACHE_TARGET_SIZE_BYTES) break
-        }
-    }
-
     private fun sha256(value: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         return bytes.joinToString("") { "%02x".format(it) }
     }
+
+    private fun targetSizeBytes(maxSizeBytes: Long): Long =
+        if (maxSizeBytes == READER_PAGE_CACHE_MAX_SIZE_BYTES) {
+            READER_PAGE_CACHE_TARGET_SIZE_BYTES
+        } else {
+            (maxSizeBytes * 9L) / 10L
+        }
 
     private fun sanitizeId(id: String): String =
         sha256(id).take(16)

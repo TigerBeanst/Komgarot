@@ -125,6 +125,12 @@ class BookDetailViewModel(
         }
     }
 
+    fun clearOfflineCache() {
+        if (downloadState.isRunning || currentBookId.isBlank()) return
+        downloadCache.clearBook(currentBookId)
+        downloadState = BookDownloadState.Idle
+    }
+
     class Factory(
         private val context: Context,
         private val bookRepo: BookRepository,

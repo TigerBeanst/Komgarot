@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +20,9 @@ import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.local.CacheClearTarget
+import fail.tiger.komgarot.data.local.CacheMaintenance
+import fail.tiger.komgarot.data.local.CacheSizeOption
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,6 +51,7 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
 fun MeScreen(
     userEmail: String?,
     isAdmin: Boolean,
+    onCachedBooksClick: () -> Unit,
     onAdminClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onLogout: () -> Unit
@@ -60,6 +65,12 @@ fun MeScreen(
             ListItem(
                 headlineContent = { Text(userEmail?.takeIf { it.isNotBlank() } ?: stringResource(R.string.unknown)) },
                 supportingContent = { Text(stringResource(if (isAdmin) R.string.admin_admin_role else R.string.user_role)) }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.cached_books)) },
+                supportingContent = { Text(stringResource(R.string.cached_books_entry_desc)) },
+                leadingContent = { Icon(Icons.Default.Download, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onCachedBooksClick)
             )
             if (isAdmin) {
                 ListItem(
@@ -95,11 +106,16 @@ private fun SettingsContent(
     val scope = rememberCoroutineScope()
     var cacheSize by remember { mutableStateOf(CacheSizeUi.loading()) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var showCoverCacheSizeDialog by remember { mutableStateOf(false) }
+    var showReaderCacheSizeDialog by remember { mutableStateOf(false) }
     val alwaysIncognito by prefs.alwaysIncognito.collectAsState(initial = false)
     val preloadPages by prefs.preloadPages.collectAsState(initial = 5)
     val readingDirection by prefs.readingDirection.collectAsState(initial = "LTR")
     val pageFit by prefs.pageFit.collectAsState(initial = "FIT")
     val keepScreenOn by prefs.keepScreenOn.collectAsState(initial = true)
+    val coverCacheSizeMb by prefs.coverCacheSizeMb.collectAsState(initial = CacheSizeOption.default.sizeMb)
+    val readerCacheSizeMb by prefs.readerCacheSizeMb.collectAsState(initial = CacheSizeOption.default.sizeMb)
+    val clearCacheOnStartup by prefs.clearCacheOnStartup.collectAsState(initial = false)
     var showPreloadDialog by remember { mutableStateOf(false) }
     var showReadingDialog by remember { mutableStateOf(false) }
     var showFitDialog by remember { mutableStateOf(false) }
@@ -114,11 +130,37 @@ private fun SettingsContent(
     Scaffold(topBar = topBar) { padding ->
         Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
             headerContent()
+            SettingsSectionHeader(stringResource(R.string.settings_section_cache))
             ListItem(
-                headlineContent = { Text(stringResource(R.string.settings_clear_image_cache)) },
+                headlineContent = { Text(stringResource(R.string.settings_clear_cache)) },
                 supportingContent = { Text(cacheSize.displayText()) },
                 modifier = Modifier.clickable { showClearDialog = true }
             )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_cover_cache_size)) },
+                supportingContent = { Text(formatCacheSize(CacheSizeOption.fromMb(coverCacheSizeMb).bytes)) },
+                modifier = Modifier.clickable { showCoverCacheSizeDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_reader_cache_size)) },
+                supportingContent = { Text(formatCacheSize(CacheSizeOption.fromMb(readerCacheSizeMb).bytes)) },
+                modifier = Modifier.clickable { showReaderCacheSizeDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_clear_cache_on_startup)) },
+                supportingContent = { Text(stringResource(R.string.settings_clear_cache_on_startup_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = clearCacheOnStartup,
+                        onCheckedChange = { scope.launch { prefs.setClearCacheOnStartup(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setClearCacheOnStartup(!clearCacheOnStartup) }
+                }
+            )
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            SettingsSectionHeader(stringResource(R.string.settings_section_reading))
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_always_incognito)) },
                 supportingContent = { Text(stringResource(R.string.settings_always_incognito_desc)) },
@@ -160,7 +202,8 @@ private fun SettingsContent(
                 },
                 modifier = Modifier.clickable { scope.launch { prefs.setKeepScreenOn(!keepScreenOn) } }
             )
-            HorizontalDivider()
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            SettingsSectionHeader(stringResource(R.string.settings_section_security))
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_app_lock)) },
                 supportingContent = { Text(stringResource(R.string.settings_app_lock_desc)) },
@@ -296,25 +339,74 @@ private fun SettingsContent(
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text(stringResource(R.string.settings_clear_cache_title)) },
-            text = { Text(stringResource(R.string.settings_clear_cache_message)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        context.imageLoader.memoryCache?.clear()
-                        context.imageLoader.diskCache?.clear()
-                        ReaderPageCache.clear(context)
-                        cacheSize = getCacheSize(context)
-                        showClearDialog = false
-                    }
-                }) {
-                    Text(stringResource(R.string.confirm))
+            text = {
+                Column {
+                    CacheClearOption(
+                        label = stringResource(R.string.settings_clear_cache_all),
+                        onClick = {
+                            scope.launch {
+                                CacheMaintenance.clear(context, CacheClearTarget.All)
+                                cacheSize = getCacheSize(context)
+                                showClearDialog = false
+                            }
+                        }
+                    )
+                    CacheClearOption(
+                        label = stringResource(R.string.settings_clear_cache_covers),
+                        onClick = {
+                            scope.launch {
+                                CacheMaintenance.clear(context, CacheClearTarget.Covers)
+                                cacheSize = getCacheSize(context)
+                                showClearDialog = false
+                            }
+                        }
+                    )
+                    CacheClearOption(
+                        label = stringResource(R.string.settings_clear_cache_reader_pages),
+                        onClick = {
+                            scope.launch {
+                                CacheMaintenance.clear(context, CacheClearTarget.ReaderPages)
+                                cacheSize = getCacheSize(context)
+                                showClearDialog = false
+                            }
+                        }
+                    )
                 }
             },
+            confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             }
+        )
+    }
+
+    if (showCoverCacheSizeDialog) {
+        CacheSizeDialog(
+            title = stringResource(R.string.settings_cover_cache_size),
+            selectedSizeMb = coverCacheSizeMb,
+            onSelect = {
+                scope.launch { prefs.setCoverCacheSizeMb(it) }
+                showCoverCacheSizeDialog = false
+            },
+            onDismiss = { showCoverCacheSizeDialog = false }
+        )
+    }
+
+    if (showReaderCacheSizeDialog) {
+        CacheSizeDialog(
+            title = stringResource(R.string.settings_reader_cache_size),
+            selectedSizeMb = readerCacheSizeMb,
+            onSelect = {
+                scope.launch {
+                    prefs.setReaderCacheSizeMb(it)
+                    ReaderPageCache.prune(context, CacheSizeOption.fromMb(it).bytes)
+                    cacheSize = getCacheSize(context)
+                }
+                showReaderCacheSizeDialog = false
+            },
+            onDismiss = { showReaderCacheSizeDialog = false }
         )
     }
 }
@@ -328,6 +420,16 @@ private fun RadioOption(value: String, label: String, selected: String, onSelect
         RadioButton(selected = selected == value, onClick = { onSelect(value) })
         Text(label)
     }
+}
+
+@Composable
+private fun SettingsSectionHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp)
+    )
 }
 
 @OptIn(ExperimentalCoilApi::class)
@@ -349,9 +451,9 @@ private data class CacheSizeUi(
     fun displayText(): String =
         stringResource(
             R.string.settings_cache_size,
-            formatFileSize(imageBytes + readerBytes),
-            formatFileSize(imageBytes),
-            formatFileSize(readerBytes)
+            formatCacheSize(imageBytes + readerBytes),
+            formatCacheSize(imageBytes),
+            formatCacheSize(readerBytes)
         )
 
     companion object {
@@ -359,7 +461,7 @@ private data class CacheSizeUi(
     }
 }
 
-private fun formatFileSize(bytes: Long): String {
+private fun formatCacheSize(bytes: Long): String {
     if (bytes < 0) return ""
     return when {
         bytes < 1024 -> "$bytes B"
@@ -367,4 +469,40 @@ private fun formatFileSize(bytes: Long): String {
         bytes < 1024 * 1024 * 1024 -> "%.1f MB".format(bytes / (1024.0 * 1024))
         else -> "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
     }
+}
+
+@Composable
+private fun CacheClearOption(label: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(label)
+    }
+}
+
+@Composable
+private fun CacheSizeDialog(
+    title: String,
+    selectedSizeMb: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                CacheSizeOption.values.forEach { option ->
+                    RadioOption(
+                        value = option.sizeMb.toString(),
+                        label = formatCacheSize(option.bytes),
+                        selected = CacheSizeOption.fromMb(selectedSizeMb).sizeMb.toString(),
+                        onSelect = { onSelect(option.sizeMb) }
+                    )
+                }
+            }
+        },
+        confirmButton = {}
+    )
 }

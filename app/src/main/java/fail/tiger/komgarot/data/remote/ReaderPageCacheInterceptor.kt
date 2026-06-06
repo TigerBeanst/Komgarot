@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.data.remote
 
 import android.content.Context
+import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import okhttp3.Interceptor
 import okhttp3.MediaType
@@ -44,6 +45,7 @@ private class ReaderPageCachingResponseBody(
     private var sink: BufferedSink? = null
     private var complete = false
     private var bytesWritten = 0L
+    private val authPreferences = AuthPreferences(context.applicationContext)
 
     override fun contentType(): MediaType? = delegate.contentType()
 
@@ -92,7 +94,7 @@ private class ReaderPageCachingResponseBody(
         sink?.close()
         sink = null
         if (bytesWritten > 0L) {
-            ReaderPageCache.commit(context, cacheEntry)
+            ReaderPageCache.commit(context, cacheEntry, authPreferences.readerCacheSizeBytesBlocking)
         } else {
             ReaderPageCache.discard(cacheEntry)
         }
