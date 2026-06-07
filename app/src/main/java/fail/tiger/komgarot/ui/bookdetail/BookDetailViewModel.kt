@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.BookDownloadCache
 import fail.tiger.komgarot.data.remote.dto.BookDto
@@ -132,21 +134,22 @@ class BookDetailViewModel(
     }
 
     class Factory(
-        private val context: Context,
-        private val bookRepo: BookRepository,
-        private val seriesRepo: SeriesRepository,
-        private val imageCacheInvalidator: ImageCacheInvalidator,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+        context: Context,
+        bookRepo: BookRepository,
+        seriesRepo: SeriesRepository,
+        imageCacheInvalidator: ImageCacheInvalidator,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer {
             BookDetailViewModel(
                 bookRepo,
                 seriesRepo,
                 imageCacheInvalidator,
                 BookDownloadCache(context.applicationContext, bookRepo),
                 textProvider.get(R.string.error_load_book_detail_failed)
-            ) as T
-    }
+            )
+        }
+    })
 
     private suspend fun updateDownloadState(serverUrl: String, loaded: BookDto) {
         if (downloadState.isRunning || serverUrl.isBlank()) return

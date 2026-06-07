@@ -1,7 +1,6 @@
 package fail.tiger.komgarot.data.remote
 
 import android.content.Context
-import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import okhttp3.Interceptor
 import okhttp3.MediaType
@@ -14,7 +13,10 @@ import okio.ForwardingSource
 import okio.buffer
 import okio.sink
 
-class ReaderPageCacheInterceptor(private val context: Context) : Interceptor {
+class ReaderPageCacheInterceptor(
+    private val context: Context,
+    private val readerCacheSizeBytes: () -> Long
+) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val cacheEntry = request.tag(ReaderPageCache.Entry::class.java)
@@ -28,7 +30,7 @@ class ReaderPageCacheInterceptor(private val context: Context) : Interceptor {
             response.isSuccessful
         ) {
             response.newBuilder()
-                .body(ReaderPageCachingResponseBody(context, body, cacheEntry))
+                .body(ReaderPageCachingResponseBody(context, body, cacheEntry, readerCacheSizeBytes))
                 .build()
         } else {
             response
@@ -39,13 +41,13 @@ class ReaderPageCacheInterceptor(private val context: Context) : Interceptor {
 private class ReaderPageCachingResponseBody(
     private val context: Context,
     private val delegate: ResponseBody,
-    private val cacheEntry: ReaderPageCache.Entry
+    private val cacheEntry: ReaderPageCache.Entry,
+    private val readerCacheSizeBytes: () -> Long
 ) : ResponseBody() {
     private var bufferedSource: BufferedSource? = null
     private var sink: BufferedSink? = null
     private var complete = false
     private var bytesWritten = 0L
-    private val authPreferences = AuthPreferences(context.applicationContext)
 
     override fun contentType(): MediaType? = delegate.contentType()
 
@@ -94,7 +96,7 @@ private class ReaderPageCachingResponseBody(
         sink?.close()
         sink = null
         if (bytesWritten > 0L) {
-            ReaderPageCache.commit(context, cacheEntry, authPreferences.readerCacheSizeBytesBlocking)
+            ReaderPageCache.commit(context, cacheEntry, readerCacheSizeBytes())
         } else {
             ReaderPageCache.discard(cacheEntry)
         }

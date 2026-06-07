@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookDto
@@ -80,17 +82,18 @@ class BookViewModel(
     }
 
     class Factory(
-        private val bookRepo: BookRepository,
-        private val seriesRepo: SeriesRepository,
-        private val imageCacheInvalidator: ImageCacheInvalidator,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+        bookRepo: BookRepository,
+        seriesRepo: SeriesRepository,
+        imageCacheInvalidator: ImageCacheInvalidator,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer {
             BookViewModel(
                 bookRepo,
                 seriesRepo,
                 imageCacheInvalidator,
                 textProvider.get(R.string.error_load_books_failed)
-            ) as T
-    }
+            )
+        }
+    })
 }

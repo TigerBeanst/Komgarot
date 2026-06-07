@@ -21,6 +21,8 @@ app/release/
 .superpower/
 .superpowers/
 docs/superpowers/
+**/.stfolder/
+**/.stignore
 *.apk
 *.aab
 *.apks

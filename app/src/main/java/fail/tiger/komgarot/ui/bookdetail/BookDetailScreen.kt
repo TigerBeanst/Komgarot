@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
@@ -69,7 +70,7 @@ fun BookDetailScreen(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
-        val serverUrl by prefs.serverUrl.collectAsState(initial = "")
+        val serverUrl by prefs.serverUrl.collectAsStateWithLifecycle()
         LaunchedEffect(bookId, serverUrl) {
             if (serverUrl.isNotBlank()) vm.load(bookId, serverUrl)
         }

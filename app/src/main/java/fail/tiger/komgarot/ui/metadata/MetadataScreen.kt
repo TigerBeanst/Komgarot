@@ -38,6 +38,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +50,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -70,6 +70,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import coil.compose.SubcomposeAsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -174,6 +175,7 @@ fun SeriesMetadataContent(
         KomgaUrls.seriesThumbnail(serverUrl, id, thumbnailVersion)
     }
     val context = LocalContext.current
+    val saveFailedMessage = stringResource(R.string.save_failed)
 
     MetadataScaffold(
         title = stringResource(R.string.metadata_series_title),
@@ -220,7 +222,7 @@ fun SeriesMetadataContent(
                 if (ok) {
                     onEditToggle()
                 } else {
-                    Toast.makeText(context, vm.saveError ?: context.getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, vm.saveError ?: saveFailedMessage, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -311,6 +313,7 @@ fun BookMetadataContent(
         KomgaUrls.bookThumbnail(serverUrl, id, thumbnailVersion)
     }
     val context = LocalContext.current
+    val saveFailedMessage = stringResource(R.string.save_failed)
 
     MetadataScaffold(
         title = stringResource(R.string.metadata_book_title),
@@ -347,7 +350,7 @@ fun BookMetadataContent(
                 if (ok) {
                     onEditToggle()
                 } else {
-                    Toast.makeText(context, vm.saveError ?: context.getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, vm.saveError ?: saveFailedMessage, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -472,7 +475,7 @@ private fun MetadataCoverSection(
     val scope = rememberCoroutineScope()
     var candidate by remember(incomingCoverUri, thumbnailUrl, canEditMetadata) {
         mutableStateOf(
-            if (canEditMetadata) incomingCoverUri?.let { CoverCandidate(Uri.parse(it), R.string.metadata_cover_from_reader) } else null
+            if (canEditMetadata) incomingCoverUri?.let { CoverCandidate(it.toUri(), R.string.metadata_cover_from_reader) } else null
         )
     }
     var crop by remember { mutableStateOf(CoverCrop.Full) }
@@ -526,7 +529,7 @@ private fun MetadataCoverSection(
                         Text(stringResource(R.string.metadata_cover_upload))
                     }
                     OutlinedButton(
-                        onClick = { candidate = CoverCandidate(Uri.parse(thumbnailUrl), R.string.metadata_cover_current) },
+                        onClick = { candidate = CoverCandidate(thumbnailUrl.toUri(), R.string.metadata_cover_current) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.Edit, contentDescription = null)
@@ -612,7 +615,7 @@ private fun SeriesStatusField(status: String, editing: Boolean, onChange: (Strin
                 label = { Text(stringResource(R.string.metadata_status)) },
                 readOnly = true,
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
             )
             ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 listOf("ONGOING", "ENDED", "ABANDONED", "HIATUS").forEach { value ->

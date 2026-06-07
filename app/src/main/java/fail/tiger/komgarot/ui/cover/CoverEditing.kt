@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.core.content.FileProvider
+import androidx.core.graphics.scale
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.roundToInt
@@ -60,7 +61,7 @@ fun scaledCoverSize(width: Int, height: Int, maxEdge: Int = CoverUploadMaxEdge):
 fun scaleCoverBitmapForUpload(bitmap: Bitmap, maxEdge: Int = CoverUploadMaxEdge): Bitmap {
     val size = scaledCoverSize(bitmap.width, bitmap.height, maxEdge)
     if (size.width == bitmap.width && size.height == bitmap.height) return bitmap
-    return Bitmap.createScaledBitmap(bitmap, size.width, size.height, true)
+    return bitmap.scale(size.width, size.height)
 }
 
 fun bitmapToJpegBytes(bitmap: Bitmap, quality: Int = 90): ByteArray {

@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.CacheClearTarget
@@ -108,19 +109,19 @@ private fun SettingsContent(
     var showClearDialog by remember { mutableStateOf(false) }
     var showCoverCacheSizeDialog by remember { mutableStateOf(false) }
     var showReaderCacheSizeDialog by remember { mutableStateOf(false) }
-    val alwaysIncognito by prefs.alwaysIncognito.collectAsState(initial = false)
-    val preloadPages by prefs.preloadPages.collectAsState(initial = 5)
-    val readingDirection by prefs.readingDirection.collectAsState(initial = "LTR")
-    val pageFit by prefs.pageFit.collectAsState(initial = "FIT")
-    val keepScreenOn by prefs.keepScreenOn.collectAsState(initial = true)
-    val coverCacheSizeMb by prefs.coverCacheSizeMb.collectAsState(initial = CacheSizeOption.default.sizeMb)
-    val readerCacheSizeMb by prefs.readerCacheSizeMb.collectAsState(initial = CacheSizeOption.default.sizeMb)
-    val clearCacheOnStartup by prefs.clearCacheOnStartup.collectAsState(initial = false)
+    val alwaysIncognito by prefs.alwaysIncognito.collectAsStateWithLifecycle(initialValue = false)
+    val preloadPages by prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
+    val readingDirection by prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
+    val pageFit by prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
+    val keepScreenOn by prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
+    val coverCacheSizeMb by prefs.coverCacheSizeMb.collectAsStateWithLifecycle(initialValue = CacheSizeOption.default.sizeMb)
+    val readerCacheSizeMb by prefs.readerCacheSizeMb.collectAsStateWithLifecycle(initialValue = CacheSizeOption.default.sizeMb)
+    val clearCacheOnStartup by prefs.clearCacheOnStartup.collectAsStateWithLifecycle(initialValue = false)
     var showPreloadDialog by remember { mutableStateOf(false) }
     var showReadingDialog by remember { mutableStateOf(false) }
     var showFitDialog by remember { mutableStateOf(false) }
-    val appLockEnabled by prefs.appLockEnabled.collectAsState(initial = false)
-    val appLockTimeout by prefs.appLockTimeout.collectAsState(initial = 0)
+    val appLockEnabled by prefs.appLockEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val appLockTimeout by prefs.appLockTimeout.collectAsStateWithLifecycle(initialValue = 0)
     var showLockTimeoutDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {

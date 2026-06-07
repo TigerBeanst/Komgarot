@@ -43,9 +43,9 @@ fun rememberStableImageRequest(
 @Composable
 fun ThumbnailImage(
     url: String,
-    cacheKey: String = url,
     contentDescription: String?,
     modifier: Modifier = Modifier,
+    cacheKey: String = url,
     contentScale: ContentScale = ContentScale.Crop,
     maxRetries: Int = MAX_THUMBNAIL_RETRIES
 ) {

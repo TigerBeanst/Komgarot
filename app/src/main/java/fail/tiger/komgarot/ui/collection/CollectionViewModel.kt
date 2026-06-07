@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.CollectionDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
@@ -107,14 +109,15 @@ class CollectionViewModel(
     }
 
     class Factory(
-        private val repo: CollectionRepository,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+        repo: CollectionRepository,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer {
             CollectionViewModel(
                 repo,
                 textProvider.get(R.string.error_load_collections_failed),
                 textProvider.get(R.string.error_load_collection_content_failed)
-            ) as T
-    }
+            )
+        }
+    })
 }

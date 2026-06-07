@@ -272,7 +272,7 @@
     <string name="settings_clear_cache_all">清除全部缓存</string>
     <string name="settings_clear_cache_covers">仅清除封面缓存</string>
     <string name="settings_clear_cache_reader_pages">仅清除阅读页缓存</string>
-    <string name="settings_cache_loading">计算中...</string>
+    <string name="settings_cache_loading">计算中…</string>
     <string name="settings_cache_size">总计: %1$s · 封面: %2$s · 阅读页: %3$s</string>
     <string name="cached_books_entry_desc">查看本机已缓存的书籍</string>
     <string name="settings_entry_desc">阅读、缓存和应用锁</string>

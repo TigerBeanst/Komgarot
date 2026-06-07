@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
@@ -124,16 +126,17 @@ class MetadataViewModel(
     }
 
     class Factory(
-        private val repo: BookRepository,
-        private val imageCacheInvalidator: ImageCacheInvalidator,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+        repo: BookRepository,
+        imageCacheInvalidator: ImageCacheInvalidator,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer {
             MetadataViewModel(
                 repo,
                 imageCacheInvalidator,
                 textProvider.get(R.string.save_failed),
                 textProvider.get(R.string.metadata_admin_required)
-            ) as T
-    }
+            )
+        }
+    })
 }

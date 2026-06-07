@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.ReaderPageCache
@@ -218,7 +219,7 @@ fun ReaderScreen(
 
     val view = LocalView.current
     val window = (view.context as? android.app.Activity)?.window
-    val keepScreenOn by vm.prefs.keepScreenOn.collectAsState(initial = true)
+    val keepScreenOn by vm.prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
 
     DisposableEffect(keepScreenOn) {
         window?.let {
@@ -296,7 +297,7 @@ fun ReaderScreen(
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     if (vm.pageUrls.isNotEmpty()) {
                         val context = LocalContext.current
-                        val preloadPages by vm.prefs.preloadPages.collectAsState(initial = 5)
+                        val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
                         val currentPageUrl = vm.pageUrls.getOrNull(vm.currentPage)
                         val currentPageCached = currentPageUrl != null &&
                             ReaderPageCache.hasCachedFile(context, vm.currentSeriesId, vm.currentBookId, currentPageUrl)
@@ -413,9 +414,9 @@ fun PagerReader(
     val context = LocalContext.current
     var longPressUrl by remember { mutableStateOf<String?>(null) }
     var openedBoundaryBookId by remember(vm.currentBookId) { mutableStateOf<String?>(null) }
-    val preloadPages by vm.prefs.preloadPages.collectAsState(initial = 5)
-    val readingDirection by vm.prefs.readingDirection.collectAsState(initial = "LTR")
-    val pageFit by vm.prefs.pageFit.collectAsState(initial = "FIT")
+    val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
+    val readingDirection by vm.prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
+    val pageFit by vm.prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
     val imageLoader = coil.Coil.imageLoader(context)
 
     LaunchedEffect(pagerState.currentPage, pagerPages) {
@@ -787,7 +788,7 @@ fun ScrollReader(vm: ReaderViewModel) {
     val listState = rememberLazyListState()
     val context = LocalContext.current
     val imageLoader = coil.Coil.imageLoader(context)
-    val preloadPages by vm.prefs.preloadPages.collectAsState(initial = 5)
+    val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
 
     LaunchedEffect(vm.currentPage) {
         val currentPageVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == vm.currentPage }

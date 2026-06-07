@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
@@ -41,13 +42,13 @@ fun LibraryScreen(
     vm: LibraryViewModel,
     onBottomBarVisibleChange: (Boolean) -> Unit = {}
 ) {
-    val libraries by vm.libraries.collectAsState()
-    val onDeckBooks by vm.onDeckBooks.collectAsState()
-    val latestBooks by vm.latestBooks.collectAsState()
-    val updatedSeries by vm.updatedSeries.collectAsState()
-    val newSeries by vm.newSeries.collectAsState()
-    val loading by vm.loading.collectAsState()
-    val error by vm.error.collectAsState()
+    val libraries by vm.libraries.collectAsStateWithLifecycle()
+    val onDeckBooks by vm.onDeckBooks.collectAsStateWithLifecycle()
+    val latestBooks by vm.latestBooks.collectAsStateWithLifecycle()
+    val updatedSeries by vm.updatedSeries.collectAsStateWithLifecycle()
+    val newSeries by vm.newSeries.collectAsStateWithLifecycle()
+    val loading by vm.loading.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
     val hasAnyContent = libraries.isNotEmpty() || onDeckBooks.isNotEmpty() ||
         latestBooks.isNotEmpty() || updatedSeries.isNotEmpty() || newSeries.isNotEmpty()
     val listState = rememberLazyListState()

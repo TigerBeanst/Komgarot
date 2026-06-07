@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AuthPreferences
@@ -122,16 +124,17 @@ class ReaderViewModel(
     }
 
     class Factory(
-        private val repo: BookRepository,
-        private val prefs: AuthPreferences,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+        repo: BookRepository,
+        prefs: AuthPreferences,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer {
             ReaderViewModel(
                 repo,
                 prefs,
                 textProvider.get(R.string.error_load_books_failed),
                 textProvider.get(R.string.error_load_pages_failed)
-            ) as T
-    }
+            )
+        }
+    })
 }

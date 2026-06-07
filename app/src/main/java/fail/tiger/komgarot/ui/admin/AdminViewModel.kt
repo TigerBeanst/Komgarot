@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.*
 import fail.tiger.komgarot.data.repository.AdminRepository
@@ -178,12 +180,11 @@ class AdminViewModel(
         }
 
     class Factory(
-        private val repo: AdminRepository,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            AdminViewModel(repo, textProvider) as T
-    }
+        repo: AdminRepository,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer { AdminViewModel(repo, textProvider) }
+    })
 }
 
 private fun <T> MutableList<T>.replaceAllWith(items: List<T>) {
