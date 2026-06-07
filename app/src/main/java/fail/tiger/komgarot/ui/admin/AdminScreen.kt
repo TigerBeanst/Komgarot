@@ -30,7 +30,7 @@ import fail.tiger.komgarot.ui.components.EmptyState
 import fail.tiger.komgarot.ui.components.InfoPill
 import fail.tiger.komgarot.ui.components.SectionHeader
 
-private enum class AdminTab(@StringRes val labelRes: Int) {
+private enum class AdminTab(@param:StringRes val labelRes: Int) {
     Overview(R.string.admin_tab_overview),
     Libraries(R.string.admin_tab_libraries),
     Users(R.string.admin_tab_users),
@@ -100,7 +100,7 @@ fun AdminScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
-                ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 12.dp) {
+                PrimaryScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 12.dp) {
                     AdminTab.entries.forEach { item ->
                         Tab(
                             selected = tab == item,

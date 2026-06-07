@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.ReadListDto
@@ -107,14 +109,15 @@ class ReadListViewModel(
     }
 
     class Factory(
-        private val repo: ReadListRepository,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+        repo: ReadListRepository,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer {
             ReadListViewModel(
                 repo,
                 textProvider.get(R.string.error_load_read_lists_failed),
                 textProvider.get(R.string.error_load_read_list_content_failed)
-            ) as T
-    }
+            )
+        }
+    })
 }

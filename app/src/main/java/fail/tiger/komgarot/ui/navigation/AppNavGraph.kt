@@ -29,13 +29,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -90,9 +90,9 @@ fun AppNavGraph(app: KomgarotApp) {
     val imageCacheInvalidator = remember(app) { ImageCacheInvalidator(app.applicationContext) }
     val textProvider = remember(app) { AndroidUiTextProvider(app.applicationContext) }
     val sessionVm: SessionViewModel = viewModel(factory = SessionViewModel.Factory(app.userRepository))
-    val serverUrl by app.authPreferences.serverUrl.collectAsState(initial = "")
-    val alwaysIncognito by app.authPreferences.alwaysIncognito.collectAsState(initial = false)
-    val user by sessionVm.user.collectAsState()
+    val serverUrl by app.authPreferences.serverUrl.collectAsStateWithLifecycle()
+    val alwaysIncognito by app.authPreferences.alwaysIncognito.collectAsStateWithLifecycle(initialValue = false)
+    val user by sessionVm.user.collectAsStateWithLifecycle()
     val canEditMetadata = canEditKomgaMetadata(user)
     val startDest = if (serverUrl.isNotEmpty()) Screen.Library.route else Screen.Login.route
     val scope = rememberCoroutineScope()
@@ -536,7 +536,7 @@ fun AppNavGraph(app: KomgarotApp) {
 
 private data class TopLevelDestination(
     val route: String,
-    @StringRes val labelRes: Int,
+    @param:StringRes val labelRes: Int,
     val icon: ImageVector
 )
 

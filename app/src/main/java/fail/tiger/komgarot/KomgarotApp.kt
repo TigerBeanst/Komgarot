@@ -48,7 +48,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         okHttpClient = OkHttpClient.Builder()
             .addInterceptor(urlInterceptor)
             .addInterceptor(authInterceptor)
-            .addNetworkInterceptor(ReaderPageCacheInterceptor(this))
+            .addNetworkInterceptor(ReaderPageCacheInterceptor(this) { authPreferences.readerCacheSizeBytesBlocking })
             .addNetworkInterceptor(ImageDownloadProgressInterceptor())
             .build()
         val retrofit = Retrofit.Builder()

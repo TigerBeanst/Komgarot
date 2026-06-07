@@ -3,8 +3,8 @@ package fail.tiger.komgarot.ui.metadata
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
+import androidx.core.net.toUri
 import fail.tiger.komgarot.R
 
 fun normalizeExternalUrl(value: String): String? {
@@ -15,7 +15,7 @@ fun normalizeExternalUrl(value: String): String? {
 
 fun openExternalUrl(context: Context, value: String) {
     val normalized = normalizeExternalUrl(value) ?: return
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(normalized))
+    val intent = Intent(Intent.ACTION_VIEW, normalized.toUri())
     try {
         context.startActivity(intent)
     } catch (_: ActivityNotFoundException) {

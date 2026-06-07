@@ -9,6 +9,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.SeriesFilters
@@ -134,13 +136,12 @@ class SeriesViewModel(
     }
 
     class Factory(
-        private val repo: SeriesRepository,
-        private val sortStore: SeriesSortStore,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            SeriesViewModel(repo, sortStore, textProvider.get(R.string.error_load_series_failed)) as T
-    }
+        repo: SeriesRepository,
+        sortStore: SeriesSortStore,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer { SeriesViewModel(repo, sortStore, textProvider.get(R.string.error_load_series_failed)) }
+    })
 }
 
 private const val DEFAULT_SERIES_SORT = "metadata.titleSort,asc"

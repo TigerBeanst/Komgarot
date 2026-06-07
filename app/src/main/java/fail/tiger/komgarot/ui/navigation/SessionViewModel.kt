@@ -3,6 +3,8 @@ package fail.tiger.komgarot.ui.navigation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.data.remote.dto.UserDto
 import fail.tiger.komgarot.data.repository.UserRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,7 +37,7 @@ class SessionViewModel(private val repo: UserRepository) : ViewModel() {
         _error.value = null
     }
 
-    class Factory(private val repo: UserRepository) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = SessionViewModel(repo) as T
-    }
+    class Factory(repo: UserRepository) : ViewModelProvider.Factory by viewModelFactory({
+        initializer { SessionViewModel(repo) }
+    })
 }

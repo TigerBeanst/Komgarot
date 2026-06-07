@@ -3,6 +3,8 @@ package fail.tiger.komgarot.ui.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.repository.AuthRepository
 import fail.tiger.komgarot.ui.i18n.UiTextProvider
@@ -27,11 +29,11 @@ class LoginViewModel(
     }
 
     class Factory(
-        private val repo: AuthRepository,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = LoginViewModel(repo, textProvider) as T
-    }
+        repo: AuthRepository,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer { LoginViewModel(repo, textProvider) }
+    })
 }
 
 sealed class LoginState {

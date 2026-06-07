@@ -3,6 +3,8 @@ package fail.tiger.komgarot.ui.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.LibraryDto
@@ -56,13 +58,12 @@ class LibraryViewModel(
     }
 
     class Factory(
-        private val repo: LibraryHomeSource,
-        private val authRepo: AuthRepository,
-        private val textProvider: UiTextProvider
-    ) : ViewModelProvider.Factory {
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            LibraryViewModel(repo, authRepo, textProvider.get(R.string.error_connect_komga_failed)) as T
-    }
+        repo: LibraryHomeSource,
+        authRepo: AuthRepository,
+        textProvider: UiTextProvider
+    ) : ViewModelProvider.Factory by viewModelFactory({
+        initializer { LibraryViewModel(repo, authRepo, textProvider.get(R.string.error_connect_komga_failed)) }
+    })
 }
 
 internal data class LibraryHomeLoadResult(
