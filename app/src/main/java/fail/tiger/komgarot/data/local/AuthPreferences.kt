@@ -24,6 +24,8 @@ class AuthPreferences(private val context: Context) {
     private val READING_DIRECTION = stringPreferencesKey("reading_direction")
     private val PAGE_FIT = stringPreferencesKey("page_fit")
     private val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+    private val EINK_MODE = booleanPreferencesKey("eink_mode")
+    private val TAP_PAGE_TURN = booleanPreferencesKey("tap_page_turn")
     private val COVER_CACHE_SIZE_MB = intPreferencesKey("cover_cache_size_mb")
     private val READER_CACHE_SIZE_MB = intPreferencesKey("reader_cache_size_mb")
     private val CLEAR_CACHE_ON_STARTUP = booleanPreferencesKey("clear_cache_on_startup")
@@ -40,6 +42,8 @@ class AuthPreferences(private val context: Context) {
     val readingDirection: Flow<String> = context.dataStore.data.map { it[READING_DIRECTION] ?: "LTR" }
     val pageFit: Flow<String> = context.dataStore.data.map { it[PAGE_FIT] ?: "FIT" }
     val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { it[KEEP_SCREEN_ON] ?: true }
+    val einkMode: Flow<Boolean> = context.dataStore.data.map { it[EINK_MODE] ?: false }
+    val tapPageTurn: Flow<Boolean> = context.dataStore.data.map { it[TAP_PAGE_TURN] ?: false }
     val coverCacheSizeMb: Flow<Int> = context.dataStore.data.map { it[COVER_CACHE_SIZE_MB] ?: CacheSizeOption.default.sizeMb }
     val readerCacheSizeMb: Flow<Int> = context.dataStore.data.map { it[READER_CACHE_SIZE_MB] ?: CacheSizeOption.default.sizeMb }
     val clearCacheOnStartup: Flow<Boolean> = context.dataStore.data.map { it[CLEAR_CACHE_ON_STARTUP] ?: false }
@@ -97,6 +101,14 @@ class AuthPreferences(private val context: Context) {
 
     suspend fun setKeepScreenOn(value: Boolean) {
         context.dataStore.edit { it[KEEP_SCREEN_ON] = value }
+    }
+
+    suspend fun setEinkMode(value: Boolean) {
+        context.dataStore.edit { it[EINK_MODE] = value }
+    }
+
+    suspend fun setTapPageTurn(value: Boolean) {
+        context.dataStore.edit { it[TAP_PAGE_TURN] = value }
     }
 
     suspend fun setCoverCacheSizeMb(value: Int) {

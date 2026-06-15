@@ -167,6 +167,7 @@
     <string name="reader_next">Next</string>
     <string name="reader_cached">Cached</string>
     <string name="reader_network_loading">Network</string>
+    <string name="reader_loading_percent">%d%%</string>
     <string name="reader_status_format">%1$d / %2$d · Preload %3$d pages · %4$s</string>
     <string name="reader_retry">Retry</string>
     <string name="reader_no_pages">No pages to display</string>
@@ -250,6 +251,10 @@
     <string name="settings_section_cache">Cache</string>
     <string name="settings_section_reading">Reading</string>
     <string name="settings_section_security">Security</string>
+    <string name="settings_eink_mode">E-ink mode</string>
+    <string name="settings_eink_mode_desc">Reduce motion and visual effects for e-ink devices</string>
+    <string name="settings_tap_page_turn">Tap left or right to turn pages</string>
+    <string name="settings_tap_page_turn_desc">Tap the left or right side of the reader to move between pages</string>
     <string name="settings_always_incognito">Always incognito</string>
     <string name="settings_always_incognito_desc">Reading and continue reading never record progress</string>
     <string name="settings_preload_pages">Preload pages</string>

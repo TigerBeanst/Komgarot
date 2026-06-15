@@ -7,11 +7,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -33,8 +37,14 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContent {
             KomgarotTheme {
-                Box(Modifier.fillMaxSize().then(if (locked.value) Modifier.blur(20.dp) else Modifier)) {
-                    AppNavGraph(app)
+                val einkMode by app.authPreferences.einkMode.collectAsStateWithLifecycle(initialValue = false)
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize().then(if (locked.value && !einkMode) Modifier.blur(20.dp) else Modifier)) {
+                        AppNavGraph(app)
+                    }
+                    if (locked.value && einkMode) {
+                        Box(Modifier.fillMaxSize().background(Color.Black))
+                    }
                 }
             }
         }

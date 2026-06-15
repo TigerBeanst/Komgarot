@@ -164,6 +164,7 @@
     <string name="reader_next">下一页</string>
     <string name="reader_cached">已缓存</string>
     <string name="reader_network_loading">联网加载</string>
+    <string name="reader_loading_percent">%d%%</string>
     <string name="reader_status_format">%1$d / %2$d · 预加载 %3$d 页 · %4$s</string>
     <string name="reader_retry">重试</string>
     <string name="reader_no_pages">没有可显示的页面</string>
@@ -247,6 +248,10 @@
     <string name="settings_section_cache">缓存</string>
     <string name="settings_section_reading">阅读</string>
     <string name="settings_section_security">安全</string>
+    <string name="settings_eink_mode">墨水屏模式</string>
+    <string name="settings_eink_mode_desc">降低动画和视觉特效，适配墨水屏设备</string>
+    <string name="settings_tap_page_turn">点击左右区域翻页</string>
+    <string name="settings_tap_page_turn_desc">点击阅读器左侧或右侧切换页面</string>
     <string name="settings_always_incognito">始终无痕</string>
     <string name="settings_always_incognito_desc">阅读和继续阅读均不记录进度</string>
     <string name="settings_preload_pages">预加载页数</string>

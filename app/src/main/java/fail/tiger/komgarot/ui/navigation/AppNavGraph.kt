@@ -92,6 +92,7 @@ fun AppNavGraph(app: KomgarotApp) {
     val sessionVm: SessionViewModel = viewModel(factory = SessionViewModel.Factory(app.userRepository))
     val serverUrl by app.authPreferences.serverUrl.collectAsStateWithLifecycle()
     val alwaysIncognito by app.authPreferences.alwaysIncognito.collectAsStateWithLifecycle(initialValue = false)
+    val einkMode by app.authPreferences.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val user by sessionVm.user.collectAsStateWithLifecycle()
     val canEditMetadata = canEditKomgaMetadata(user)
     val startDest = if (serverUrl.isNotEmpty()) Screen.Library.route else Screen.Login.route
@@ -175,6 +176,7 @@ fun AppNavGraph(app: KomgarotApp) {
         currentRoute = currentRoute,
         showTopLevelNav = showTopLevelNav,
         bottomBarVisible = bottomBarVisible,
+        einkMode = einkMode,
         onDestinationClick = { destination -> navigateTopLevel(destination.route) }
     ) { shellModifier ->
         NavHost(
@@ -182,16 +184,16 @@ fun AppNavGraph(app: KomgarotApp) {
             startDestination = startDest,
             modifier = shellModifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
             enterTransition = {
-                materialSharedAxisX(forward = true, slideDistance = slideDistance).targetContentEnter
+                if (einkMode) fadeIn(tween(0)) else materialSharedAxisX(forward = true, slideDistance = slideDistance).targetContentEnter
             },
             exitTransition = {
-                materialSharedAxisX(forward = true, slideDistance = slideDistance).initialContentExit
+                if (einkMode) fadeOut(tween(0)) else materialSharedAxisX(forward = true, slideDistance = slideDistance).initialContentExit
             },
             popEnterTransition = {
-                materialSharedAxisX(forward = false, slideDistance = slideDistance).targetContentEnter
+                if (einkMode) fadeIn(tween(0)) else materialSharedAxisX(forward = false, slideDistance = slideDistance).targetContentEnter
             },
             popExitTransition = {
-                materialSharedAxisX(forward = false, slideDistance = slideDistance).initialContentExit
+                if (einkMode) fadeOut(tween(0)) else materialSharedAxisX(forward = false, slideDistance = slideDistance).initialContentExit
             }
         ) {
         composable(Screen.Login.route) {
@@ -562,6 +564,7 @@ private fun AdaptiveShell(
     currentRoute: String?,
     showTopLevelNav: Boolean,
     bottomBarVisible: Boolean,
+    einkMode: Boolean,
     onDestinationClick: (TopLevelDestination) -> Unit,
     content: @Composable (Modifier) -> Unit
 ) {
@@ -569,17 +572,13 @@ private fun AdaptiveShell(
         val useRail = maxWidth >= 720.dp
         if (useRail) {
             Row(Modifier.fillMaxSize()) {
-                AnimatedVisibility(visible = showTopLevelNav) {
-                    NavigationRail {
-                        destinations.forEach { destination ->
-                            val label = stringResource(destination.labelRes)
-                            NavigationRailItem(
-                                selected = currentRoute == destination.route,
-                                onClick = { onDestinationClick(destination) },
-                                icon = { Icon(destination.icon, contentDescription = label) },
-                                label = { Text(label) }
-                            )
-                        }
+                if (einkMode) {
+                    if (showTopLevelNav) {
+                        ReaderNavigationRail(destinations, currentRoute, onDestinationClick)
+                    }
+                } else {
+                    AnimatedVisibility(visible = showTopLevelNav) {
+                        ReaderNavigationRail(destinations, currentRoute, onDestinationClick)
                     }
                 }
                 Box(Modifier.weight(1f)) {
@@ -590,21 +589,17 @@ private fun AdaptiveShell(
             Scaffold(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
-                    AnimatedVisibility(
-                        visible = showTopLevelNav && bottomBarVisible,
-                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-                    ) {
-                        NavigationBar {
-                            destinations.forEach { destination ->
-                                val label = stringResource(destination.labelRes)
-                                NavigationBarItem(
-                                    selected = currentRoute == destination.route,
-                                    onClick = { onDestinationClick(destination) },
-                                    icon = { Icon(destination.icon, contentDescription = label) },
-                                    label = { Text(label) }
-                                )
-                            }
+                    if (einkMode) {
+                        if (showTopLevelNav && bottomBarVisible) {
+                            ReaderNavigationBar(destinations, currentRoute, onDestinationClick)
+                        }
+                    } else {
+                        AnimatedVisibility(
+                            visible = showTopLevelNav && bottomBarVisible,
+                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                        ) {
+                            ReaderNavigationBar(destinations, currentRoute, onDestinationClick)
                         }
                     }
                 }
@@ -624,6 +619,44 @@ private fun AdaptiveShell(
                     )
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ReaderNavigationRail(
+    destinations: List<TopLevelDestination>,
+    currentRoute: String?,
+    onDestinationClick: (TopLevelDestination) -> Unit
+) {
+    NavigationRail {
+        destinations.forEach { destination ->
+            val label = stringResource(destination.labelRes)
+            NavigationRailItem(
+                selected = currentRoute == destination.route,
+                onClick = { onDestinationClick(destination) },
+                icon = { Icon(destination.icon, contentDescription = label) },
+                label = { Text(label) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReaderNavigationBar(
+    destinations: List<TopLevelDestination>,
+    currentRoute: String?,
+    onDestinationClick: (TopLevelDestination) -> Unit
+) {
+    NavigationBar {
+        destinations.forEach { destination ->
+            val label = stringResource(destination.labelRes)
+            NavigationBarItem(
+                selected = currentRoute == destination.route,
+                onClick = { onDestinationClick(destination) },
+                icon = { Icon(destination.icon, contentDescription = label) },
+                label = { Text(label) }
+            )
         }
     }
 }
