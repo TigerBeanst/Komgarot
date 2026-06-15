@@ -114,6 +114,8 @@ private fun SettingsContent(
     val readingDirection by prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
     val pageFit by prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
     val keepScreenOn by prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
+    val einkMode by prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
+    val tapPageTurn by prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
     val coverCacheSizeMb by prefs.coverCacheSizeMb.collectAsStateWithLifecycle(initialValue = CacheSizeOption.default.sizeMb)
     val readerCacheSizeMb by prefs.readerCacheSizeMb.collectAsStateWithLifecycle(initialValue = CacheSizeOption.default.sizeMb)
     val clearCacheOnStartup by prefs.clearCacheOnStartup.collectAsStateWithLifecycle(initialValue = false)
@@ -162,6 +164,34 @@ private fun SettingsContent(
             )
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             SettingsSectionHeader(stringResource(R.string.settings_section_reading))
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_eink_mode)) },
+                supportingContent = { Text(stringResource(R.string.settings_eink_mode_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = einkMode,
+                        onCheckedChange = { scope.launch { prefs.setEinkMode(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setEinkMode(!einkMode) }
+                }
+            )
+            if (!einkMode) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_tap_page_turn)) },
+                    supportingContent = { Text(stringResource(R.string.settings_tap_page_turn_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = tapPageTurn,
+                            onCheckedChange = { scope.launch { prefs.setTapPageTurn(it) } }
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        scope.launch { prefs.setTapPageTurn(!tapPageTurn) }
+                    }
+                )
+            }
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_always_incognito)) },
                 supportingContent = { Text(stringResource(R.string.settings_always_incognito_desc)) },

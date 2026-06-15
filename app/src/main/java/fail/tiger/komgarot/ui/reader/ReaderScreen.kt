@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -141,6 +142,7 @@ private fun rememberReaderPageRequest(
             bookId = bookId,
             cacheVersion = cacheVersion,
             allowHardware = allowHardware,
+            originalSize = true,
             retryKey = retryKey,
             progressListener = progressState.listener,
             listener = object : ImageRequest.Listener {
@@ -176,12 +178,13 @@ private fun SubcomposeAsyncImageScope.CachedPageLoadingContent(
     state: AsyncImagePainter.State.Loading,
     progressState: ReaderPageProgressState,
     isLocalCacheHit: Boolean,
+    einkMode: Boolean,
     modifier: Modifier = Modifier
 ) {
     if (state.painter != null) {
         SubcomposeAsyncImageContent()
     } else if (shouldShowReaderPageLoadingPlaceholder(isLocalCacheHit, hasPreviousPainter = false)) {
-        PageLoadingPlaceholder(progressState = progressState, modifier = modifier)
+        PageLoadingPlaceholder(progressState = progressState, einkMode = einkMode, modifier = modifier)
     }
 }
 
@@ -220,6 +223,7 @@ fun ReaderScreen(
     val view = LocalView.current
     val window = (view.context as? android.app.Activity)?.window
     val keepScreenOn by vm.prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
+    val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
 
     DisposableEffect(keepScreenOn) {
         window?.let {
@@ -249,110 +253,86 @@ fun ReaderScreen(
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        when (vm.mode) {
-            ReadingMode.PAGER -> PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata)
-            ReadingMode.SCROLL -> ScrollReader(vm)
+        if (einkMode) {
+            PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata)
+        } else {
+            when (vm.mode) {
+                ReadingMode.PAGER -> PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata)
+                ReadingMode.SCROLL -> ScrollReader(vm)
+            }
         }
 
         if (vm.pageUrls.isEmpty()) {
             ReaderStatusOverlay(
                 loading = vm.loading,
                 error = vm.error,
+                einkMode = einkMode,
                 onRetry = { vm.load(bookId, startPage, trackProgress) }
             )
         }
 
-        AnimatedVisibility(
-            visible = vm.showControls,
-            enter = fadeIn() + slideInVertically { -it },
-            exit = fadeOut() + slideOutVertically { -it },
-            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.systemBars)
-        ) {
-            Surface(color = Color.Black.copy(alpha = 0.6f), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back), tint = Color.White)
-                    }
-                    Text(
-                        text = vm.book?.displayTitle() ?: "",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = { vm.toggleMode() }) {
-                        Icon(Icons.Default.SwapHoriz, contentDescription = stringResource(R.string.reader_switch_mode), tint = Color.White)
-                    }
-                }
+        if (einkMode) {
+            if (vm.showControls) {
+                ReaderTopControls(
+                    title = vm.book?.displayTitle().orEmpty(),
+                    onBack = onBack,
+                    onToggleMode = { vm.toggleMode() },
+                    showModeToggle = false,
+                    containerAlpha = 0.88f,
+                    modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.systemBars)
+                )
+            }
+        } else {
+            AnimatedVisibility(
+                visible = vm.showControls,
+                enter = fadeIn() + slideInVertically { -it },
+                exit = fadeOut() + slideOutVertically { -it },
+                modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.systemBars)
+            ) {
+                ReaderTopControls(
+                    title = vm.book?.displayTitle().orEmpty(),
+                    onBack = onBack,
+                    onToggleMode = { vm.toggleMode() },
+                    showModeToggle = true,
+                    containerAlpha = 0.6f
+                )
             }
         }
 
-        AnimatedVisibility(
-            visible = vm.showControls,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
-            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
-        ) {
-            Surface(color = Color.Black.copy(alpha = 0.8f), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    if (vm.pageUrls.isNotEmpty()) {
-                        val context = LocalContext.current
-                        val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
-                        val currentPageUrl = vm.pageUrls.getOrNull(vm.currentPage)
-                        val currentPageCached = currentPageUrl != null &&
-                            ReaderPageCache.hasCachedFile(context, vm.currentSeriesId, vm.currentBookId, currentPageUrl)
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            IconButton(
-                                onClick = { if (vm.currentPage > 0) vm.goToPage(vm.currentPage - 1) },
-                                enabled = vm.currentPage > 0
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = stringResource(R.string.reader_previous), tint = Color.White)
-                            }
-                            Slider(
-                                value = vm.currentPage.toFloat(),
-                                onValueChange = { vm.goToPage(it.toInt()) },
-                                valueRange = 0f..(vm.pageUrls.size - 1).toFloat(),
-                                steps = 0,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(
-                                onClick = { if (vm.currentPage < vm.pageUrls.size - 1) vm.goToPage(vm.currentPage + 1) },
-                                enabled = vm.currentPage < vm.pageUrls.size - 1
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = stringResource(R.string.reader_next), tint = Color.White)
-                            }
-                        }
-                        Text(
-                            text = stringResource(
-                                R.string.reader_status_format,
-                                vm.currentPage + 1,
-                                vm.pageUrls.size,
-                                preloadPages,
-                                stringResource(if (currentPageCached) R.string.reader_cached else R.string.reader_network_loading)
-                            ),
-                            color = Color.White.copy(alpha = 0.72f),
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        )
-                    }
-                }
+        if (einkMode) {
+            if (vm.showControls) {
+                ReaderBottomControls(
+                    vm = vm,
+                    containerAlpha = 0.9f,
+                    modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
+                )
+            }
+        } else {
+            AnimatedVisibility(
+                visible = vm.showControls,
+                enter = fadeIn() + slideInVertically { it },
+                exit = fadeOut() + slideOutVertically { it },
+                modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
+            ) {
+                ReaderBottomControls(vm = vm, containerAlpha = 0.8f)
             }
         }
 
-        // 页面指示器（始终显示，不受工具栏影响）
+        // 页面指示器独立于工具栏显示，并在工具栏显示时抬高。
         if (vm.pageUrls.isNotEmpty()) {
-            val indicatorAlpha by animateFloatAsState(
+            val animatedIndicatorAlpha by animateFloatAsState(
                 targetValue = if (vm.showControls) 0.85f else 0.45f,
                 label = "page_indicator_alpha"
             )
+            val indicatorAlpha = if (einkMode) {
+                if (vm.showControls) 0.9f else 0.55f
+            } else {
+                animatedIndicatorAlpha
+            }
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 56.dp)
+                    .padding(bottom = readerPageIndicatorBottomPadding(vm.showControls).dp)
                     .alpha(indicatorAlpha)
                     .background(
                         color = Color.Black.copy(alpha = 0.5f),
@@ -371,14 +351,107 @@ fun ReaderScreen(
 }
 
 @Composable
+private fun ReaderTopControls(
+    title: String,
+    onBack: () -> Unit,
+    onToggleMode: () -> Unit,
+    showModeToggle: Boolean,
+    containerAlpha: Float,
+    modifier: Modifier = Modifier
+) {
+    Surface(color = Color.Black.copy(alpha = containerAlpha), modifier = modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back), tint = Color.White)
+            }
+            Text(
+                text = title,
+                color = Color.White,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                modifier = Modifier.weight(1f)
+            )
+            if (showModeToggle) {
+                IconButton(onClick = onToggleMode) {
+                    Icon(Icons.Default.SwapHoriz, contentDescription = stringResource(R.string.reader_switch_mode), tint = Color.White)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderBottomControls(
+    vm: ReaderViewModel,
+    containerAlpha: Float,
+    modifier: Modifier = Modifier
+) {
+    Surface(color = Color.Black.copy(alpha = containerAlpha), modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            if (vm.pageUrls.isNotEmpty()) {
+                val context = LocalContext.current
+                val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
+                val currentPageUrl = vm.pageUrls.getOrNull(vm.currentPage)
+                val currentPageCached = currentPageUrl != null &&
+                    ReaderPageCache.hasCachedFile(context, vm.currentSeriesId, vm.currentBookId, currentPageUrl)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IconButton(
+                        onClick = { if (vm.currentPage > 0) vm.goToPage(vm.currentPage - 1) },
+                        enabled = vm.currentPage > 0
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = stringResource(R.string.reader_previous), tint = Color.White)
+                    }
+                    Slider(
+                        value = vm.currentPage.toFloat(),
+                        onValueChange = { vm.goToPage(it.toInt()) },
+                        valueRange = 0f..(vm.pageUrls.size - 1).toFloat(),
+                        steps = 0,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = { if (vm.currentPage < vm.pageUrls.size - 1) vm.goToPage(vm.currentPage + 1) },
+                        enabled = vm.currentPage < vm.pageUrls.size - 1
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = stringResource(R.string.reader_next), tint = Color.White)
+                    }
+                }
+                Text(
+                    text = stringResource(
+                        R.string.reader_status_format,
+                        vm.currentPage + 1,
+                        vm.pageUrls.size,
+                        preloadPages,
+                        stringResource(if (currentPageCached) R.string.reader_cached else R.string.reader_network_loading)
+                    ),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ReaderStatusOverlay(
     loading: Boolean,
     error: String?,
+    einkMode: Boolean,
     onRetry: () -> Unit
 ) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when {
-            loading -> CircularProgressIndicator(color = Color.White, modifier = Modifier.size(56.dp), strokeWidth = 5.dp)
+            loading -> {
+                if (einkMode) {
+                    Text(stringResource(R.string.loading), color = Color.White, style = MaterialTheme.typography.bodyLarge)
+                } else {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(56.dp), strokeWidth = 5.dp)
+                }
+            }
             error != null -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -417,7 +490,10 @@ fun PagerReader(
     val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
     val readingDirection by vm.prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
     val pageFit by vm.prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
+    val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
+    val tapPageTurn by vm.prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
     val imageLoader = coil.Coil.imageLoader(context)
+    val pagerScope = rememberCoroutineScope()
 
     LaunchedEffect(pagerState.currentPage, pagerPages) {
         when (val page = pagerPages.getOrNull(pagerState.currentPage)) {
@@ -452,7 +528,8 @@ fun PagerReader(
                         url = pageUrl,
                         seriesId = vm.currentSeriesId,
                         bookId = vm.currentBookId,
-                        cacheVersion = ThumbnailVersion.get(vm.currentBookId)
+                        cacheVersion = ThumbnailVersion.get(vm.currentBookId),
+                        originalSize = true
                     )
                 )
             }
@@ -463,6 +540,7 @@ fun PagerReader(
         state = pagerState,
         beyondViewportPageCount = 0,
         reverseLayout = readingDirection == "RTL",
+        userScrollEnabled = !einkMode,
         modifier = Modifier.fillMaxSize()
     ) { page ->
         when (val readerPage = pagerPages[page]) {
@@ -472,6 +550,7 @@ fun PagerReader(
                 LaunchedEffect(actualPageIndex) { zoomState.reset() }
                 val pageUrl = vm.pageUrls[actualPageIndex]
                 var retryKey by remember(pageUrl) { mutableIntStateOf(0) }
+                var pageWidthPx by remember(pageUrl) { mutableIntStateOf(0) }
 
                 Box(
                     Modifier
@@ -497,7 +576,33 @@ fun PagerReader(
                         contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxSize()
-                            .zoomable(zoomState, onTap = { vm.toggleControls() })
+                            .onSizeChanged { pageWidthPx = it.width }
+                            .zoomable(
+                                zoomState,
+                                onTap = { position ->
+                                    when (
+                                        readerTapPageAction(
+                                            tapX = position.x,
+                                            width = pageWidthPx.toFloat(),
+                                            tapPageTurnEnabled = tapPageTurn,
+                                            einkMode = einkMode,
+                                            readingDirection = readingDirection
+                                        )
+                                    ) {
+                                        ReaderTapPageAction.PreviousPage -> {
+                                            pagerScope.launch {
+                                                pagerState.scrollToPage((pagerState.currentPage - 1).coerceAtLeast(0))
+                                            }
+                                        }
+                                        ReaderTapPageAction.NextPage -> {
+                                            pagerScope.launch {
+                                                pagerState.scrollToPage((pagerState.currentPage + 1).coerceAtMost(pagerPages.lastIndex))
+                                            }
+                                        }
+                                        ReaderTapPageAction.ToggleControls -> vm.toggleControls()
+                                    }
+                                }
+                            )
                     ) {
                         when (val state = painter.state) {
                             is AsyncImagePainter.State.Loading -> {
@@ -505,6 +610,7 @@ fun PagerReader(
                                     state = state,
                                     progressState = pageRequestState.progressState,
                                     isLocalCacheHit = pageRequestState.isLocalCacheHit,
+                                    einkMode = einkMode,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -512,6 +618,7 @@ fun PagerReader(
                                 if (!pageRequestState.isLocalCacheHit) {
                                     PageLoadingPlaceholder(
                                         progressState = pageRequestState.progressState,
+                                        einkMode = einkMode,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
@@ -615,10 +722,36 @@ private fun ReaderBoundaryPage(
 @Composable
 private fun PageLoadingPlaceholder(
     progressState: ReaderPageProgressState,
+    einkMode: Boolean,
     modifier: Modifier = Modifier
 ) {
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
-        if (progressState.hasPercent) {
+        if (einkMode) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(24.dp)
+            ) {
+                if (progressState.hasPercent) {
+                    LinearProgressIndicator(
+                        progress = { progressState.progress },
+                        color = Color.White,
+                        trackColor = Color.White.copy(alpha = 0.28f),
+                        modifier = Modifier.width(160.dp)
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.reader_loading_percent,
+                            (progressState.progress * 100).roundToInt().coerceIn(0, 100)
+                        ),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                } else {
+                    Text(stringResource(R.string.loading), color = Color.White, style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        } else if (progressState.hasPercent) {
             Box(contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
                     progress = { progressState.progress },
@@ -789,6 +922,7 @@ fun ScrollReader(vm: ReaderViewModel) {
     val context = LocalContext.current
     val imageLoader = coil.Coil.imageLoader(context)
     val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
+    val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
 
     LaunchedEffect(vm.currentPage) {
         val currentPageVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == vm.currentPage }
@@ -824,7 +958,8 @@ fun ScrollReader(vm: ReaderViewModel) {
                             url = vm.pageUrls[index],
                             seriesId = vm.currentSeriesId,
                             bookId = vm.currentBookId,
-                            cacheVersion = ThumbnailVersion.get(vm.currentBookId)
+                            cacheVersion = ThumbnailVersion.get(vm.currentBookId),
+                            originalSize = true
                         )
                     )
                 }
@@ -859,6 +994,7 @@ fun ScrollReader(vm: ReaderViewModel) {
                                 state = state,
                                 progressState = pageRequestState.progressState,
                                 isLocalCacheHit = pageRequestState.isLocalCacheHit,
+                                einkMode = einkMode,
                                 modifier = Modifier.fillMaxWidth().height(400.dp)
                             )
                         }
@@ -866,6 +1002,7 @@ fun ScrollReader(vm: ReaderViewModel) {
                             if (!pageRequestState.isLocalCacheHit) {
                                 PageLoadingPlaceholder(
                                     progressState = pageRequestState.progressState,
+                                    einkMode = einkMode,
                                     modifier = Modifier.fillMaxWidth().height(400.dp)
                                 )
                             }
