@@ -22,6 +22,8 @@
 -keepattributes Signature
 -keepattributes *Annotation*
 -keep class com.google.gson.** { *; }
+-keep class fail.tiger.komgarot.data.local.Ai** { *; }
+-keep class fail.tiger.komgarot.data.repository.WebDavBackup** { *; }
 
 # OkHttp
 -dontwarn okhttp3.**
@@ -29,6 +31,10 @@
 
 # Coil
 -keep class coil.** { *; }
+
+# ONNX Runtime JNI reflects Java wrapper classes from native code.
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
 
 # Compile-time annotations referenced by dependencies.
 -dontwarn com.google.errorprone.annotations.CanIgnoreReturnValue

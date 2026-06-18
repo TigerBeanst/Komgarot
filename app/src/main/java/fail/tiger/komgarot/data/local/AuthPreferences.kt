@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
+import java.util.Locale
 
 private val Context.dataStore by preferencesDataStore("auth")
 
@@ -29,6 +30,26 @@ class AuthPreferences(private val context: Context) {
     private val COVER_CACHE_SIZE_MB = intPreferencesKey("cover_cache_size_mb")
     private val READER_CACHE_SIZE_MB = intPreferencesKey("reader_cache_size_mb")
     private val CLEAR_CACHE_ON_STARTUP = booleanPreferencesKey("clear_cache_on_startup")
+    private val AI_TRANSLATION_ENABLED = booleanPreferencesKey("ai_translation_enabled")
+    private val AI_BASE_URL = stringPreferencesKey("ai_base_url")
+    private val AI_MODEL_NAME = stringPreferencesKey("ai_model_name")
+    private val AI_TARGET_LOCALE = stringPreferencesKey("ai_target_locale")
+    private val AI_TARGET_LANGUAGE_NAME = stringPreferencesKey("ai_target_language_name")
+    private val AI_LOCAL_MODEL_SOURCE = stringPreferencesKey("ai_local_model_source")
+    private val AI_MODEL_COLLECTION_ID = stringPreferencesKey("ai_model_collection_id")
+    private val AI_MODEL_REVISION = stringPreferencesKey("ai_model_revision")
+    private val AI_DOWNLOAD_LATEST_MODEL = booleanPreferencesKey("ai_download_latest_model")
+    private val AI_AUTO_SELECT_DEVICE_TIER = booleanPreferencesKey("ai_auto_select_device_tier")
+    private val AI_IMAGE_TRANSPORT = stringPreferencesKey("ai_image_transport")
+    private val AI_PAGES_PER_REQUEST = intPreferencesKey("ai_pages_per_request")
+    private val AI_CONCURRENT_REQUESTS = intPreferencesKey("ai_concurrent_requests")
+    private val AI_MAX_IMAGES_PER_REQUEST = intPreferencesKey("ai_max_images_per_request")
+    private val AI_TIMEOUT_SECONDS = intPreferencesKey("ai_timeout_seconds")
+    private val AI_IMAGE_MAX_EDGE = stringPreferencesKey("ai_image_max_edge")
+    private val AI_CUSTOM_INSTRUCTIONS = stringPreferencesKey("ai_custom_instructions")
+    private val AI_TEST_MODE_ENABLED = booleanPreferencesKey("ai_test_mode_enabled")
+    private val AI_CONFIGURATION_TEST_PASSED = booleanPreferencesKey("ai_configuration_test_passed")
+    private val AI_TRANSLATION_DISPLAY_MODE = stringPreferencesKey("ai_translation_display_mode")
 
     private val _serverUrl = MutableStateFlow("")
     private val _username = MutableStateFlow("")
@@ -47,6 +68,44 @@ class AuthPreferences(private val context: Context) {
     val coverCacheSizeMb: Flow<Int> = context.dataStore.data.map { it[COVER_CACHE_SIZE_MB] ?: CacheSizeOption.default.sizeMb }
     val readerCacheSizeMb: Flow<Int> = context.dataStore.data.map { it[READER_CACHE_SIZE_MB] ?: CacheSizeOption.default.sizeMb }
     val clearCacheOnStartup: Flow<Boolean> = context.dataStore.data.map { it[CLEAR_CACHE_ON_STARTUP] ?: false }
+    val aiTranslationEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_TRANSLATION_ENABLED] ?: false }
+    val aiBaseUrl: Flow<String> = context.dataStore.data.map { it[AI_BASE_URL] ?: "" }
+    val aiModelName: Flow<String> = context.dataStore.data.map { it[AI_MODEL_NAME] ?: "" }
+    val aiTargetLocale: Flow<String> = context.dataStore.data.map { it[AI_TARGET_LOCALE] ?: systemTargetLocale() }
+    val aiTargetLanguageName: Flow<String> = context.dataStore.data.map {
+        it[AI_TARGET_LANGUAGE_NAME] ?: systemTargetLanguageName()
+    }
+    val aiLocalModelSource: Flow<AiLocalModelSource> = context.dataStore.data.map {
+        AiLocalModelSource.fromStoredValue(it[AI_LOCAL_MODEL_SOURCE].orEmpty())
+    }
+    val aiModelCollectionId: Flow<String> = context.dataStore.data.map {
+        it[AI_MODEL_COLLECTION_ID] ?: "PaddlePaddle/pp-ocrv6"
+    }
+    val aiModelRevision: Flow<String> = context.dataStore.data.map { it[AI_MODEL_REVISION] ?: "main" }
+    val aiDownloadLatestModel: Flow<Boolean> = context.dataStore.data.map { it[AI_DOWNLOAD_LATEST_MODEL] ?: true }
+    val aiAutoSelectDeviceTier: Flow<Boolean> = context.dataStore.data.map { it[AI_AUTO_SELECT_DEVICE_TIER] ?: true }
+    val aiImageTransport: Flow<AiImageTransport> = context.dataStore.data.map {
+        AiImageTransport.fromStoredValue(it[AI_IMAGE_TRANSPORT].orEmpty())
+    }
+    val aiPagesPerRequest: Flow<Int> = context.dataStore.data.map {
+        AiSettings.normalizePagesPerRequest(it[AI_PAGES_PER_REQUEST] ?: 10)
+    }
+    val aiConcurrentRequests: Flow<Int> = context.dataStore.data.map {
+        AiSettings.normalizeConcurrentRequests(it[AI_CONCURRENT_REQUESTS] ?: 3)
+    }
+    val aiMaxImagesPerRequest: Flow<Int> = context.dataStore.data.map {
+        AiSettings.normalizeMaxImagesPerRequest(it[AI_MAX_IMAGES_PER_REQUEST] ?: 20)
+    }
+    val aiTimeoutSeconds: Flow<Int> = context.dataStore.data.map {
+        AiSettings.normalizeTimeoutSeconds(it[AI_TIMEOUT_SECONDS] ?: 30)
+    }
+    val aiImageMaxEdge: Flow<AiImageMaxEdge> = context.dataStore.data.map {
+        AiImageMaxEdge.fromStoredValue(it[AI_IMAGE_MAX_EDGE].orEmpty())
+    }
+    val aiCustomInstructions: Flow<String> = context.dataStore.data.map { it[AI_CUSTOM_INSTRUCTIONS] ?: "" }
+    val aiTestModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_TEST_MODE_ENABLED] ?: false }
+    val aiConfigurationTestPassed: Flow<Boolean> = context.dataStore.data.map { it[AI_CONFIGURATION_TEST_PASSED] ?: false }
+    val aiTranslationDisplayMode: Flow<String> = context.dataStore.data.map { it[AI_TRANSLATION_DISPLAY_MODE] ?: "off" }
 
     init {
         runBlocking {
@@ -123,6 +182,86 @@ class AuthPreferences(private val context: Context) {
         context.dataStore.edit { it[CLEAR_CACHE_ON_STARTUP] = value }
     }
 
+    suspend fun setAiTranslationEnabled(value: Boolean) {
+        context.dataStore.edit { it[AI_TRANSLATION_ENABLED] = value }
+    }
+
+    suspend fun setAiBaseUrl(value: String) {
+        context.dataStore.edit { it[AI_BASE_URL] = value.trimEnd('/') }
+    }
+
+    suspend fun setAiModelName(value: String) {
+        context.dataStore.edit { it[AI_MODEL_NAME] = value.trim() }
+    }
+
+    suspend fun setAiTargetLocale(value: String, languageName: String) {
+        context.dataStore.edit {
+            it[AI_TARGET_LOCALE] = value.trim()
+            it[AI_TARGET_LANGUAGE_NAME] = languageName.trim()
+        }
+    }
+
+    suspend fun setAiLocalModelSource(value: AiLocalModelSource) {
+        context.dataStore.edit { it[AI_LOCAL_MODEL_SOURCE] = value.storedValue }
+    }
+
+    suspend fun setAiModelCollectionId(value: String) {
+        context.dataStore.edit { it[AI_MODEL_COLLECTION_ID] = value.trim() }
+    }
+
+    suspend fun setAiModelRevision(value: String) {
+        context.dataStore.edit { it[AI_MODEL_REVISION] = value.trim().ifBlank { "main" } }
+    }
+
+    suspend fun setAiDownloadLatestModel(value: Boolean) {
+        context.dataStore.edit { it[AI_DOWNLOAD_LATEST_MODEL] = value }
+    }
+
+    suspend fun setAiAutoSelectDeviceTier(value: Boolean) {
+        context.dataStore.edit { it[AI_AUTO_SELECT_DEVICE_TIER] = value }
+    }
+
+    suspend fun setAiImageTransport(value: AiImageTransport) {
+        context.dataStore.edit { it[AI_IMAGE_TRANSPORT] = value.storedValue }
+    }
+
+    suspend fun setAiPagesPerRequest(value: Int) {
+        context.dataStore.edit { it[AI_PAGES_PER_REQUEST] = AiSettings.normalizePagesPerRequest(value) }
+    }
+
+    suspend fun setAiConcurrentRequests(value: Int) {
+        context.dataStore.edit { it[AI_CONCURRENT_REQUESTS] = AiSettings.normalizeConcurrentRequests(value) }
+    }
+
+    suspend fun setAiMaxImagesPerRequest(value: Int) {
+        context.dataStore.edit { it[AI_MAX_IMAGES_PER_REQUEST] = AiSettings.normalizeMaxImagesPerRequest(value) }
+    }
+
+    suspend fun setAiTimeoutSeconds(value: Int) {
+        context.dataStore.edit { it[AI_TIMEOUT_SECONDS] = AiSettings.normalizeTimeoutSeconds(value) }
+    }
+
+    suspend fun setAiImageMaxEdge(value: AiImageMaxEdge) {
+        context.dataStore.edit { it[AI_IMAGE_MAX_EDGE] = value.storedValue }
+    }
+
+    suspend fun setAiCustomInstructions(value: String) {
+        context.dataStore.edit { it[AI_CUSTOM_INSTRUCTIONS] = value }
+    }
+
+    suspend fun setAiTestModeEnabled(value: Boolean) {
+        context.dataStore.edit { it[AI_TEST_MODE_ENABLED] = value }
+    }
+
+    suspend fun setAiConfigurationTestPassed(value: Boolean) {
+        context.dataStore.edit { it[AI_CONFIGURATION_TEST_PASSED] = value }
+    }
+
+    suspend fun setAiTranslationDisplayMode(value: String) {
+        val normalized = if (value == "on") "on" else "off"
+        context.dataStore.edit { it[AI_TRANSLATION_DISPLAY_MODE] = normalized }
+    }
+
     private val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
     private val APP_LOCK_TIMEOUT = intPreferencesKey("app_lock_timeout_minutes")
 
@@ -150,4 +289,8 @@ class AuthPreferences(private val context: Context) {
         _username.value = credentials.username
         _password.value = credentials.password
     }
+
+    private fun systemTargetLocale(): String = Locale.getDefault().toLanguageTag()
+
+    private fun systemTargetLanguageName(): String = Locale.getDefault().displayName
 }
