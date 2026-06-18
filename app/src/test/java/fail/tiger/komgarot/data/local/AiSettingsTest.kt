@@ -1,0 +1,102 @@
+package fail.tiger.komgarot.data.local
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AiSettingsTest {
+    @Test
+    fun defaultsMatchAiTranslationSpec() {
+        val settings = AiSettings.defaults()
+
+        assertFalse(settings.enabled)
+        assertEquals("", settings.baseUrl)
+        assertEquals("", settings.modelName)
+        assertEquals(AiImageTransport.BASE64, settings.imageTransport)
+        assertEquals(10, settings.pagesPerRequest)
+        assertEquals(3, settings.concurrentRequests)
+        assertEquals(20, settings.maxImagesPerRequest)
+        assertEquals(30, settings.timeoutSeconds)
+        assertEquals(AiImageMaxEdge.PX_1600, settings.imageMaxEdge)
+        assertEquals(AiTranslationMode.LOCAL_DETECTION, settings.preferredMode)
+        assertEquals(AiLocalModelSource.HUGGING_FACE, settings.localModelSource)
+        assertEquals("PaddlePaddle/pp-ocrv6", settings.modelCollectionId)
+        assertEquals("main", settings.modelRevision)
+        assertTrue(settings.downloadLatestModel)
+        assertTrue(settings.autoSelectDeviceTier)
+        assertEquals("", settings.customInstructions)
+        assertFalse(settings.testModeEnabled)
+        assertFalse(settings.configurationTestPassed)
+    }
+
+    @Test
+    fun pagesPerRequestAcceptsPositiveManualValues() {
+        assertEquals(1, AiSettings.normalizePagesPerRequest(-1))
+        assertEquals(1, AiSettings.normalizePagesPerRequest(0))
+        assertEquals(10, AiSettings.normalizePagesPerRequest(10))
+        assertEquals(80, AiSettings.normalizePagesPerRequest(80))
+    }
+
+    @Test
+    fun concurrentRequestsAcceptsPositiveManualValues() {
+        assertEquals(1, AiSettings.normalizeConcurrentRequests(-3))
+        assertEquals(1, AiSettings.normalizeConcurrentRequests(0))
+        assertEquals(3, AiSettings.normalizeConcurrentRequests(3))
+        assertEquals(80, AiSettings.normalizeConcurrentRequests(80))
+    }
+
+    @Test
+    fun maxImagesPerRequestKeepsRoomForPageContextAndOneCrop() {
+        assertEquals(2, AiSettings.normalizeMaxImagesPerRequest(-3))
+        assertEquals(2, AiSettings.normalizeMaxImagesPerRequest(1))
+        assertEquals(20, AiSettings.normalizeMaxImagesPerRequest(20))
+        assertEquals(80, AiSettings.normalizeMaxImagesPerRequest(80))
+    }
+
+    @Test
+    fun timeoutAcceptsPositiveManualValues() {
+        assertEquals(0, AiSettings.normalizeTimeoutSeconds(0))
+        assertEquals(60, AiSettings.normalizeTimeoutSeconds(60))
+        assertEquals(300, AiSettings.normalizeTimeoutSeconds(300))
+    }
+
+    @Test
+    fun completeConfigurationRequiresBaseUrlModelAndApiKey() {
+        val settings = AiSettings.defaults().copy(
+            baseUrl = "https://api.example.test/v1",
+            modelName = "vision-model"
+        )
+
+        assertFalse(settings.hasCompleteModelConfiguration(apiKey = ""))
+        assertTrue(settings.hasCompleteModelConfiguration(apiKey = "key"))
+    }
+
+    @Test
+    fun secureAiSettingsUsesExpectedPreferenceFileAndKeys() {
+        assertEquals("secure_ai_settings", SecureAiSettingsStore.FILE_NAME)
+        assertEquals("api_key", SecureAiSettingsStore.API_KEY)
+        assertEquals("image_url_extra_query", SecureAiSettingsStore.IMAGE_URL_EXTRA_QUERY)
+    }
+
+    @Test
+    fun secureWebDavSettingsUsesExpectedPreferenceFileAndKeys() {
+        assertEquals("secure_webdav_settings", SecureWebDavSettingsStore.FILE_NAME)
+        assertEquals("url", SecureWebDavSettingsStore.URL)
+        assertEquals("username", SecureWebDavSettingsStore.USERNAME)
+        assertEquals("password", SecureWebDavSettingsStore.PASSWORD)
+    }
+
+    @Test
+    fun modelCollectionDefaultsCanBeOverridden() {
+        val settings = AiSettings.defaults().copy(
+            modelCollectionId = "Custom/collection",
+            modelRevision = "refs/tags/v1.0.0",
+            downloadLatestModel = false
+        )
+
+        assertEquals("Custom/collection", settings.modelCollectionId)
+        assertEquals("refs/tags/v1.0.0", settings.modelRevision)
+        assertFalse(settings.downloadLatestModel)
+    }
+}
