@@ -6,13 +6,22 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.local.AiTranslationStore
 import fail.tiger.komgarot.data.local.CacheMaintenance
+import fail.tiger.komgarot.data.local.SecureAiSettingsStore
+import fail.tiger.komgarot.data.local.SecureWebDavSettingsStore
 import fail.tiger.komgarot.data.remote.AuthInterceptor
+import fail.tiger.komgarot.data.remote.AiTranslationClient
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressInterceptor
 import fail.tiger.komgarot.data.remote.KomgaApi
 import fail.tiger.komgarot.data.remote.ReaderPageCacheInterceptor
 import fail.tiger.komgarot.data.remote.UrlInterceptor
 import fail.tiger.komgarot.data.repository.AdminRepository
+import fail.tiger.komgarot.data.repository.AiLocalModelRepository
+import fail.tiger.komgarot.data.repository.AiPaddleTextDetector
+import fail.tiger.komgarot.data.repository.AiLocalTextDetector
+import fail.tiger.komgarot.data.repository.AiTranslationQueueRunner
+import fail.tiger.komgarot.data.repository.AiTranslationRepository
 import fail.tiger.komgarot.data.repository.AuthRepository
 import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.data.repository.CollectionRepository
@@ -20,6 +29,7 @@ import fail.tiger.komgarot.data.repository.LibraryRepository
 import fail.tiger.komgarot.data.repository.ReadListRepository
 import fail.tiger.komgarot.data.repository.SeriesRepository
 import fail.tiger.komgarot.data.repository.UserRepository
+import fail.tiger.komgarot.data.repository.WebDavBackupRepository
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -29,7 +39,11 @@ private const val RETROFIT_PLACEHOLDER_BASE_URL = "https://komgarot.invalid/"
 
 class KomgarotApp : Application(), ImageLoaderFactory {
     lateinit var authPreferences: AuthPreferences
+    lateinit var secureAiSettingsStore: SecureAiSettingsStore
+    lateinit var secureWebDavSettingsStore: SecureWebDavSettingsStore
+    lateinit var aiTranslationStore: AiTranslationStore
     lateinit var okHttpClient: OkHttpClient
+    lateinit var aiTranslationClient: AiTranslationClient
     lateinit var authRepository: AuthRepository
     lateinit var libraryRepository: LibraryRepository
     lateinit var seriesRepository: SeriesRepository
@@ -38,10 +52,17 @@ class KomgarotApp : Application(), ImageLoaderFactory {
     lateinit var collectionRepository: CollectionRepository
     lateinit var readListRepository: ReadListRepository
     lateinit var adminRepository: AdminRepository
+    lateinit var aiTranslationRepository: AiTranslationRepository
+    lateinit var aiLocalModelRepository: AiLocalModelRepository
+    lateinit var aiTranslationQueueRunner: AiTranslationQueueRunner
+    lateinit var webDavBackupRepository: WebDavBackupRepository
 
     override fun onCreate() {
         super.onCreate()
         authPreferences = AuthPreferences(this)
+        secureAiSettingsStore = SecureAiSettingsStore(this)
+        secureWebDavSettingsStore = SecureWebDavSettingsStore(this)
+        aiTranslationStore = AiTranslationStore(filesDir)
         CacheMaintenance.clearOnStartupIfNeeded(this, authPreferences)
         val authInterceptor = AuthInterceptor(authPreferences)
         val urlInterceptor = UrlInterceptor(authPreferences)
@@ -51,6 +72,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
             .addNetworkInterceptor(ReaderPageCacheInterceptor(this) { authPreferences.readerCacheSizeBytesBlocking })
             .addNetworkInterceptor(ImageDownloadProgressInterceptor())
             .build()
+        aiTranslationClient = AiTranslationClient(OkHttpClient())
         val retrofit = Retrofit.Builder()
             .baseUrl(RETROFIT_PLACEHOLDER_BASE_URL)
             .client(okHttpClient)
@@ -65,6 +87,31 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         collectionRepository = CollectionRepository(api)
         readListRepository = ReadListRepository(api)
         adminRepository = AdminRepository(api)
+        aiLocalModelRepository = AiLocalModelRepository(filesDir)
+        aiTranslationRepository = AiTranslationRepository(
+            context = applicationContext,
+            bookRepository = bookRepository,
+            prefs = authPreferences,
+            secureAiSettingsStore = secureAiSettingsStore,
+            store = aiTranslationStore,
+            komgaHttpClient = okHttpClient,
+            localTextDetector = AiLocalTextDetector(
+                paddleTextDetector = AiPaddleTextDetector(applicationContext, aiLocalModelRepository)
+            ),
+            aiClient = aiTranslationClient
+        )
+        aiTranslationQueueRunner = AiTranslationQueueRunner(
+            repository = aiTranslationRepository,
+            store = aiTranslationStore,
+            prefs = authPreferences
+        )
+        webDavBackupRepository = WebDavBackupRepository(
+            prefs = authPreferences,
+            secureAiSettingsStore = secureAiSettingsStore,
+            secureWebDavSettingsStore = secureWebDavSettingsStore,
+            aiTranslationStore = aiTranslationStore
+        )
+        aiTranslationQueueRunner.restoreRunningTasks()
     }
 
     override fun newImageLoader() = ImageLoader.Builder(this)
@@ -72,7 +119,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         .respectCacheHeaders(false)
         .memoryCache {
             MemoryCache.Builder(this)
-                .maxSizePercent(0.25)
+                .maxSizePercent(0.12)
                 .build()
         }
         .diskCache {

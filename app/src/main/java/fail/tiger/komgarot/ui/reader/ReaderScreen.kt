@@ -1,6 +1,8 @@
 package fail.tiger.komgarot.ui.reader
 
 import android.content.ContentValues
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -31,6 +33,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
@@ -55,6 +58,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.local.AiTranslatedPage
+import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
 import coil.compose.SubcomposeAsyncImage
@@ -68,10 +73,12 @@ import fail.tiger.komgarot.ui.cover.writeTemporaryCoverImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.engawapg.lib.zoomable.ZoomState
 import net.engawapg.lib.zoomable.rememberZoomState
 import net.engawapg.lib.zoomable.zoomable
 import kotlin.math.roundToInt
@@ -142,7 +149,7 @@ private fun rememberReaderPageRequest(
             bookId = bookId,
             cacheVersion = cacheVersion,
             allowHardware = allowHardware,
-            originalSize = true,
+            originalSize = false,
             retryKey = retryKey,
             progressListener = progressState.listener,
             listener = object : ImageRequest.Listener {
@@ -219,11 +226,32 @@ fun ReaderScreen(
     vm: ReaderViewModel
 ) {
     LaunchedEffect(bookId) { vm.load(bookId, startPage, trackProgress) }
+    LaunchedEffect(vm.currentBookId, vm.currentPage, vm.currentAiTranslatedPage(vm.currentPage)?.status) {
+        while (vm.currentAiTranslatedPage(vm.currentPage)?.status == AiTranslationPageStatus.RUNNING) {
+            vm.refreshAiTranslationState()
+            delay(700)
+        }
+    }
 
+    val context = LocalContext.current
     val view = LocalView.current
     val window = (view.context as? android.app.Activity)?.window
     val keepScreenOn by vm.prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
+    val aiTestModeEnabled by vm.prefs.aiTestModeEnabled.collectAsStateWithLifecycle(initialValue = false)
+    var aiTranslationErrorDialogMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(vm.aiTranslationMessageNonce) {
+        val messageRes = vm.aiTranslationMessageRes
+        if (messageRes != 0) {
+            val message = vm.aiTranslationMessageText.takeIf { it.isNotBlank() } ?: context.getString(messageRes)
+            if (isAiTranslationErrorMessage(messageRes)) {
+                aiTranslationErrorDialogMessage = message
+            } else {
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     DisposableEffect(keepScreenOn) {
         window?.let {
@@ -254,10 +282,10 @@ fun ReaderScreen(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (einkMode) {
-            PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata)
+            PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata, aiTestModeEnabled)
         } else {
             when (vm.mode) {
-                ReadingMode.PAGER -> PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata)
+                ReadingMode.PAGER -> PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata, aiTestModeEnabled)
                 ReadingMode.SCROLL -> ScrollReader(vm)
             }
         }
@@ -347,8 +375,96 @@ fun ReaderScreen(
                 )
             }
         }
+
+        AiTranslationFloatingButton(
+            mode = vm.currentAiTranslationDisplayMode,
+            pageStatus = vm.currentAiTranslatedPage(vm.currentPage)?.status,
+            onClick = { vm.cycleAiTranslationDisplayMode() },
+            onLongClick = { vm.showAiTranslationPageActions = true },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(end = 16.dp, bottom = 72.dp)
+        )
+    }
+
+    if (vm.showAiTranslationPageActions) {
+        AlertDialog(
+            onDismissRequest = { vm.showAiTranslationPageActions = false },
+            title = { Text(stringResource(R.string.reader_ai_translation)) },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            vm.retryCurrentAiTranslationPage()
+                            vm.showAiTranslationPageActions = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.reader_ai_translate_current_page))
+                    }
+                    TextButton(
+                        onClick = {
+                            vm.retryCurrentAiTranslationPage()
+                            vm.showAiTranslationPageActions = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.reader_ai_retry_current_page))
+                    }
+                    TextButton(
+                        onClick = {
+                            vm.deleteCurrentAiTranslationPage()
+                            vm.showAiTranslationPageActions = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.reader_ai_delete_current_page))
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { vm.showAiTranslationPageActions = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    aiTranslationErrorDialogMessage?.let { message ->
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        AlertDialog(
+            onDismissRequest = { aiTranslationErrorDialogMessage = null },
+            title = { Text(stringResource(R.string.reader_ai_error_title)) },
+            text = {
+                SelectionContainer {
+                    Text(message)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("ai_translation_error", message))
+                        Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text(stringResource(R.string.copy))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { aiTranslationErrorDialogMessage = null }) {
+                    Text(stringResource(R.string.close))
+                }
+            }
+        )
     }
 }
+
+private fun isAiTranslationErrorMessage(messageRes: Int): Boolean =
+    messageRes == R.string.ai_translate_config_required ||
+        messageRes == R.string.reader_ai_test_failed ||
+        messageRes == R.string.reader_ai_retry_failed
 
 @Composable
 private fun ReaderTopControls(
@@ -425,7 +541,11 @@ private fun ReaderBottomControls(
                         vm.currentPage + 1,
                         vm.pageUrls.size,
                         preloadPages,
-                        stringResource(if (currentPageCached) R.string.reader_cached else R.string.reader_network_loading)
+                        stringResource(if (currentPageCached) R.string.reader_cached else R.string.reader_network_loading) +
+                            " · " +
+                            stringResource(readerAiStatusStringRes(vm.currentAiTranslatedPage(vm.currentPage)?.status)) +
+                            " · " +
+                            stringResource(readerAiModeShortStringRes(vm.currentAiTranslationModeForPage(vm.currentPage)))
                     ),
                     color = Color.White,
                     style = MaterialTheme.typography.labelMedium,
@@ -474,7 +594,8 @@ fun PagerReader(
     onOpenBook: (BookDto, Boolean) -> Unit,
     onSetBookCover: (String) -> Unit,
     onSetSeriesCover: (String) -> Unit,
-    canEditMetadata: Boolean
+    canEditMetadata: Boolean,
+    aiTestModeEnabled: Boolean
 ) {
     if (vm.pageUrls.isEmpty()) return
     val pagerPages = remember(vm.pageUrls, vm.previousBook, vm.nextBook) {
@@ -529,7 +650,7 @@ fun PagerReader(
                         seriesId = vm.currentSeriesId,
                         bookId = vm.currentBookId,
                         cacheVersion = ThumbnailVersion.get(vm.currentBookId),
-                        originalSize = true
+                        originalSize = false
                     )
                 )
             }
@@ -550,7 +671,6 @@ fun PagerReader(
                 LaunchedEffect(actualPageIndex) { zoomState.reset() }
                 val pageUrl = vm.pageUrls[actualPageIndex]
                 var retryKey by remember(pageUrl) { mutableIntStateOf(0) }
-                var pageWidthPx by remember(pageUrl) { mutableIntStateOf(0) }
 
                 Box(
                     Modifier
@@ -570,69 +690,40 @@ fun PagerReader(
                         bookId = vm.currentBookId,
                         retryKey = retryKey
                     )
-                    SubcomposeAsyncImage(
-                        model = pageRequestState.request,
-                        contentDescription = stringResource(R.string.reader_page_description, actualPageIndex + 1),
-                        contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .onSizeChanged { pageWidthPx = it.width }
-                            .zoomable(
-                                zoomState,
-                                onTap = { position ->
-                                    when (
-                                        readerTapPageAction(
-                                            tapX = position.x,
-                                            width = pageWidthPx.toFloat(),
-                                            tapPageTurnEnabled = tapPageTurn,
-                                            einkMode = einkMode,
-                                            readingDirection = readingDirection
-                                        )
-                                    ) {
-                                        ReaderTapPageAction.PreviousPage -> {
-                                            pagerScope.launch {
-                                                pagerState.scrollToPage((pagerState.currentPage - 1).coerceAtLeast(0))
-                                            }
-                                        }
-                                        ReaderTapPageAction.NextPage -> {
-                                            pagerScope.launch {
-                                                pagerState.scrollToPage((pagerState.currentPage + 1).coerceAtMost(pagerPages.lastIndex))
-                                            }
-                                        }
-                                        ReaderTapPageAction.ToggleControls -> vm.toggleControls()
+                    ZoomableReaderPageContent(
+                        actualPageIndex = actualPageIndex,
+                        pageRequestState = pageRequestState,
+                        pageFit = pageFit,
+                        zoomState = zoomState,
+                        einkMode = einkMode,
+                        aiTranslatedPage = vm.currentAiTranslatedPage(actualPageIndex),
+                        aiDisplayMode = vm.aiTranslationDisplayModeForPage(actualPageIndex),
+                        onRetry = { retryKey += 1 },
+                        onTap = { tapX, width ->
+                            when (
+                                readerTapPageAction(
+                                    tapX = tapX,
+                                    width = width,
+                                    tapPageTurnEnabled = tapPageTurn,
+                                    einkMode = einkMode,
+                                    readingDirection = readingDirection
+                                )
+                            ) {
+                                ReaderTapPageAction.PreviousPage -> {
+                                    pagerScope.launch {
+                                        pagerState.scrollToPage((pagerState.currentPage - 1).coerceAtLeast(0))
                                     }
                                 }
-                            )
-                    ) {
-                        when (val state = painter.state) {
-                            is AsyncImagePainter.State.Loading -> {
-                                CachedPageLoadingContent(
-                                    state = state,
-                                    progressState = pageRequestState.progressState,
-                                    isLocalCacheHit = pageRequestState.isLocalCacheHit,
-                                    einkMode = einkMode,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            AsyncImagePainter.State.Empty -> {
-                                if (!pageRequestState.isLocalCacheHit) {
-                                    PageLoadingPlaceholder(
-                                        progressState = pageRequestState.progressState,
-                                        einkMode = einkMode,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                                ReaderTapPageAction.NextPage -> {
+                                    pagerScope.launch {
+                                        pagerState.scrollToPage((pagerState.currentPage + 1).coerceAtMost(pagerPages.lastIndex))
+                                    }
                                 }
+                                ReaderTapPageAction.ToggleControls -> vm.toggleControls()
                             }
-                            is AsyncImagePainter.State.Error -> {
-                                CachedPageErrorContent(
-                                    state = state,
-                                    modifier = Modifier.fillMaxSize(),
-                                    onRetry = { retryKey += 1 }
-                                )
-                            }
-                            else -> SubcomposeAsyncImageContent()
-                        }
-                    }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
             is ReaderPagerPage.Boundary -> {
@@ -662,7 +753,74 @@ fun PagerReader(
             onSetBookCover = onSetBookCover,
             onSetSeriesCover = onSetSeriesCover,
             canEditMetadata = canEditMetadata,
+            aiTestModeEnabled = aiTestModeEnabled,
             onDismiss = { longPressUrl = null },
+        )
+    }
+}
+
+@Composable
+private fun ZoomableReaderPageContent(
+    actualPageIndex: Int,
+    pageRequestState: ReaderPageImageRequestState,
+    pageFit: String,
+    zoomState: ZoomState,
+    einkMode: Boolean,
+    aiTranslatedPage: AiTranslatedPage?,
+    aiDisplayMode: AiTranslationDisplayMode,
+    onRetry: () -> Unit,
+    onTap: (tapX: Float, width: Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var pageWidthPx by remember(pageRequestState.request) { mutableIntStateOf(0) }
+    Box(
+        modifier
+            .onSizeChanged { pageWidthPx = it.width }
+            .zoomable(
+                zoomState,
+                onTap = { position -> onTap(position.x, pageWidthPx.toFloat()) }
+            )
+    ) {
+        SubcomposeAsyncImage(
+            model = pageRequestState.request,
+            contentDescription = stringResource(R.string.reader_page_description, actualPageIndex + 1),
+            contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
+            modifier = Modifier.matchParentSize()
+        ) {
+            when (val state = painter.state) {
+                is AsyncImagePainter.State.Loading -> {
+                    CachedPageLoadingContent(
+                        state = state,
+                        progressState = pageRequestState.progressState,
+                        isLocalCacheHit = pageRequestState.isLocalCacheHit,
+                        einkMode = einkMode,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                AsyncImagePainter.State.Empty -> {
+                    if (!pageRequestState.isLocalCacheHit) {
+                        PageLoadingPlaceholder(
+                            progressState = pageRequestState.progressState,
+                            einkMode = einkMode,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                is AsyncImagePainter.State.Error -> {
+                    CachedPageErrorContent(
+                        state = state,
+                        modifier = Modifier.fillMaxSize(),
+                        onRetry = onRetry
+                    )
+                }
+                else -> SubcomposeAsyncImageContent()
+            }
+        }
+        AiTranslationOverlay(
+            page = aiTranslatedPage,
+            mode = aiDisplayMode,
+            modifier = Modifier.matchParentSize(),
+            fillWidth = pageFit == "WIDTH"
         )
     }
 }
@@ -800,6 +958,7 @@ private fun PageContextMenu(
     onSetBookCover: (String) -> Unit,
     onSetSeriesCover: (String) -> Unit,
     canEditMetadata: Boolean,
+    aiTestModeEnabled: Boolean,
     onDismiss: () -> Unit,
 ) {
     val imageLoader = coil.Coil.imageLoader(context)
@@ -837,6 +996,17 @@ private fun PageContextMenu(
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(bottom = 16.dp)) {
+            if (aiTestModeEnabled) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.reader_ai_test_current_page)) },
+                    leadingContent = { Icon(Icons.Default.AutoAwesome, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        onDismiss()
+                        vm.testCurrentAiTranslationPage()
+                    }
+                )
+            }
             ListItem(
                 headlineContent = { Text(stringResource(R.string.reader_action_save)) },
                 leadingContent = { Icon(Icons.Default.Download, null) },
@@ -959,7 +1129,7 @@ fun ScrollReader(vm: ReaderViewModel) {
                             seriesId = vm.currentSeriesId,
                             bookId = vm.currentBookId,
                             cacheVersion = ThumbnailVersion.get(vm.currentBookId),
-                            originalSize = true
+                            originalSize = false
                         )
                     )
                 }
@@ -1017,6 +1187,12 @@ fun ScrollReader(vm: ReaderViewModel) {
                         else -> SubcomposeAsyncImageContent()
                     }
                 }
+                AiTranslationOverlay(
+                    page = vm.currentAiTranslatedPage(index),
+                    mode = vm.aiTranslationDisplayModeForPage(index),
+                    modifier = Modifier.matchParentSize(),
+                    fillWidth = true
+                )
             }
         }
     }

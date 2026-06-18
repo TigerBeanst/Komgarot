@@ -7,24 +7,42 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Cached
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fail.tiger.komgarot.KomgarotApp
 import fail.tiger.komgarot.R
+import fail.tiger.komgarot.data.local.AiImageTransport
+import fail.tiger.komgarot.data.local.AiLocalModelSource
+import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.CacheClearTarget
 import fail.tiger.komgarot.data.local.CacheMaintenance
 import fail.tiger.komgarot.data.local.CacheSizeOption
 import fail.tiger.komgarot.data.local.ReaderPageCache
+import fail.tiger.komgarot.data.local.SecureAiSettings
+import fail.tiger.komgarot.data.local.SecureWebDavSettings
+import fail.tiger.komgarot.data.repository.AiLocalModelTier
+import fail.tiger.komgarot.data.repository.defaultAiLocalModelPlan
+import fail.tiger.komgarot.data.repository.deviceProfile
+import fail.tiger.komgarot.data.repository.recommendAiLocalModelTier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -53,6 +71,7 @@ fun MeScreen(
     userEmail: String?,
     isAdmin: Boolean,
     onCachedBooksClick: () -> Unit,
+    onAiTranslationTasksClick: () -> Unit,
     onAdminClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onLogout: () -> Unit
@@ -72,6 +91,12 @@ fun MeScreen(
                 supportingContent = { Text(stringResource(R.string.cached_books_entry_desc)) },
                 leadingContent = { Icon(Icons.Default.Download, contentDescription = null) },
                 modifier = Modifier.clickable(onClick = onCachedBooksClick)
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ai_translation_tasks)) },
+                supportingContent = { Text(stringResource(R.string.ai_translation_tasks_entry_desc)) },
+                leadingContent = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onAiTranslationTasksClick)
             )
             if (isAdmin) {
                 ListItem(
@@ -96,6 +121,28 @@ fun MeScreen(
     }
 }
 
+private enum class SettingsPage(val titleRes: Int, val icon: ImageVector) {
+    CACHE(R.string.settings_section_cache, Icons.Default.Cached),
+    READING(R.string.settings_section_reading, Icons.AutoMirrored.Filled.MenuBook),
+    AI(R.string.settings_section_ai_translation, Icons.Default.AutoAwesome),
+    MODELS(R.string.settings_section_ai_models, Icons.Default.Download),
+    WEBDAV(R.string.settings_section_webdav_backup, Icons.Default.CloudUpload),
+    SECURITY(R.string.settings_section_security, Icons.Default.Security)
+}
+
+private data class AiTargetLanguageOption(
+    val locale: String,
+    val languageNameRes: Int
+)
+
+private val aiTargetLanguageOptions = listOf(
+    AiTargetLanguageOption("zh-CN", R.string.settings_ai_language_zh_cn),
+    AiTargetLanguageOption("zh-TW", R.string.settings_ai_language_zh_tw),
+    AiTargetLanguageOption("en-US", R.string.settings_ai_language_en_us),
+    AiTargetLanguageOption("ja-JP", R.string.settings_ai_language_ja_jp),
+    AiTargetLanguageOption("ko-KR", R.string.settings_ai_language_ko_kr)
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalCoilApi::class)
 @Composable
 private fun SettingsContent(
@@ -119,20 +166,81 @@ private fun SettingsContent(
     val coverCacheSizeMb by prefs.coverCacheSizeMb.collectAsStateWithLifecycle(initialValue = CacheSizeOption.default.sizeMb)
     val readerCacheSizeMb by prefs.readerCacheSizeMb.collectAsStateWithLifecycle(initialValue = CacheSizeOption.default.sizeMb)
     val clearCacheOnStartup by prefs.clearCacheOnStartup.collectAsStateWithLifecycle(initialValue = false)
+    val aiTranslationEnabled by prefs.aiTranslationEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val aiBaseUrl by prefs.aiBaseUrl.collectAsStateWithLifecycle(initialValue = "")
+    val aiModelName by prefs.aiModelName.collectAsStateWithLifecycle(initialValue = "")
+    val aiTargetLocale by prefs.aiTargetLocale.collectAsStateWithLifecycle(initialValue = "")
+    val aiTargetLanguageName by prefs.aiTargetLanguageName.collectAsStateWithLifecycle(initialValue = "")
+    val aiLocalModelSource by prefs.aiLocalModelSource.collectAsStateWithLifecycle(initialValue = AiLocalModelSource.HUGGING_FACE)
+    val aiModelCollectionId by prefs.aiModelCollectionId.collectAsStateWithLifecycle(initialValue = "PaddlePaddle/pp-ocrv6")
+    val aiModelRevision by prefs.aiModelRevision.collectAsStateWithLifecycle(initialValue = "main")
+    val aiDownloadLatestModel by prefs.aiDownloadLatestModel.collectAsStateWithLifecycle(initialValue = true)
+    val aiAutoSelectDeviceTier by prefs.aiAutoSelectDeviceTier.collectAsStateWithLifecycle(initialValue = true)
+    val aiImageTransport by prefs.aiImageTransport.collectAsStateWithLifecycle(initialValue = AiImageTransport.BASE64)
+    val aiPagesPerRequest by prefs.aiPagesPerRequest.collectAsStateWithLifecycle(initialValue = 10)
+    val aiConcurrentRequests by prefs.aiConcurrentRequests.collectAsStateWithLifecycle(initialValue = 3)
+    val aiMaxImagesPerRequest by prefs.aiMaxImagesPerRequest.collectAsStateWithLifecycle(initialValue = 20)
+    val aiTimeoutSeconds by prefs.aiTimeoutSeconds.collectAsStateWithLifecycle(initialValue = 30)
+    val aiTestModeEnabled by prefs.aiTestModeEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val app = context.applicationContext as? KomgarotApp
+    var secureAiSettings by remember { mutableStateOf(app?.secureAiSettingsStore?.read() ?: SecureAiSettings()) }
+    var secureWebDavSettings by remember { mutableStateOf(app?.secureWebDavSettingsStore?.read() ?: SecureWebDavSettings()) }
     var showPreloadDialog by remember { mutableStateOf(false) }
     var showReadingDialog by remember { mutableStateOf(false) }
     var showFitDialog by remember { mutableStateOf(false) }
+    var showAiBaseUrlDialog by remember { mutableStateOf(false) }
+    var showAiApiKeyDialog by remember { mutableStateOf(false) }
+    var showAiModelDialog by remember { mutableStateOf(false) }
+    var showAiTargetLanguageMenu by remember { mutableStateOf(false) }
+    var showAiModelSourceDialog by remember { mutableStateOf(false) }
+    var showAiModelCollectionDialog by remember { mutableStateOf(false) }
+    var showAiModelRevisionDialog by remember { mutableStateOf(false) }
+    var showAiImageTransportDialog by remember { mutableStateOf(false) }
+    var showAiImageUrlExtraQueryDialog by remember { mutableStateOf(false) }
+    var showAiPagesPerRequestDialog by remember { mutableStateOf(false) }
+    var showAiConcurrencyDialog by remember { mutableStateOf(false) }
+    var showAiMaxImagesPerRequestDialog by remember { mutableStateOf(false) }
+    var showAiTimeoutDialog by remember { mutableStateOf(false) }
+    var showDeleteLocalModelsDialog by remember { mutableStateOf(false) }
+    var showWebDavUrlDialog by remember { mutableStateOf(false) }
+    var showWebDavUsernameDialog by remember { mutableStateOf(false) }
+    var showWebDavPasswordDialog by remember { mutableStateOf(false) }
+    var localModelDownloading by remember { mutableStateOf(false) }
+    var localModelsInstalled by remember { mutableStateOf(false) }
     val appLockEnabled by prefs.appLockEnabled.collectAsStateWithLifecycle(initialValue = false)
     val appLockTimeout by prefs.appLockTimeout.collectAsStateWithLifecycle(initialValue = 0)
     var showLockTimeoutDialog by remember { mutableStateOf(false) }
+    var selectedSettingsPage by remember { mutableStateOf<SettingsPage?>(null) }
 
     LaunchedEffect(Unit) {
         cacheSize = getCacheSize(context)
+    }
+    val currentDeviceProfile = remember(context) { deviceProfile(context) }
+    val currentDeviceTier = remember(currentDeviceProfile) { recommendAiLocalModelTier(currentDeviceProfile) }
+    val recommendedLocalModelPlan = remember(aiModelCollectionId, aiModelRevision, aiAutoSelectDeviceTier, currentDeviceTier) {
+        defaultAiLocalModelPlan(
+            collectionId = aiModelCollectionId,
+            revision = aiModelRevision,
+            tier = if (aiAutoSelectDeviceTier) currentDeviceTier else AiLocalModelTier.LOW
+        )
+    }
+    LaunchedEffect(app, recommendedLocalModelPlan, aiModelRevision) {
+        localModelsInstalled = app?.aiLocalModelRepository?.isPlanInstalled(recommendedLocalModelPlan, aiModelRevision) == true
     }
 
     Scaffold(topBar = topBar) { padding ->
         Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
             headerContent()
+            val page = selectedSettingsPage
+            if (page == null) {
+                SettingsCategoryList(onSelect = { selectedSettingsPage = it })
+            } else {
+                SettingsPageContent(
+                    page = page,
+                    onBack = { selectedSettingsPage = null }
+                ) {
+            when (page) {
+                SettingsPage.CACHE -> {
             SettingsSectionHeader(stringResource(R.string.settings_section_cache))
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_clear_cache)) },
@@ -162,7 +270,8 @@ private fun SettingsContent(
                     scope.launch { prefs.setClearCacheOnStartup(!clearCacheOnStartup) }
                 }
             )
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                }
+                SettingsPage.READING -> {
             SettingsSectionHeader(stringResource(R.string.settings_section_reading))
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_eink_mode)) },
@@ -233,7 +342,250 @@ private fun SettingsContent(
                 },
                 modifier = Modifier.clickable { scope.launch { prefs.setKeepScreenOn(!keepScreenOn) } }
             )
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                }
+                SettingsPage.AI -> {
+            SettingsSectionHeader(stringResource(R.string.settings_section_ai_translation))
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_translation_enabled)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_translation_enabled_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = aiTranslationEnabled,
+                        onCheckedChange = { scope.launch { prefs.setAiTranslationEnabled(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setAiTranslationEnabled(!aiTranslationEnabled) }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_base_url)) },
+                supportingContent = { Text(aiBaseUrl.ifBlank { stringResource(R.string.empty_dash) }) },
+                modifier = Modifier.clickable { showAiBaseUrlDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_api_key)) },
+                supportingContent = {
+                    Text(stringResource(if (secureAiSettings.apiKey.isBlank()) R.string.settings_not_configured else R.string.settings_configured))
+                },
+                modifier = Modifier.clickable { showAiApiKeyDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_model_name)) },
+                supportingContent = { Text(aiModelName.ifBlank { stringResource(R.string.settings_ai_model_requires_vision) }) },
+                modifier = Modifier.clickable { showAiModelDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_target_language)) },
+                supportingContent = { Text("$aiTargetLanguageName · $aiTargetLocale") },
+                modifier = Modifier.clickable { showAiTargetLanguageMenu = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.ai_translation_mode_local_detection)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_local_detection_pipeline_desc)) }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_image_transport)) },
+                supportingContent = {
+                    Text(
+                        stringResource(
+                            if (aiImageTransport == AiImageTransport.IMAGE_URL) {
+                                R.string.settings_ai_image_transport_url
+                            } else {
+                                R.string.settings_ai_image_transport_base64
+                            }
+                        )
+                    )
+                },
+                modifier = Modifier.clickable { showAiImageTransportDialog = true }
+            )
+            if (aiImageTransport == AiImageTransport.IMAGE_URL) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_ai_image_url_extra_query)) },
+                    supportingContent = {
+                        Text(
+                            if (secureAiSettings.imageUrlExtraQuery.isBlank()) {
+                                stringResource(R.string.settings_ai_image_url_warning)
+                            } else {
+                                stringResource(R.string.settings_configured)
+                            }
+                        )
+                    },
+                    modifier = Modifier.clickable { showAiImageUrlExtraQueryDialog = true }
+                )
+            }
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_pages_per_request)) },
+                supportingContent = { Text(aiPagesPerRequest.toString()) },
+                modifier = Modifier.clickable { showAiPagesPerRequestDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_max_images_per_request)) },
+                supportingContent = { Text(aiMaxImagesPerRequest.toString()) },
+                modifier = Modifier.clickable { showAiMaxImagesPerRequestDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_concurrent_requests)) },
+                supportingContent = { Text(aiConcurrentRequests.toString()) },
+                modifier = Modifier.clickable { showAiConcurrencyDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_timeout)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_timeout_seconds, aiTimeoutSeconds)) },
+                modifier = Modifier.clickable { showAiTimeoutDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_test_mode)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_model_requires_vision)) },
+                trailingContent = {
+                    Switch(
+                        checked = aiTestModeEnabled,
+                        onCheckedChange = { scope.launch { prefs.setAiTestModeEnabled(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setAiTestModeEnabled(!aiTestModeEnabled) }
+                }
+            )
+                }
+                SettingsPage.MODELS -> {
+            SettingsSectionHeader(stringResource(R.string.settings_section_ai_models))
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_model_source)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_model_source_huggingface)) },
+                modifier = Modifier.clickable { showAiModelSourceDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_model_collection)) },
+                supportingContent = { Text(aiModelCollectionId) },
+                modifier = Modifier.clickable { showAiModelCollectionDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_model_revision)) },
+                supportingContent = {
+                    Text(if (aiDownloadLatestModel) stringResource(R.string.settings_ai_model_download_latest) else aiModelRevision)
+                },
+                modifier = Modifier.clickable { showAiModelRevisionDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_model_download_policy)) },
+                supportingContent = {
+                    Text(
+                        if (aiDownloadLatestModel) {
+                            stringResource(R.string.settings_ai_model_download_latest)
+                        } else {
+                            stringResource(R.string.settings_ai_model_download_fixed)
+                        }
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = aiDownloadLatestModel,
+                        onCheckedChange = { scope.launch { prefs.setAiDownloadLatestModel(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setAiDownloadLatestModel(!aiDownloadLatestModel) }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_model_auto_select)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_model_auto_select_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = aiAutoSelectDeviceTier,
+                        onCheckedChange = { scope.launch { prefs.setAiAutoSelectDeviceTier(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setAiAutoSelectDeviceTier(!aiAutoSelectDeviceTier) }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_model_device_tier)) },
+                supportingContent = { Text(stringResource(deviceTierLabelRes(currentDeviceTier))) }
+            )
+            ListItem(
+                headlineContent = {
+                    Text(stringResource(if (localModelsInstalled) R.string.settings_ai_model_delete_now else R.string.settings_ai_model_download_now))
+                },
+                supportingContent = {
+                    Text(
+                        stringResource(if (localModelsInstalled) R.string.settings_ai_model_delete_now_desc else R.string.settings_ai_model_download_now_desc) +
+                            " · " +
+                            stringResource(if (localModelsInstalled) R.string.settings_ai_model_installed else R.string.settings_ai_model_missing)
+                    )
+                },
+                trailingContent = {
+                    if (localModelDownloading) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else if (localModelsInstalled) {
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.settings_ai_model_delete_now))
+                    }
+                },
+                modifier = Modifier.clickable(enabled = !localModelDownloading) {
+                    if (localModelsInstalled) {
+                        showDeleteLocalModelsDialog = true
+                        return@clickable
+                    }
+                    val repository = app?.aiLocalModelRepository ?: return@clickable
+                    scope.launch {
+                        localModelDownloading = true
+                        val result = repository.downloadPlan(recommendedLocalModelPlan, aiModelRevision)
+                        localModelDownloading = false
+                        localModelsInstalled = result.isSuccess
+                        val message = if (result.isSuccess) {
+                            context.getString(R.string.settings_ai_model_download_success)
+                        } else {
+                            context.getString(R.string.settings_ai_model_download_failed) + ": " + result.exceptionOrNull()?.message.orEmpty()
+                        }
+                        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            )
+        }
+                SettingsPage.WEBDAV -> {
+            SettingsSectionHeader(stringResource(R.string.settings_section_webdav_backup))
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_webdav_url)) },
+                supportingContent = { Text(if (secureWebDavSettings.url.isBlank()) stringResource(R.string.empty_dash) else secureWebDavSettings.url) },
+                modifier = Modifier.clickable { showWebDavUrlDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_webdav_username)) },
+                supportingContent = {
+                    Text(stringResource(if (secureWebDavSettings.username.isBlank()) R.string.settings_not_configured else R.string.settings_configured))
+                },
+                modifier = Modifier.clickable { showWebDavUsernameDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_webdav_password)) },
+                supportingContent = {
+                    Text(stringResource(if (secureWebDavSettings.password.isBlank()) R.string.settings_not_configured else R.string.settings_configured))
+                },
+                modifier = Modifier.clickable { showWebDavPasswordDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_webdav_backup_scope)) },
+                supportingContent = { Text(stringResource(R.string.settings_webdav_backup_excludes_credentials)) }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_webdav_backup_now)) },
+                supportingContent = { Text(stringResource(R.string.settings_webdav_backup_now_desc)) },
+                modifier = Modifier.clickable {
+                    scope.launch {
+                        val result = app?.webDavBackupRepository?.backupNow()
+                        val message = if (result?.isSuccess == true) {
+                            context.getString(R.string.settings_webdav_backup_success)
+                        } else {
+                            context.getString(R.string.operation_failed)
+                        }
+                        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+                }
+                SettingsPage.SECURITY -> {
             SettingsSectionHeader(stringResource(R.string.settings_section_security))
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_app_lock)) },
@@ -261,7 +613,41 @@ private fun SettingsContent(
                     modifier = Modifier.clickable { showLockTimeoutDialog = true }
                 )
             }
+                }
+            }
+                }
+            }
         }
+    }
+
+    if (showDeleteLocalModelsDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteLocalModelsDialog = false },
+            title = { Text(stringResource(R.string.settings_ai_model_delete_title)) },
+            text = { Text(stringResource(R.string.settings_ai_model_delete_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteLocalModelsDialog = false
+                    scope.launch {
+                        localModelDownloading = true
+                        val deleted = app?.aiLocalModelRepository?.deletePlan(recommendedLocalModelPlan, aiModelRevision) == true
+                        localModelsInstalled = app?.aiLocalModelRepository?.isPlanInstalled(recommendedLocalModelPlan, aiModelRevision) == true
+                        localModelDownloading = false
+                        val message = if (deleted) {
+                            context.getString(R.string.settings_ai_model_delete_success)
+                        } else {
+                            context.getString(R.string.settings_ai_model_delete_failed)
+                        }
+                        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Text(stringResource(R.string.settings_ai_model_delete_confirm), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteLocalModelsDialog = false }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
     }
 
     if (showLockTimeoutDialog) {
@@ -440,6 +826,206 @@ private fun SettingsContent(
             onDismiss = { showReaderCacheSizeDialog = false }
         )
     }
+
+    if (showAiBaseUrlDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_base_url),
+            initialValue = aiBaseUrl,
+            placeholder = stringResource(R.string.settings_ai_base_url_placeholder),
+            onSave = { scope.launch { prefs.setAiBaseUrl(it) } },
+            onDismiss = { showAiBaseUrlDialog = false }
+        )
+    }
+
+    if (showAiModelDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_model_name),
+            initialValue = aiModelName,
+            onSave = { scope.launch { prefs.setAiModelName(it) } },
+            onDismiss = { showAiModelDialog = false }
+        )
+    }
+
+    if (showAiApiKeyDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_api_key),
+            initialValue = secureAiSettings.apiKey,
+            singleLine = false,
+            minLines = 1,
+            maxLines = 6,
+            onSave = {
+                app?.secureAiSettingsStore?.saveApiKey(it)
+                secureAiSettings = app?.secureAiSettingsStore?.read() ?: secureAiSettings.copy(apiKey = it)
+            },
+            onDismiss = { showAiApiKeyDialog = false }
+        )
+    }
+
+    if (showAiTargetLanguageMenu) {
+        AlertDialog(
+            onDismissRequest = { showAiTargetLanguageMenu = false },
+            title = { Text(stringResource(R.string.settings_ai_target_language)) },
+            text = {
+                Column {
+                    aiTargetLanguageOptions.forEach { option ->
+                        val label = stringResource(option.languageNameRes)
+                        RadioOption(option.locale, "$label · ${option.locale}", aiTargetLocale) {
+                            scope.launch { prefs.setAiTargetLocale(option.locale, label) }
+                            showAiTargetLanguageMenu = false
+                        }
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    if (showAiModelSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiModelSourceDialog = false },
+            title = { Text(stringResource(R.string.settings_ai_model_source)) },
+            text = {
+                Column {
+                    RadioOption(
+                        AiLocalModelSource.HUGGING_FACE.storedValue,
+                        stringResource(R.string.settings_ai_model_source_huggingface),
+                        aiLocalModelSource.storedValue
+                    ) {
+                        scope.launch { prefs.setAiLocalModelSource(AiLocalModelSource.HUGGING_FACE) }
+                        showAiModelSourceDialog = false
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    if (showAiModelCollectionDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_model_collection),
+            initialValue = aiModelCollectionId,
+            placeholder = stringResource(R.string.settings_ai_model_huggingface_collection_placeholder),
+            onSave = { value -> scope.launch { prefs.setAiModelCollectionId(value) } },
+            onDismiss = { showAiModelCollectionDialog = false }
+        )
+    }
+
+    if (showAiModelRevisionDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_model_revision),
+            initialValue = aiModelRevision,
+            placeholder = "main",
+            onSave = { value -> scope.launch { prefs.setAiModelRevision(value) } },
+            onDismiss = { showAiModelRevisionDialog = false }
+        )
+    }
+
+    if (showAiImageTransportDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiImageTransportDialog = false },
+            title = { Text(stringResource(R.string.settings_ai_image_transport)) },
+            text = {
+                Column {
+                    RadioOption(AiImageTransport.BASE64.storedValue, stringResource(R.string.settings_ai_image_transport_base64), aiImageTransport.storedValue) {
+                        scope.launch { prefs.setAiImageTransport(AiImageTransport.BASE64) }
+                        showAiImageTransportDialog = false
+                    }
+                    RadioOption(AiImageTransport.IMAGE_URL.storedValue, stringResource(R.string.settings_ai_image_transport_url), aiImageTransport.storedValue) {
+                        scope.launch { prefs.setAiImageTransport(AiImageTransport.IMAGE_URL) }
+                        showAiImageTransportDialog = false
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    if (showAiImageUrlExtraQueryDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_image_url_extra_query),
+            initialValue = secureAiSettings.imageUrlExtraQuery,
+            onSave = {
+                app?.secureAiSettingsStore?.saveImageUrlExtraQuery(it)
+                secureAiSettings = app?.secureAiSettingsStore?.read() ?: secureAiSettings.copy(imageUrlExtraQuery = it)
+            },
+            onDismiss = { showAiImageUrlExtraQueryDialog = false }
+        )
+    }
+
+    if (showAiPagesPerRequestDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_pages_per_request),
+            initialValue = aiPagesPerRequest.toString(),
+            onSave = { value -> scope.launch { prefs.setAiPagesPerRequest(value.toIntOrNull() ?: aiPagesPerRequest) } },
+            onDismiss = { showAiPagesPerRequestDialog = false }
+        )
+    }
+
+    if (showAiMaxImagesPerRequestDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_max_images_per_request),
+            initialValue = aiMaxImagesPerRequest.toString(),
+            onSave = { value -> scope.launch { prefs.setAiMaxImagesPerRequest(value.toIntOrNull() ?: aiMaxImagesPerRequest) } },
+            onDismiss = { showAiMaxImagesPerRequestDialog = false }
+        )
+    }
+
+    if (showAiConcurrencyDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_concurrent_requests),
+            initialValue = aiConcurrentRequests.toString(),
+            onSave = { value -> scope.launch { prefs.setAiConcurrentRequests(value.toIntOrNull() ?: aiConcurrentRequests) } },
+            onDismiss = { showAiConcurrencyDialog = false }
+        )
+    }
+
+    if (showAiTimeoutDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_timeout),
+            initialValue = aiTimeoutSeconds.toString(),
+            onSave = { value -> scope.launch { prefs.setAiTimeoutSeconds(value.toIntOrNull() ?: aiTimeoutSeconds) } },
+            onDismiss = { showAiTimeoutDialog = false }
+        )
+    }
+
+    if (showWebDavUrlDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_webdav_url),
+            initialValue = secureWebDavSettings.url,
+            onSave = {
+                val next = secureWebDavSettings.copy(url = it)
+                app?.secureWebDavSettingsStore?.save(next)
+                secureWebDavSettings = app?.secureWebDavSettingsStore?.read() ?: next
+            },
+            onDismiss = { showWebDavUrlDialog = false }
+        )
+    }
+
+    if (showWebDavUsernameDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_webdav_username),
+            initialValue = secureWebDavSettings.username,
+            onSave = {
+                val next = secureWebDavSettings.copy(username = it)
+                app?.secureWebDavSettingsStore?.save(next)
+                secureWebDavSettings = app?.secureWebDavSettingsStore?.read() ?: next
+            },
+            onDismiss = { showWebDavUsernameDialog = false }
+        )
+    }
+
+    if (showWebDavPasswordDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_webdav_password),
+            initialValue = secureWebDavSettings.password,
+            onSave = {
+                val next = secureWebDavSettings.copy(password = it)
+                app?.secureWebDavSettingsStore?.save(next)
+                secureWebDavSettings = app?.secureWebDavSettingsStore?.read() ?: next
+            },
+            onDismiss = { showWebDavPasswordDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -461,6 +1047,43 @@ private fun SettingsSectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp)
     )
+}
+
+@Composable
+private fun SettingsCategoryList(onSelect: (SettingsPage) -> Unit) {
+    SettingsPage.entries.forEach { page ->
+        SettingsCategoryItem(page = page, onClick = { onSelect(page) })
+    }
+}
+
+@Composable
+private fun SettingsCategoryItem(page: SettingsPage, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(stringResource(page.titleRes)) },
+        leadingContent = { Icon(page.icon, contentDescription = null) },
+        trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+        modifier = Modifier.clickable(onClick = onClick)
+    )
+}
+
+@Composable
+private fun SettingsPageContent(
+    page: SettingsPage,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column {
+        ListItem(
+            headlineContent = { Text(stringResource(page.titleRes)) },
+            leadingContent = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                }
+            },
+            modifier = Modifier.clickable(onClick = onBack)
+        )
+        content()
+    }
 }
 
 @OptIn(ExperimentalCoilApi::class)
@@ -500,6 +1123,51 @@ private fun formatCacheSize(bytes: Long): String {
         bytes < 1024 * 1024 * 1024 -> "%.1f MB".format(bytes / (1024.0 * 1024))
         else -> "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
     }
+}
+
+private fun deviceTierLabelRes(tier: AiLocalModelTier): Int =
+    when (tier) {
+        AiLocalModelTier.LOW -> R.string.settings_ai_model_device_tier_low
+        AiLocalModelTier.BALANCED -> R.string.settings_ai_model_device_tier_balanced
+        AiLocalModelTier.HIGH -> R.string.settings_ai_model_device_tier_high
+    }
+
+@Composable
+private fun TextSettingDialog(
+    title: String,
+    initialValue: String,
+    placeholder: String? = null,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    maxLines: Int = 1,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var value by remember(initialValue) { mutableStateOf(initialValue) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                placeholder = placeholder?.let { { Text(it) } },
+                singleLine = singleLine,
+                minLines = minLines,
+                maxLines = maxLines,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onSave(value)
+                onDismiss()
+            }) { Text(stringResource(R.string.save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
 }
 
 @Composable
