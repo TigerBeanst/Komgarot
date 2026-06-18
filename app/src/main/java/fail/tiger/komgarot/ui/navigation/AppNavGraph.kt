@@ -54,6 +54,8 @@ import fail.tiger.komgarot.KomgarotApp
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookDto
+import fail.tiger.komgarot.ui.aitranslation.AiTranslationTaskScreen
+import fail.tiger.komgarot.ui.aitranslation.AiTranslationTaskViewModel
 import fail.tiger.komgarot.ui.admin.AdminScreen
 import fail.tiger.komgarot.ui.admin.AdminViewModel
 import fail.tiger.komgarot.ui.book.BookScreen
@@ -394,7 +396,8 @@ fun AppNavGraph(app: KomgarotApp) {
                     app.bookRepository,
                     app.seriesRepository,
                     imageCacheInvalidator,
-                    textProvider
+                    textProvider,
+                    app.aiTranslationRepository
                 )
             )
             BookDetailScreen(
@@ -441,7 +444,12 @@ fun AppNavGraph(app: KomgarotApp) {
             val page = back.arguments?.getInt("page") ?: 1
             val trackProgress = back.arguments?.getBoolean("trackProgress") ?: true
             val vm: ReaderViewModel = viewModel(
-                factory = ReaderViewModel.Factory(app.bookRepository, app.authPreferences, textProvider)
+                factory = ReaderViewModel.Factory(
+                    app.bookRepository,
+                    app.authPreferences,
+                    textProvider,
+                    app.aiTranslationRepository
+                )
             )
             ReaderScreen(
                 bookId = bookId,
@@ -496,6 +504,7 @@ fun AppNavGraph(app: KomgarotApp) {
                 userEmail = user?.email,
                 isAdmin = canEditMetadata,
                 onCachedBooksClick = { navController.navigate(Screen.CachedBooks.route) },
+                onAiTranslationTasksClick = { navController.navigate(Screen.AiTranslationTasks.route) },
                 onAdminClick = { navController.navigate(Screen.Admin.route) },
                 onSettingsClick = { navController.navigate(Screen.Settings.route) },
                 onLogout = {
@@ -525,6 +534,16 @@ fun AppNavGraph(app: KomgarotApp) {
                         )
                     )
                 },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.AiTranslationTasks.route) {
+            val vm: AiTranslationTaskViewModel = viewModel(
+                factory = AiTranslationTaskViewModel.Factory(app.aiTranslationStore)
+            )
+            AiTranslationTaskScreen(
+                vm = vm,
                 onBack = { navController.popBackStack() }
             )
         }

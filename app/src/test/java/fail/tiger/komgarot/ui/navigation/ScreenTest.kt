@@ -66,4 +66,9 @@ class ScreenTest {
     fun cachedBooksRouteIsStable() {
         assertEquals("cached-books", Screen.CachedBooks.route)
     }
+
+    @Test
+    fun aiTranslationTasksRouteIsStable() {
+        assertEquals("ai_translation_tasks", Screen.AiTranslationTasks.route)
+    }
 }

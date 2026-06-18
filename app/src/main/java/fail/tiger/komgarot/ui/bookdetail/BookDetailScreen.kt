@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
+import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
 import fail.tiger.komgarot.data.local.thumbnailCacheKey
@@ -41,7 +43,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookDetailScreen(
     bookId: String,
@@ -63,6 +65,8 @@ fun BookDetailScreen(
     val copied = stringResource(R.string.copied)
     val unknown = stringResource(R.string.unknown)
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    var showAiDeleteFirstDialog by remember { mutableStateOf(false) }
+    var showAiDeleteFinalDialog by remember { mutableStateOf(false) }
 
     BackHandler { onBack() }
 
@@ -181,6 +185,18 @@ fun BookDetailScreen(
                             }
                         )
 
+                        AiTranslationBookAction(
+                            state = vm.aiTranslationState,
+                            enabled = true,
+                            onClick = {
+                                when {
+                                    vm.aiTranslationState.running -> vm.refreshAiTranslationState()
+                                    vm.aiTranslationState.hasAnyResult -> showAiDeleteFirstDialog = true
+                                    else -> vm.startAiTranslation(serverUrl)
+                                }
+                            }
+                        )
+
                         BookDetailReadStatusActions(
                             canMarkUnread = book?.readProgress != null,
                             canMarkRead = book != null,
@@ -261,6 +277,48 @@ fun BookDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearCacheDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    if (showAiDeleteFirstDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiDeleteFirstDialog = false },
+            title = { Text(stringResource(R.string.ai_translate_delete_title)) },
+            text = { Text(stringResource(R.string.ai_translate_delete_message_first)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showAiDeleteFirstDialog = false
+                    showAiDeleteFinalDialog = true
+                }) {
+                    Text(stringResource(R.string.ai_translate_delete_continue))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAiDeleteFirstDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    if (showAiDeleteFinalDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiDeleteFinalDialog = false },
+            title = { Text(stringResource(R.string.ai_translate_delete_title_final)) },
+            text = { Text(stringResource(R.string.ai_translate_delete_message_final)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.clearAiTranslation()
+                    showAiDeleteFinalDialog = false
+                }) {
+                    Text(stringResource(R.string.ai_translate_delete_confirm), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAiDeleteFinalDialog = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -362,6 +420,41 @@ private fun BookDownloadAction(
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
+
+@Composable
+private fun AiTranslationBookAction(
+    state: BookAiTranslationUiState,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        shape = MaterialTheme.shapes.large,
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+    ) {
+        Icon(Icons.Default.AutoAwesome, contentDescription = null)
+        Spacer(Modifier.width(8.dp))
+        val text = if (state.running || state.hasAnyResult) {
+            stringResource(
+                R.string.ai_translate_progress_with_mode,
+                state.completedPages,
+                state.totalPages,
+                state.failedPages,
+                stringResource(aiTranslationModeShortLabelRes(state.preferredMode))
+            )
+        } else if (enabled) {
+            stringResource(R.string.ai_translate_book_mode, stringResource(aiTranslationModeShortLabelRes(state.preferredMode)))
+        } else {
+            stringResource(R.string.ai_translate_config_required)
+        }
+        Text(text, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+private fun aiTranslationModeShortLabelRes(mode: AiTranslationMode): Int =
+    R.string.ai_translation_mode_local_detection_short
 
 @Composable
 private fun BookDetailReadStatusActions(

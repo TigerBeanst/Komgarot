@@ -10,11 +10,14 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.R
+import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.BookDownloadCache
+import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.local.ImageCacheInvalidator
+import fail.tiger.komgarot.data.repository.AiTranslationRepository
 import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.data.repository.SeriesRepository
 import fail.tiger.komgarot.ui.i18n.UiTextProvider
@@ -56,7 +59,8 @@ class BookDetailViewModel(
     private val seriesRepo: SeriesRepository,
     private val imageCacheInvalidator: ImageCacheInvalidator,
     private val downloadCache: BookDownloadCache,
-    private val loadBookDetailFailed: String
+    private val loadBookDetailFailed: String,
+    private val aiTranslationRepository: AiTranslationRepository? = null
 ) : ViewModel() {
     var book by mutableStateOf<BookDto?>(null)
     var series by mutableStateOf<SeriesDto?>(null)
@@ -64,6 +68,7 @@ class BookDetailViewModel(
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var downloadState by mutableStateOf<BookDownloadState>(BookDownloadState.Idle)
+    var aiTranslationState by mutableStateOf(BookAiTranslationUiState())
     private var currentBookId = ""
     private var currentServerUrl = ""
 
@@ -78,6 +83,7 @@ class BookDetailViewModel(
                     book = it
                     metadata = it.metadata
                     updateDownloadState(serverUrl, it)
+                    refreshAiTranslationState()
                 }
                 .onFailure {
                     error = it.message?.takeIf { message -> message.isNotBlank() } ?: loadBookDetailFailed
@@ -133,12 +139,46 @@ class BookDetailViewModel(
         downloadState = BookDownloadState.Idle
     }
 
+    fun refreshAiTranslationState() {
+        val loaded = book ?: return
+        val translated = aiTranslationRepository?.readBookState(loaded.id)
+        val pages = translated?.pages.orEmpty()
+        aiTranslationState = BookAiTranslationUiState(
+            hasAnyResult = pages.any { it.blocks.isNotEmpty() || it.status == AiTranslationPageStatus.DONE },
+            completedPages = pages.count { it.status == AiTranslationPageStatus.DONE },
+            failedPages = pages.count { it.status == AiTranslationPageStatus.FAILED },
+            totalPages = loaded.media.pagesCount,
+            running = pages.any { it.status == AiTranslationPageStatus.RUNNING },
+            preferredMode = aiTranslationRepository?.preferredModeForBook(loaded.id) ?: AiTranslationMode.LOCAL_DETECTION
+        )
+    }
+
+    fun clearAiTranslation() {
+        val loaded = book ?: return
+        aiTranslationRepository?.clearBook(loaded.id)
+        refreshAiTranslationState()
+    }
+
+    fun startAiTranslation(serverUrl: String) {
+        val loaded = book ?: return
+        aiTranslationRepository?.setTranslationDisplayEnabled(true)
+        aiTranslationRepository?.startBookTranslation(loaded, serverUrl)
+        aiTranslationState = aiTranslationState.copy(running = true)
+    }
+
+    fun setAiTranslationMode(mode: AiTranslationMode) {
+        val loaded = book ?: return
+        aiTranslationRepository?.setPreferredMode(loaded, mode)
+        aiTranslationState = aiTranslationState.copy(preferredMode = mode)
+    }
+
     class Factory(
         context: Context,
         bookRepo: BookRepository,
         seriesRepo: SeriesRepository,
         imageCacheInvalidator: ImageCacheInvalidator,
-        textProvider: UiTextProvider
+        textProvider: UiTextProvider,
+        aiTranslationRepository: AiTranslationRepository? = null
     ) : ViewModelProvider.Factory by viewModelFactory({
         initializer {
             BookDetailViewModel(
@@ -146,7 +186,8 @@ class BookDetailViewModel(
                 seriesRepo,
                 imageCacheInvalidator,
                 BookDownloadCache(context.applicationContext, bookRepo),
-                textProvider.get(R.string.error_load_book_detail_failed)
+                textProvider.get(R.string.error_load_book_detail_failed),
+                aiTranslationRepository
             )
         }
     })
@@ -159,3 +200,12 @@ class BookDetailViewModel(
             }
     }
 }
+
+data class BookAiTranslationUiState(
+    val hasAnyResult: Boolean = false,
+    val completedPages: Int = 0,
+    val failedPages: Int = 0,
+    val totalPages: Int = 0,
+    val running: Boolean = false,
+    val preferredMode: AiTranslationMode = AiTranslationMode.LOCAL_DETECTION
+)
