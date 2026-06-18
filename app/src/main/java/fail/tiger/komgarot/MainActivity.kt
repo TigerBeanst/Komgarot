@@ -28,22 +28,27 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
     private var backgroundedAt = 0L
     private val locked = mutableStateOf(false)
+    private val privacyCovered = mutableStateOf(false)
     private var promptShowing = false
     private var lockCheckJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as KomgarotApp
+        privacyCovered.value = app.authPreferences.appLockEnabledBlocking
         enableEdgeToEdge()
         setContent {
             KomgarotTheme {
                 val einkMode by app.authPreferences.einkMode.collectAsStateWithLifecycle(initialValue = false)
+                val privacyActive = locked.value || privacyCovered.value
                 Box(Modifier.fillMaxSize()) {
-                    Box(Modifier.fillMaxSize().then(if (locked.value && !einkMode) Modifier.blur(20.dp) else Modifier)) {
+                    Box(Modifier.fillMaxSize().then(if (privacyActive && !einkMode) Modifier.blur(20.dp) else Modifier)) {
                         AppNavGraph(app)
                     }
-                    if (locked.value && einkMode) {
+                    if (privacyActive && einkMode) {
                         Box(Modifier.fillMaxSize().background(Color.Black))
+                    } else if (privacyActive) {
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.18f)))
                     }
                 }
             }
@@ -62,15 +67,20 @@ class MainActivity : AppCompatActivity() {
 
             val timeoutMs = appLockTimeout * 60_000L
             val elapsed = SystemClock.elapsedRealtime() - backgroundedAt
-            if (backgroundedAt > 0 && timeoutMs > 0 && elapsed < timeoutMs) return@launch
+            if (backgroundedAt > 0 && timeoutMs > 0 && elapsed < timeoutMs) {
+                revealUnlockedContent()
+                return@launch
+            }
 
             locked.value = true
+            privacyCovered.value = true
             promptShowing = true
             showBiometricPrompt()
         }
     }
 
     override fun onPause() {
+        coverForAppLockIfEnabled()
         super.onPause()
         lockCheckJob?.cancel()
         lockCheckJob = null
@@ -79,6 +89,17 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         backgroundedAt = SystemClock.elapsedRealtime()
+    }
+
+    private fun coverForAppLockIfEnabled() {
+        if ((application as KomgarotApp).authPreferences.appLockEnabledBlocking) {
+            privacyCovered.value = true
+        }
+    }
+
+    private fun revealUnlockedContent() {
+        locked.value = false
+        privacyCovered.value = false
     }
 
     private fun showBiometricPrompt() {
@@ -90,13 +111,13 @@ class MainActivity : AppCompatActivity() {
                     errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
                     finish()
                 } else {
-                    locked.value = false
+                    revealUnlockedContent()
                 }
             }
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 promptShowing = false
                 backgroundedAt = 0L
-                locked.value = false
+                revealUnlockedContent()
             }
             override fun onAuthenticationFailed() {}
         })
