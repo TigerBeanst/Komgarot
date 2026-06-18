@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/src/main/res/drawable-nodpi/ic_launcher_tiger_comic.png" alt="Komgarot 图标" width="144" height="144">
+  <img src="app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp" alt="Komgarot 图标" width="144" height="144">
 </p>
 
 <p align="center">
