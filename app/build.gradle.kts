@@ -1,6 +1,7 @@
 import fail.tiger.komgarot.build.GenerateReleaseVersionTask
 import fail.tiger.komgarot.build.ReleaseVersioning
 import fail.tiger.komgarot.build.ReleaseVersionState
+import com.android.build.api.variant.FilterConfiguration
 
 plugins {
     alias(libs.plugins.android.application)
@@ -24,13 +25,6 @@ fun releaseVersionStateProvider(): Provider<ReleaseVersionState> =
 
 val releaseVersionName = releaseVersionStateProvider().map { it.versionName }
 val releaseVersionCode = releaseVersionStateProvider().map { it.versionCode }
-val releaseApkFileName = releaseVersionStateProvider().map { state ->
-    ReleaseVersioning.apkFileName(
-        versionName = state.versionName,
-        versionCode = state.versionCode,
-    )
-}
-
 android {
     namespace = "fail.tiger.komgarot"
     compileSdk {
@@ -63,6 +57,14 @@ android {
     buildFeatures {
         compose = true
     }
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            isUniversalApk = false
+        }
+    }
 }
 
 androidComponents {
@@ -70,7 +72,18 @@ androidComponents {
         variant.outputs.forEach { output ->
             output.versionCode.set(releaseVersionCode)
             output.versionName.set(releaseVersionName)
-            output.outputFileName.set(releaseApkFileName)
+            val abi = output.filters
+                .find { it.filterType == FilterConfiguration.FilterType.ABI }
+                ?.identifier
+            output.outputFileName.set(
+                releaseVersionStateProvider().map { state ->
+                    ReleaseVersioning.apkFileName(
+                        versionName = state.versionName,
+                        versionCode = state.versionCode,
+                        abi = abi,
+                    )
+                }
+            )
         }
     }
 }
@@ -106,4 +119,5 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.material.motion.compose.core)
     implementation(libs.security.crypto)
+    implementation(libs.onnxruntime.android)
 }

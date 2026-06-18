@@ -19,6 +19,7 @@ appcompat = "1.7.1"
 materialMotionCompose = "2.0.1"
 zoomable = "1.6.2"
 securityCrypto = "1.1.0"
+onnxruntimeAndroid = "1.20.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -49,6 +50,7 @@ appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "a
 material-motion-compose-core = { group = "io.github.fornewid", name = "material-motion-compose-core", version.ref = "materialMotionCompose" }
 zoomable = { group = "net.engawapg.lib", name = "zoomable", version.ref = "zoomable" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntimeAndroid" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
