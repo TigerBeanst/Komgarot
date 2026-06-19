@@ -148,7 +148,9 @@ class BookDetailViewModel(
             completedPages = pages.count { it.status == AiTranslationPageStatus.DONE },
             failedPages = pages.count { it.status == AiTranslationPageStatus.FAILED },
             totalPages = loaded.media.pagesCount,
-            running = pages.any { it.status == AiTranslationPageStatus.RUNNING },
+            running = pages.any { it.status == AiTranslationPageStatus.RUNNING } || aiTranslationState.cacheRunning,
+            cacheRunning = aiTranslationState.cacheRunning,
+            cachedPages = aiTranslationState.cachedPages,
             preferredMode = aiTranslationRepository?.preferredModeForBook(loaded.id) ?: AiTranslationMode.LOCAL_DETECTION
         )
     }
@@ -162,7 +164,39 @@ class BookDetailViewModel(
     fun startAiTranslation(serverUrl: String) {
         val loaded = book ?: return
         aiTranslationRepository?.setTranslationDisplayEnabled(true)
-        aiTranslationRepository?.startBookTranslation(loaded, serverUrl)
+        viewModelScope.launch {
+            aiTranslationState = aiTranslationState.copy(
+                running = true,
+                cacheRunning = true,
+                cachedPages = 0,
+                totalPages = loaded.media.pagesCount
+            )
+            runCatching {
+                downloadCache.cacheBook(serverUrl, loaded.id, loaded) { progress ->
+                    aiTranslationState = aiTranslationState.copy(
+                        running = true,
+                        cacheRunning = true,
+                        cachedPages = progress.completedPages,
+                        totalPages = progress.totalPages
+                    )
+                }
+            }.onSuccess {
+                aiTranslationState = aiTranslationState.copy(
+                    running = true,
+                    cacheRunning = false,
+                    cachedPages = loaded.media.pagesCount
+                )
+                aiTranslationRepository?.startBookTranslation(loaded, serverUrl)
+            }.onFailure {
+                aiTranslationState = aiTranslationState.copy(running = false, cacheRunning = false)
+            }
+        }
+    }
+
+    fun retryIncompleteAiTranslation(serverUrl: String) {
+        val loaded = book ?: return
+        aiTranslationRepository?.setTranslationDisplayEnabled(true)
+        aiTranslationRepository?.retryIncompleteBookTranslation(loaded, serverUrl)
         aiTranslationState = aiTranslationState.copy(running = true)
     }
 
@@ -207,5 +241,7 @@ data class BookAiTranslationUiState(
     val failedPages: Int = 0,
     val totalPages: Int = 0,
     val running: Boolean = false,
+    val cacheRunning: Boolean = false,
+    val cachedPages: Int = 0,
     val preferredMode: AiTranslationMode = AiTranslationMode.LOCAL_DETECTION
 )

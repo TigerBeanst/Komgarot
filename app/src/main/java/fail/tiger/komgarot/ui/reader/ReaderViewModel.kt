@@ -22,6 +22,7 @@ import fail.tiger.komgarot.data.remote.dto.PageDto
 import fail.tiger.komgarot.data.repository.AiTranslationRepository
 import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.ui.i18n.UiTextProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -65,9 +66,11 @@ class ReaderViewModel(
     var currentSeriesId: String = ""
         private set
     private var progressJob: Job? = null
+    private var aiTranslationJob: Job? = null
 
     fun load(bookId: String, startPage: Int, trackProgress: Boolean = true) {
         progressJob?.cancel()
+        if (isAiTranslationWorkRunning()) stopAiTranslationWork()
         this.trackProgress = trackProgress
         if (currentBookId != bookId) {
             pageUrls = emptyList()
@@ -116,6 +119,7 @@ class ReaderViewModel(
 
     fun updatePage(page: Int) {
         currentPage = page
+        ensureAiTranslationPageShell(currentPage)
         scheduleProgressUpdate()
     }
 
@@ -155,6 +159,122 @@ class ReaderViewModel(
         }
     }
 
+    fun handleAiTranslationButtonClick(preloadPages: Int) {
+        if (isAiTranslationWorkRunning()) {
+            stopAiTranslationWork()
+            return
+        }
+        if (showCachedCurrentAiTranslationIfAvailable()) return
+        if (currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON) {
+            cycleAiTranslationDisplayMode()
+            return
+        }
+        startCurrentAndPreloadedAiTranslation(preloadPages)
+    }
+
+    private fun showCachedCurrentAiTranslationIfAvailable(): Boolean {
+        if (currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON) return false
+        val loaded = book ?: return false
+        val repository = aiTranslationRepository ?: return false
+        val cachedBook = repository.readBookState(loaded.id) ?: return false
+        val cachedPage = cachedBook.pages.firstOrNull { it.pageIndex == currentPage }
+        if (cachedPage?.status == AiTranslationPageStatus.DONE) {
+            aiTranslatedBook = cachedBook
+            currentAiTranslationDisplayMode = AiTranslationDisplayMode.ON
+            viewModelScope.launch {
+                prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.ON.storedValue)
+            }
+            return true
+        }
+        return false
+    }
+
+    fun translateCurrentAiPageIfDisplayEnabled(preloadPages: Int) {
+        if (currentAiTranslationDisplayMode != AiTranslationDisplayMode.ON) return
+        if (isAiTranslationWorkRunning()) return
+        when (currentAiTranslatedPage(currentPage)?.status) {
+            AiTranslationPageStatus.DONE, AiTranslationPageStatus.RUNNING -> return
+            else -> Unit
+        }
+        startCurrentAndPreloadedAiTranslation(preloadPages)
+    }
+
+    private fun isAiTranslationWorkRunning(): Boolean = aiTranslationJob?.isActive == true
+
+    private fun stopAiTranslationWork() {
+        aiTranslationJob?.cancel()
+        aiTranslationJob = null
+        clearRunningAiTranslationState()
+        currentAiTranslationDisplayMode = AiTranslationDisplayMode.OFF
+        viewModelScope.launch {
+            prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.OFF.storedValue)
+        }
+    }
+
+    private fun clearRunningAiTranslationState() {
+        val existing = aiTranslatedBook ?: return
+        aiTranslatedBook = existing.copy(
+            pages = existing.pages.map { page ->
+                if (page.status == AiTranslationPageStatus.RUNNING) {
+                    page.copy(
+                        status = AiTranslationPageStatus.PENDING,
+                        blocks = emptyList(),
+                        errorSummary = ""
+                    )
+                } else {
+                    page
+                }
+            }
+        )
+    }
+
+    private fun startCurrentAndPreloadedAiTranslation(preloadPages: Int) {
+        val loaded = book ?: return
+        val repository = aiTranslationRepository ?: run {
+            publishAiTranslationMessage(R.string.ai_translate_config_required)
+            return
+        }
+        aiTranslatedBook = repository.readBookState(loaded.id) ?: localAiBookShell(loaded)
+        currentAiTranslationDisplayMode = AiTranslationDisplayMode.ON
+        val pageIndexes = readerAiTranslationPageRange(currentPage, pageUrls.size, preloadPages)
+            .filter { pageIndex ->
+                aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }?.status != AiTranslationPageStatus.DONE
+            }
+        if (pageIndexes.isEmpty()) {
+            viewModelScope.launch {
+                prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.ON.storedValue)
+            }
+            return
+        }
+        pageIndexes.forEach { pageIndex -> updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING) }
+        publishAiTranslationMessage(R.string.reader_ai_retry_started)
+        aiTranslationJob?.cancel()
+        aiTranslationJob = viewModelScope.launch {
+            prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.ON.storedValue)
+            try {
+                for (pageIndex in pageIndexes) {
+                    val currentStatus = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }?.status
+                    if (currentStatus == AiTranslationPageStatus.DONE) continue
+                    updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING)
+                    val result = repository.retryPageTranslation(loaded, currentServerUrl, pageIndex, currentPages)
+                    aiTranslatedBook = repository.readBookState(loaded.id)
+                    currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
+                    val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }
+                    if (!result.ok || updatedPage?.status != AiTranslationPageStatus.DONE) {
+                        updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.FAILED)
+                        publishAiTranslationFailureMessage(loaded, pageIndex, updatedPage, result)
+                    }
+                }
+                refreshAiTranslationState()
+            } catch (cancelled: CancellationException) {
+                clearRunningAiTranslationState()
+                throw cancelled
+            } finally {
+                aiTranslationJob = null
+            }
+        }
+    }
+
     fun retryCurrentAiTranslationPage() {
         val loaded = book ?: return
         val repository = aiTranslationRepository ?: run {
@@ -168,21 +288,25 @@ class ReaderViewModel(
         }
         updateCurrentAiTranslationPageStatus(AiTranslationPageStatus.RUNNING)
         publishAiTranslationMessage(R.string.reader_ai_retry_started)
-        viewModelScope.launch {
-            val result = repository.retryPageTranslation(loaded, currentServerUrl, currentPage, currentPages)
-            aiTranslatedBook = repository.readBookState(loaded.id)
-            currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
-            val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == currentPage }
-            val pageUpdated = result.ok && updatedPage?.status == AiTranslationPageStatus.DONE
-            if (!pageUpdated) updateCurrentAiTranslationPageStatus(AiTranslationPageStatus.FAILED)
-            if (pageUpdated) {
-                publishAiTranslationMessage(R.string.reader_ai_retry_success)
-            } else {
-                val failureSummary = updatedPage?.errorSummary?.takeIf { it.isNotBlank() } ?: result.summary.takeIf { it.isNotBlank() }
-                publishAiTranslationMessage(
-                    R.string.reader_ai_retry_failed,
-                    failureSummary ?: buildAiRetryFallbackSummary(loaded, updatedPage, result)
-                )
+        aiTranslationJob?.cancel()
+        aiTranslationJob = viewModelScope.launch {
+            try {
+                val result = repository.retryPageTranslation(loaded, currentServerUrl, currentPage, currentPages)
+                aiTranslatedBook = repository.readBookState(loaded.id)
+                currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
+                val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == currentPage }
+                val pageUpdated = result.ok && updatedPage?.status == AiTranslationPageStatus.DONE
+                if (!pageUpdated) updateCurrentAiTranslationPageStatus(AiTranslationPageStatus.FAILED)
+                if (pageUpdated) {
+                    publishAiTranslationMessage(R.string.reader_ai_retry_success)
+                } else {
+                    publishAiTranslationFailureMessage(loaded, currentPage, updatedPage, result)
+                }
+            } catch (cancelled: CancellationException) {
+                clearRunningAiTranslationState()
+                throw cancelled
+            } finally {
+                aiTranslationJob = null
             }
         }
     }
@@ -191,6 +315,18 @@ class ReaderViewModel(
         val loaded = book ?: return
         aiTranslationRepository?.deletePageTranslation(loaded.id, currentPage)
         aiTranslatedBook = aiTranslationRepository?.readBookState(loaded.id)
+    }
+
+    fun clearCurrentBookAiTranslation() {
+        val loaded = book ?: return
+        aiTranslationJob?.cancel()
+        aiTranslationJob = null
+        aiTranslationRepository?.clearBook(loaded.id)
+        aiTranslatedBook = aiTranslationRepository?.readBookState(loaded.id)
+        currentAiTranslationDisplayMode = AiTranslationDisplayMode.OFF
+        viewModelScope.launch {
+            prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.OFF.storedValue)
+        }
     }
 
     fun testCurrentAiTranslationPage() {
@@ -214,14 +350,18 @@ class ReaderViewModel(
     }
 
     private fun updateCurrentAiTranslationPageStatus(status: AiTranslationPageStatus) {
+        updateAiTranslationPageStatus(currentPage, status)
+    }
+
+    private fun updateAiTranslationPageStatus(pageIndex: Int, status: AiTranslationPageStatus) {
         val existing = aiTranslatedBook ?: return
-        val current = existing.pages.firstOrNull { it.pageIndex == currentPage }
-        val updated = (current ?: AiTranslatedPage(pageIndex = currentPage)).copy(
+        val current = existing.pages.firstOrNull { it.pageIndex == pageIndex }
+        val updated = (current ?: AiTranslatedPage(pageIndex = pageIndex)).copy(
             status = status,
             errorSummary = if (status == AiTranslationPageStatus.RUNNING) "" else current?.errorSummary.orEmpty()
         )
         aiTranslatedBook = existing.copy(
-            pages = (existing.pages.filterNot { it.pageIndex == currentPage } + updated)
+            pages = (existing.pages.filterNot { it.pageIndex == pageIndex } + updated)
                 .sortedBy { it.pageIndex }
         )
     }
@@ -238,22 +378,51 @@ class ReaderViewModel(
             }
         )
 
+    private fun ensureAiTranslationPageShell(pageIndex: Int) {
+        if (currentAiTranslationDisplayMode != AiTranslationDisplayMode.ON) return
+        val loaded = book ?: return
+        val existing = aiTranslatedBook ?: localAiBookShell(loaded)
+        if (existing.pages.any { it.pageIndex == pageIndex }) {
+            aiTranslatedBook = existing
+            return
+        }
+        aiTranslatedBook = existing.copy(
+            pages = (existing.pages + AiTranslatedPage(pageIndex = pageIndex, mode = currentAiTranslationMode.storedValue))
+                .sortedBy { it.pageIndex }
+        )
+    }
+
     private fun publishAiTranslationMessage(messageRes: Int, messageText: String = "") {
         aiTranslationMessageRes = messageRes
         aiTranslationMessageText = messageText
         aiTranslationMessageNonce += 1
     }
 
+    private fun publishAiTranslationFailureMessage(
+        loaded: BookDto,
+        pageIndex: Int = currentPage,
+        updatedPage: AiTranslatedPage?,
+        result: fail.tiger.komgarot.data.repository.AiTranslationPageActionResult
+    ) {
+        val failureSummary = updatedPage?.errorSummary?.takeIf { it.isNotBlank() } ?: result.summary.takeIf { it.isNotBlank() }
+        publishAiTranslationMessage(
+            R.string.reader_ai_retry_failed,
+            failureSummary ?: buildAiRetryFallbackSummary(loaded, pageIndex, updatedPage, result)
+        )
+    }
+
     private fun buildAiRetryFallbackSummary(
         loaded: BookDto,
+        pageIndex: Int,
         updatedPage: AiTranslatedPage?,
         result: fail.tiger.komgarot.data.repository.AiTranslationPageActionResult
     ): String =
-        "AI translation failed: book=${loaded.id}, page=$currentPage, resultOk=${result.ok}, savedStatus=${updatedPage?.status?.name ?: "missing"}"
+        "AI translation failed: book=${loaded.id}, page=$pageIndex, resultOk=${result.ok}, savedStatus=${updatedPage?.status?.name ?: "missing"}"
 
     fun goToPage(page: Int) {
         if (pageUrls.isEmpty()) return
         currentPage = page.coerceIn(0, pageUrls.size - 1)
+        ensureAiTranslationPageShell(currentPage)
         scheduleProgressUpdate()
     }
 
@@ -298,6 +467,13 @@ class ReaderViewModel(
             )
         }
     })
+}
+
+internal fun readerAiTranslationPageRange(currentPage: Int, pageCount: Int, preloadPages: Int): List<Int> {
+    if (pageCount <= 0) return emptyList()
+    val start = currentPage.coerceIn(0, pageCount - 1)
+    val end = (start + preloadPages.coerceAtLeast(0)).coerceAtMost(pageCount - 1)
+    return (start..end).toList()
 }
 
 internal fun mergeAiTranslationRefresh(

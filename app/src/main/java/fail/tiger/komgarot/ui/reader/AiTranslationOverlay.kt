@@ -3,6 +3,7 @@ package fail.tiger.komgarot.ui.reader
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -20,14 +21,21 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
@@ -58,7 +66,8 @@ fun AiTranslationOverlay(
     page: AiTranslatedPage?,
     mode: AiTranslationDisplayMode,
     modifier: Modifier = Modifier,
-    fillWidth: Boolean = false
+    fillWidth: Boolean = false,
+    verticalGlyphSpacingMultiplier: Float = AI_TRANSLATION_DEFAULT_VERTICAL_GLYPH_SPACING_MULTIPLIER
 ) {
     if (page == null || mode == AiTranslationDisplayMode.OFF) return
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -123,7 +132,7 @@ fun AiTranslationOverlay(
                         )
                     }
                     if (safe.textDirection == AiTranslationTextDirection.VERTICAL) {
-                        val charsPerColumn = verticalCharsPerColumn(blockHeight.value, fittedFontSizeSp)
+                        val charsPerColumn = verticalCharsPerColumn(blockHeight.value, fittedFontSizeSp, verticalGlyphSpacingMultiplier)
                         val columnWidth = verticalColumnWidthDp(fittedFontSizeSp)
                         val verticalColumns = verticalTextColumnsForDisplay(safe.translatedLines, charsPerColumn)
                         Row(
@@ -147,6 +156,7 @@ fun AiTranslationOverlay(
                                     cornerRadius = safe.cornerRadius,
                                     fontSizeSp = fittedFontSizeSp,
                                     lineHeightMultiplier = AI_TRANSLATION_VERTICAL_LINE_HEIGHT_MULTIPLIER,
+                                    glyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
                                     columnWidth = columnWidth,
                                     horizontalPadding = inlineTextPadding,
                                     verticalPadding = inlineTextPadding
@@ -317,13 +327,17 @@ private fun VerticalTextColumnBackground(
     cornerRadius: Float,
     fontSizeSp: Float,
     lineHeightMultiplier: Float,
+    glyphSpacingMultiplier: Float,
     columnWidth: Dp,
     horizontalPadding: Dp,
     verticalPadding: Dp
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(0.dp),
+    CompactVerticalTextColumn(
+        text = text,
+        textColor = textColor,
+        fontSizeSp = fontSizeSp,
+        lineHeightMultiplier = lineHeightMultiplier,
+        glyphSpacingMultiplier = glyphSpacingMultiplier,
         modifier = Modifier
             .width(columnWidth)
             .background(
@@ -332,7 +346,21 @@ private fun VerticalTextColumnBackground(
                 cornerRadius = cornerRadius
             )
             .padding(horizontal = horizontalPadding, vertical = verticalPadding)
-    ) {
+    )
+}
+
+@Composable
+private fun CompactVerticalTextColumn(
+    text: String,
+    textColor: Color,
+    fontSizeSp: Float,
+    lineHeightMultiplier: Float,
+    glyphSpacingMultiplier: Float,
+    modifier: Modifier = Modifier
+) {
+    Layout(
+        modifier = modifier,
+        content = {
         text.forEach { char ->
             Text(
                 text = char.toString(),
@@ -340,6 +368,24 @@ private fun VerticalTextColumnBackground(
                 softWrap = false,
                 style = aiTranslationTextStyle(fontSizeSp, lineHeightMultiplier)
             )
+        }
+        }
+    ) { measurables, constraints ->
+        val glyphAdvancePx = verticalGlyphAdvanceDp(fontSizeSp, glyphSpacingMultiplier).roundToPx().coerceAtLeast(1)
+        val placeables = measurables.map { measurable ->
+            measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+        }
+        val tallestGlyph = placeables.maxOfOrNull { it.height } ?: 0
+        val widestGlyph = placeables.maxOfOrNull { it.width } ?: 0
+        val naturalHeight = if (placeables.isEmpty()) 0 else glyphAdvancePx * (placeables.size - 1) + tallestGlyph
+        val width = widestGlyph.coerceIn(constraints.minWidth, constraints.maxWidth)
+        val height = naturalHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
+
+        layout(width, height) {
+            placeables.forEachIndexed { index, placeable ->
+                val x = (width - placeable.width) / 2
+                placeable.placeRelative(x = x, y = index * glyphAdvancePx)
+            }
         }
     }
 }
@@ -404,10 +450,20 @@ internal fun aiTranslationFontSizeSp(
     return (rawSize * baseScale).coerceIn(minimumReadableSize, maximumReadableSize)
 }
 
-internal fun verticalCharsPerColumn(heightDp: Float, fontSizeSp: Float): Int {
-    val lineHeightDp = fontSizeSp * AI_TRANSLATION_VERTICAL_GLYPH_ADVANCE_MULTIPLIER
-    return ((heightDp - 2f) / lineHeightDp).toInt().coerceAtLeast(1)
+internal fun verticalCharsPerColumn(
+    heightDp: Float,
+    fontSizeSp: Float,
+    glyphSpacingMultiplier: Float = AI_TRANSLATION_DEFAULT_VERTICAL_GLYPH_SPACING_MULTIPLIER
+): Int {
+    return ((heightDp - 2f) / verticalGlyphAdvanceDp(fontSizeSp, glyphSpacingMultiplier).value).toInt().coerceAtLeast(1)
 }
+
+internal fun verticalGlyphAdvanceDp(
+    fontSizeSp: Float,
+    glyphSpacingMultiplier: Float = AI_TRANSLATION_DEFAULT_VERTICAL_GLYPH_SPACING_MULTIPLIER
+): Dp = Dp(fontSizeSp * glyphSpacingMultiplier)
+
+internal fun aiVerticalGlyphSpacingMultiplier(percent: Int): Float = percent.coerceIn(70, 130) / 100f
 
 internal fun verticalTextTopOffsetDp(fontSizeSp: Float): Dp =
     Dp((-fontSizeSp * 0.16f).coerceAtMost(-1.2f))
@@ -555,18 +611,42 @@ fun AiTranslationFloatingButton(
     modifier: Modifier = Modifier
 ) {
     val active = mode == AiTranslationDisplayMode.ON
+    val running = pageStatus == AiTranslationPageStatus.RUNNING
+    val interactionSource = remember { MutableInteractionSource() }
     Surface(
         shape = CircleShape,
-        color = if (active) Color.White.copy(alpha = 0.92f) else Color.Black.copy(alpha = 0.76f),
+        color = if (active || running) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        contentColor = if (active || running) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        tonalElevation = 6.dp,
+        shadowElevation = 6.dp,
         modifier = modifier
-            .size(48.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .size(56.dp)
+            .clip(CircleShape)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = ripple(bounded = false, radius = 28.dp),
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Default.Translate,
+                contentDescription = stringResource(R.string.reader_ai_translation),
+                modifier = Modifier.alpha(if (active || running) 1f else 0.72f)
+            )
             Text(
                 text = stringResource(R.string.reader_ai_translation_icon_text),
-                color = if (active) Color.Black else Color.White,
-                modifier = Modifier.alpha(if (active) 1f else 0.45f)
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.alpha(0f)
             )
         }
     }
@@ -590,5 +670,5 @@ private const val AI_TRANSLATION_PLACEHOLDER_ALPHA = 0.22f
 private const val AI_TRANSLATION_NORMAL_TEXT_MASK_ALPHA = 0.86f
 private const val AI_TRANSLATION_HORIZONTAL_LINE_HEIGHT_MULTIPLIER = 0.96f
 private const val AI_TRANSLATION_VERTICAL_LINE_HEIGHT_MULTIPLIER = 0.92f
-private const val AI_TRANSLATION_VERTICAL_GLYPH_ADVANCE_MULTIPLIER = 1.08f
+private const val AI_TRANSLATION_DEFAULT_VERTICAL_GLYPH_SPACING_MULTIPLIER = 0.92f
 private const val AI_TRANSLATION_TRAILING_PUNCTUATION = "。！？!?，,、；;：:…︙︱｜︐︒︑︓︔﹂﹄」』)）"
