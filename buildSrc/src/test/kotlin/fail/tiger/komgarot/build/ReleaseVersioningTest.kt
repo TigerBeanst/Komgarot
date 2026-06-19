@@ -106,6 +106,19 @@ class ReleaseVersioningTest {
     }
 
     @Test
+    fun `lite abi release apk file name keeps shared version and adds lite marker`() {
+        assertEquals(
+            "Komgarot_lite_v1.1.0.81_1781759271_arm64-v8a.apk",
+            ReleaseVersioning.apkFileName(
+                versionName = "v1.1.0.81",
+                versionCode = 1_781_759_271,
+                abi = "arm64-v8a",
+                edition = "lite",
+            ),
+        )
+    }
+
+    @Test
     fun `state can be persisted and loaded from properties file`() {
         val file = temporaryFolder.newFile("version.properties")
         val state = ReleaseVersionState(

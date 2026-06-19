@@ -35,10 +35,10 @@ class AiLocalTextDetectorTest {
         val versionCatalog = File("../gradle/libs.versions.toml").readText()
         val appBuild = File("build.gradle.kts").readText()
         val appSource = File("src/main/java/fail/tiger/komgarot/KomgarotApp.kt").readText()
-        val paddleSource = File("src/main/java/fail/tiger/komgarot/data/repository/AiPaddleTextDetector.kt").readText()
+        val paddleSource = File("src/full/java/fail/tiger/komgarot/data/repository/AiPaddleTextDetector.kt").readText()
 
         assertTrue(versionCatalog.contains("onnxruntime-android"))
-        assertTrue(appBuild.contains("implementation(libs.onnxruntime.android)"))
+        assertTrue(appBuild.contains("add(\"fullImplementation\", libs.onnxruntime.android)"))
         assertTrue(appSource.contains("AiPaddleTextDetector(applicationContext, aiLocalModelRepository)"))
         assertTrue(detectorSource.contains("paddleTextDetector: AiPaddleTextDetector? = null"))
         assertTrue(detectorSource.contains("paddleTextDetector?.detect("))
