@@ -25,6 +25,15 @@ class SettingsScreenStructureTest {
     }
 
     @Test
+    fun settingsHidesAiPagesWhenFeatureIsUnavailable() {
+        assertTrue(source.contains("aiTranslationAvailable: Boolean"))
+        assertTrue(source.contains("SettingsCategoryList(aiTranslationAvailable = aiTranslationAvailable"))
+        assertTrue(source.contains("SettingsPage.entries.filter { page ->"))
+        assertTrue(source.contains("aiTranslationAvailable || page !in aiOnlySettingsPages"))
+        assertTrue(source.contains("private val aiOnlySettingsPages"))
+    }
+
+    @Test
     fun settingsContentIncludesEinkReaderOptions() {
         assertTrue(source.contains("R.string.settings_eink_mode"))
         assertTrue(source.contains("R.string.settings_tap_page_turn"))
@@ -49,9 +58,12 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("R.string.settings_ai_max_images_per_request"))
         assertTrue(source.contains("R.string.settings_ai_concurrent_requests"))
         assertTrue(source.contains("R.string.settings_ai_timeout"))
+        assertTrue(source.contains("R.string.settings_ai_vertical_glyph_spacing"))
+        assertTrue(source.contains("showAiVerticalGlyphSpacingDialog"))
         assertTrue(source.contains("showAiTimeoutDialog"))
         assertTrue(source.contains("showAiMaxImagesPerRequestDialog"))
         assertTrue(source.contains("prefs.setAiTimeoutSeconds"))
+        assertTrue(source.contains("prefs.setAiVerticalGlyphSpacingPercent"))
         assertTrue(source.contains("prefs.setAiMaxImagesPerRequest"))
         assertTrue(source.contains("R.string.settings_ai_test_mode"))
         assertTrue(source.contains("R.string.ai_translation_mode_local_detection"))
