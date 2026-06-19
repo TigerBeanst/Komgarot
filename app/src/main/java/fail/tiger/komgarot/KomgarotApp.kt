@@ -17,6 +17,7 @@ import fail.tiger.komgarot.data.remote.KomgaApi
 import fail.tiger.komgarot.data.remote.ReaderPageCacheInterceptor
 import fail.tiger.komgarot.data.remote.UrlInterceptor
 import fail.tiger.komgarot.data.repository.AdminRepository
+import fail.tiger.komgarot.data.repository.AppUpdateRepository
 import fail.tiger.komgarot.data.repository.AiLocalModelRepository
 import fail.tiger.komgarot.data.repository.AiPaddleTextDetector
 import fail.tiger.komgarot.data.repository.AiLocalTextDetector
@@ -31,7 +32,6 @@ import fail.tiger.komgarot.data.repository.SeriesRepository
 import fail.tiger.komgarot.data.repository.UserRepository
 import fail.tiger.komgarot.data.repository.WebDavBackupRepository
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
@@ -52,9 +52,14 @@ class KomgarotApp : Application(), ImageLoaderFactory {
     lateinit var collectionRepository: CollectionRepository
     lateinit var readListRepository: ReadListRepository
     lateinit var adminRepository: AdminRepository
-    lateinit var aiTranslationRepository: AiTranslationRepository
+    lateinit var appUpdateRepository: AppUpdateRepository
+    var aiTranslationRepositoryOrNull: AiTranslationRepository? = null
+        private set
+    val aiTranslationRepository: AiTranslationRepository?
+        get() = aiTranslationRepositoryOrNull
     lateinit var aiLocalModelRepository: AiLocalModelRepository
-    lateinit var aiTranslationQueueRunner: AiTranslationQueueRunner
+    var aiTranslationQueueRunner: AiTranslationQueueRunner? = null
+        private set
     lateinit var webDavBackupRepository: WebDavBackupRepository
 
     override fun onCreate() {
@@ -87,31 +92,34 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         collectionRepository = CollectionRepository(api)
         readListRepository = ReadListRepository(api)
         adminRepository = AdminRepository(api)
+        appUpdateRepository = AppUpdateRepository()
         aiLocalModelRepository = AiLocalModelRepository(filesDir)
-        aiTranslationRepository = AiTranslationRepository(
-            context = applicationContext,
-            bookRepository = bookRepository,
-            prefs = authPreferences,
-            secureAiSettingsStore = secureAiSettingsStore,
-            store = aiTranslationStore,
-            komgaHttpClient = okHttpClient,
-            localTextDetector = AiLocalTextDetector(
-                paddleTextDetector = AiPaddleTextDetector(applicationContext, aiLocalModelRepository)
-            ),
-            aiClient = aiTranslationClient
-        )
-        aiTranslationQueueRunner = AiTranslationQueueRunner(
-            repository = aiTranslationRepository,
-            store = aiTranslationStore,
-            prefs = authPreferences
-        )
+        if (BuildConfig.AI_TRANSLATION_AVAILABLE) {
+            aiTranslationRepositoryOrNull = AiTranslationRepository(
+                context = applicationContext,
+                bookRepository = bookRepository,
+                prefs = authPreferences,
+                secureAiSettingsStore = secureAiSettingsStore,
+                store = aiTranslationStore,
+                komgaHttpClient = okHttpClient,
+                localTextDetector = AiLocalTextDetector(
+                    paddleTextDetector = AiPaddleTextDetector(applicationContext, aiLocalModelRepository)
+                ),
+                aiClient = aiTranslationClient
+            )
+            aiTranslationQueueRunner = AiTranslationQueueRunner(
+                repository = requireNotNull(aiTranslationRepositoryOrNull),
+                store = aiTranslationStore,
+                prefs = authPreferences
+            )
+        }
         webDavBackupRepository = WebDavBackupRepository(
             prefs = authPreferences,
             secureAiSettingsStore = secureAiSettingsStore,
             secureWebDavSettingsStore = secureWebDavSettingsStore,
             aiTranslationStore = aiTranslationStore
         )
-        aiTranslationQueueRunner.restoreRunningTasks()
+        aiTranslationQueueRunner?.restoreRunningTasks()
     }
 
     override fun newImageLoader() = ImageLoader.Builder(this)

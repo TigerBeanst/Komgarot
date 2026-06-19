@@ -67,6 +67,13 @@
     <!-- Home -->
     <string name="settings">Settings</string>
     <string name="logout">Logout</string>
+    <string name="about">About</string>
+    <string name="check_updates">Check updates</string>
+    <string name="checking_updates">Checking…</string>
+    <string name="no_updates_available">Already up to date</string>
+    <string name="check_updates_failed">Update check failed</string>
+    <string name="update_available">Update available: %s</string>
+    <string name="open_release_page">Open release page</string>
     <string name="partial_content_load_failed">Some content failed to load: %s</string>
     <string name="continue_reading_section">Continue Reading</string>
     <string name="recently_added">Recently Added</string>
@@ -208,6 +215,8 @@
     <string name="settings_ai_concurrent_requests">Concurrent requests</string>
     <string name="settings_ai_timeout">Request timeout</string>
     <string name="settings_ai_timeout_seconds">%1$d seconds</string>
+    <string name="settings_ai_vertical_glyph_spacing">Vertical character spacing</string>
+    <string name="settings_ai_vertical_glyph_spacing_percent">%1$d%%</string>
     <string name="settings_ai_image_transport">Image upload mode</string>
     <string name="settings_ai_image_transport_base64">Base64</string>
     <string name="settings_ai_image_transport_url">Image URL</string>
@@ -256,6 +265,7 @@
     <string name="ai_translate_config_required">Configure a vision-capable model first.</string>
     <string name="ai_translate_progress">%1$d / %2$d translated · %3$d failed</string>
     <string name="ai_translate_progress_with_mode">%1$d / %2$d translated · %3$d failed · %4$s</string>
+    <string name="ai_translate_cache_progress_with_mode">Caching images %1$d / %2$d · %3$s</string>
     <string name="ai_translation_mode_local_detection">Local detection + AI translation</string>
     <string name="ai_translation_mode_local_detection_short">Detect</string>
     <string name="ai_translate_delete_title">Delete book AI translation</string>
@@ -264,6 +274,8 @@
     <string name="ai_translate_delete_title_final">Confirm AI translation deletion</string>
     <string name="ai_translate_delete_message_final">Regenerating translation will call the model again and spend quota or tokens. Starting AI translation later will process pages again.</string>
     <string name="ai_translate_delete_confirm">Delete translation</string>
+    <string name="ai_translate_retry_incomplete_pages">Retry incomplete/failed pages</string>
+    <string name="ai_translate_delete_book_translation">Delete book AI translation</string>
     <string name="reader_ai_translation">AI translation</string>
     <string name="reader_ai_translation_icon_text">文</string>
     <string name="reader_ai_translate_current_page">Translate this page</string>
@@ -273,7 +285,7 @@
     <string name="reader_ai_test_started">AI translation test started</string>
     <string name="reader_ai_test_success">AI translation test passed</string>
     <string name="reader_ai_test_failed">AI translation test failed. Check the model config, network, or image upload mode.</string>
-    <string name="reader_ai_retry_started">AI translation retry started for this page</string>
+    <string name="reader_ai_retry_started">AI translation started</string>
     <string name="reader_ai_retry_success">This page AI translation was updated</string>
     <string name="reader_ai_retry_failed">This page AI translation retry failed</string>
     <string name="reader_ai_error_title">AI translation error</string>
@@ -287,6 +299,12 @@
     <string name="ai_translation_resume_all">Resume all</string>
     <string name="ai_translation_retry_failed">Retry failed pages</string>
     <string name="ai_translation_no_tasks">No AI translation tasks</string>
+    <string name="ai_translation_task_status_idle">Idle</string>
+    <string name="ai_translation_task_status_queued">Queued</string>
+    <string name="ai_translation_task_status_running">Translating</string>
+    <string name="ai_translation_task_status_paused">Paused</string>
+    <string name="ai_translation_task_status_done">Done</string>
+    <string name="ai_translation_task_status_failed">Failed</string>
     <string name="settings_section_webdav_backup">WebDAV backup</string>
     <string name="settings_webdav_url">WebDAV server URL</string>
     <string name="settings_webdav_username">WebDAV username</string>

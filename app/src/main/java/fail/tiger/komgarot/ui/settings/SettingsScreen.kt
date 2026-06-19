@@ -1,9 +1,13 @@
 package fail.tiger.komgarot.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import android.widget.Toast
+import fail.tiger.komgarot.BuildConfig
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
@@ -22,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.annotation.ExperimentalCoilApi
@@ -40,18 +45,22 @@ import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.local.SecureAiSettings
 import fail.tiger.komgarot.data.local.SecureWebDavSettings
 import fail.tiger.komgarot.data.repository.AiLocalModelTier
+import fail.tiger.komgarot.data.repository.AppUpdateRepository
+import fail.tiger.komgarot.data.repository.GithubRelease
 import fail.tiger.komgarot.data.repository.defaultAiLocalModelPlan
 import fail.tiger.komgarot.data.repository.deviceProfile
 import fail.tiger.komgarot.data.repository.recommendAiLocalModelTier
+import fail.tiger.komgarot.ui.metadata.openExternalUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalCoilApi::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
+fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences, aiTranslationAvailable: Boolean = BuildConfig.AI_TRANSLATION_AVAILABLE) {
     SettingsContent(
         prefs = prefs,
+        aiTranslationAvailable = aiTranslationAvailable,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings)) },
@@ -70,8 +79,10 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences) {
 fun MeScreen(
     userEmail: String?,
     isAdmin: Boolean,
+    aiTranslationAvailable: Boolean = BuildConfig.AI_TRANSLATION_AVAILABLE,
     onCachedBooksClick: () -> Unit,
     onAiTranslationTasksClick: () -> Unit,
+    appUpdateRepository: AppUpdateRepository = AppUpdateRepository(),
     onAdminClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onLogout: () -> Unit
@@ -92,12 +103,14 @@ fun MeScreen(
                 leadingContent = { Icon(Icons.Default.Download, contentDescription = null) },
                 modifier = Modifier.clickable(onClick = onCachedBooksClick)
             )
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.ai_translation_tasks)) },
-                supportingContent = { Text(stringResource(R.string.ai_translation_tasks_entry_desc)) },
-                leadingContent = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
-                modifier = Modifier.clickable(onClick = onAiTranslationTasksClick)
-            )
+            if (aiTranslationAvailable) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.ai_translation_tasks)) },
+                    supportingContent = { Text(stringResource(R.string.ai_translation_tasks_entry_desc)) },
+                    leadingContent = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                    modifier = Modifier.clickable(onClick = onAiTranslationTasksClick)
+                )
+            }
             if (isAdmin) {
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.admin)) },
@@ -117,6 +130,9 @@ fun MeScreen(
                 leadingContent = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null) },
                 modifier = Modifier.clickable(onClick = onLogout)
             )
+            Spacer(Modifier.weight(1f, fill = true))
+            HorizontalDivider()
+            AboutSection(appUpdateRepository = appUpdateRepository)
         }
     }
 }
@@ -129,6 +145,8 @@ private enum class SettingsPage(val titleRes: Int, val icon: ImageVector) {
     WEBDAV(R.string.settings_section_webdav_backup, Icons.Default.CloudUpload),
     SECURITY(R.string.settings_section_security, Icons.Default.Security)
 }
+
+private val aiOnlySettingsPages = setOf(SettingsPage.AI, SettingsPage.MODELS)
 
 private data class AiTargetLanguageOption(
     val locale: String,
@@ -147,6 +165,7 @@ private val aiTargetLanguageOptions = listOf(
 @Composable
 private fun SettingsContent(
     prefs: AuthPreferences,
+    aiTranslationAvailable: Boolean,
     topBar: @Composable () -> Unit,
     headerContent: @Composable ColumnScope.() -> Unit = {}
 ) {
@@ -181,6 +200,7 @@ private fun SettingsContent(
     val aiConcurrentRequests by prefs.aiConcurrentRequests.collectAsStateWithLifecycle(initialValue = 3)
     val aiMaxImagesPerRequest by prefs.aiMaxImagesPerRequest.collectAsStateWithLifecycle(initialValue = 20)
     val aiTimeoutSeconds by prefs.aiTimeoutSeconds.collectAsStateWithLifecycle(initialValue = 30)
+    val aiVerticalGlyphSpacingPercent by prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 92)
     val aiTestModeEnabled by prefs.aiTestModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val app = context.applicationContext as? KomgarotApp
     var secureAiSettings by remember { mutableStateOf(app?.secureAiSettingsStore?.read() ?: SecureAiSettings()) }
@@ -201,6 +221,7 @@ private fun SettingsContent(
     var showAiConcurrencyDialog by remember { mutableStateOf(false) }
     var showAiMaxImagesPerRequestDialog by remember { mutableStateOf(false) }
     var showAiTimeoutDialog by remember { mutableStateOf(false) }
+    var showAiVerticalGlyphSpacingDialog by remember { mutableStateOf(false) }
     var showDeleteLocalModelsDialog by remember { mutableStateOf(false) }
     var showWebDavUrlDialog by remember { mutableStateOf(false) }
     var showWebDavUsernameDialog by remember { mutableStateOf(false) }
@@ -233,7 +254,7 @@ private fun SettingsContent(
             headerContent()
             val page = selectedSettingsPage
             if (page == null) {
-                SettingsCategoryList(onSelect = { selectedSettingsPage = it })
+                SettingsCategoryList(aiTranslationAvailable = aiTranslationAvailable, onSelect = { selectedSettingsPage = it })
             } else {
                 SettingsPageContent(
                     page = page,
@@ -433,6 +454,11 @@ private fun SettingsContent(
                 headlineContent = { Text(stringResource(R.string.settings_ai_timeout)) },
                 supportingContent = { Text(stringResource(R.string.settings_ai_timeout_seconds, aiTimeoutSeconds)) },
                 modifier = Modifier.clickable { showAiTimeoutDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_vertical_glyph_spacing)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_vertical_glyph_spacing_percent, aiVerticalGlyphSpacingPercent)) },
+                modifier = Modifier.clickable { showAiVerticalGlyphSpacingDialog = true }
             )
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_ai_test_mode)) },
@@ -988,6 +1014,16 @@ private fun SettingsContent(
         )
     }
 
+    if (showAiVerticalGlyphSpacingDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_vertical_glyph_spacing),
+            initialValue = aiVerticalGlyphSpacingPercent.toString(),
+            placeholder = "92",
+            onSave = { value -> scope.launch { prefs.setAiVerticalGlyphSpacingPercent(value.toIntOrNull() ?: aiVerticalGlyphSpacingPercent) } },
+            onDismiss = { showAiVerticalGlyphSpacingDialog = false }
+        )
+    }
+
     if (showWebDavUrlDialog) {
         TextSettingDialog(
             title = stringResource(R.string.settings_webdav_url),
@@ -1050,8 +1086,8 @@ private fun SettingsSectionHeader(title: String) {
 }
 
 @Composable
-private fun SettingsCategoryList(onSelect: (SettingsPage) -> Unit) {
-    SettingsPage.entries.forEach { page ->
+private fun SettingsCategoryList(aiTranslationAvailable: Boolean, onSelect: (SettingsPage) -> Unit) {
+    SettingsPage.entries.filter { page -> aiTranslationAvailable || page !in aiOnlySettingsPages }.forEach { page ->
         SettingsCategoryItem(page = page, onClick = { onSelect(page) })
     }
 }
@@ -1064,6 +1100,74 @@ private fun SettingsCategoryItem(page: SettingsPage, onClick: () -> Unit) {
         trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
         modifier = Modifier.clickable(onClick = onClick)
     )
+}
+
+@Composable
+private fun AboutSection(appUpdateRepository: AppUpdateRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var checkingUpdates by remember { mutableStateOf(false) }
+    var availableUpdate by remember { mutableStateOf<GithubRelease?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.about)) },
+        supportingContent = { Text("${stringResource(R.string.app_name)} · ${BuildConfig.VERSION_NAME}") },
+        leadingContent = {
+            Image(
+                painter = painterResource(R.mipmap.ic_launcher_foreground),
+                contentDescription = stringResource(R.string.app_name),
+                modifier = Modifier.size(42.dp)
+            )
+        },
+        trailingContent = {
+            TextButton(
+                enabled = !checkingUpdates,
+                onClick = {
+                    scope.launch {
+                        checkingUpdates = true
+                        val result = appUpdateRepository.checkForUpdate(BuildConfig.VERSION_NAME)
+                        checkingUpdates = false
+                        val update = result.getOrNull()
+                        if (update != null) {
+                            availableUpdate = update
+                            showUpdateDialog = true
+                        } else {
+                            val message = if (result.isSuccess) R.string.no_updates_available else R.string.check_updates_failed
+                            Toast.makeText(context, context.getString(message), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            ) {
+                Text(stringResource(if (checkingUpdates) R.string.loading else R.string.check_updates))
+            }
+        }
+    )
+
+    if (showUpdateDialog) {
+        availableUpdate?.let { update ->
+            AlertDialog(
+                onDismissRequest = { showUpdateDialog = false },
+                title = { Text(stringResource(R.string.update_available, update.tagName)) },
+                text = {
+                    SelectionContainer {
+                        Text(update.body.ifBlank { update.name })
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showUpdateDialog = false
+                        openExternalUrl(context, update.htmlUrl)
+                    }) {
+                        Text(stringResource(R.string.open_release_page))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showUpdateDialog = false }) { Text(stringResource(R.string.close)) }
+                }
+            )
+        }
+    }
 }
 
 @Composable

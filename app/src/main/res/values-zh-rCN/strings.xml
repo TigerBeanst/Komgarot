@@ -67,6 +67,13 @@
     <!-- 首页 -->
     <string name="settings">设置</string>
     <string name="logout">退出登录</string>
+    <string name="about">关于</string>
+    <string name="check_updates">检查更新</string>
+    <string name="checking_updates">检查中…</string>
+    <string name="no_updates_available">当前已是最新版本</string>
+    <string name="check_updates_failed">检查更新失败</string>
+    <string name="update_available">发现新版本：%s</string>
+    <string name="open_release_page">打开发布页面</string>
     <string name="partial_content_load_failed">部分内容加载失败：%s</string>
     <string name="continue_reading_section">继续阅读</string>
     <string name="recently_added">最近加入</string>
@@ -205,6 +212,8 @@
     <string name="settings_ai_concurrent_requests">并发请求数</string>
     <string name="settings_ai_timeout">请求超时</string>
     <string name="settings_ai_timeout_seconds">%1$d 秒</string>
+    <string name="settings_ai_vertical_glyph_spacing">竖排行内字距</string>
+    <string name="settings_ai_vertical_glyph_spacing_percent">%1$d%%</string>
     <string name="settings_ai_image_transport">图片传输方式</string>
     <string name="settings_ai_image_transport_base64">Base64</string>
     <string name="settings_ai_image_transport_url">Image URL</string>
@@ -253,6 +262,7 @@
     <string name="ai_translate_config_required">请先配置支持视觉输入的模型。</string>
     <string name="ai_translate_progress">已翻译 %1$d / %2$d · 失败 %3$d</string>
     <string name="ai_translate_progress_with_mode">已翻译 %1$d / %2$d · 失败 %3$d · %4$s</string>
+    <string name="ai_translate_cache_progress_with_mode">正在缓存图片 %1$d / %2$d · %3$s</string>
     <string name="ai_translation_mode_local_detection">本地检测 + AI 翻译</string>
     <string name="ai_translation_mode_local_detection_short">检测</string>
     <string name="ai_translate_delete_title">删除本书 AI 翻译</string>
@@ -261,6 +271,8 @@
     <string name="ai_translate_delete_title_final">确认删除 AI 翻译</string>
     <string name="ai_translate_delete_message_final">重新生成会再次调用模型并消耗额度或 token。删除后再次点击 AI 翻译会重新处理页面。</string>
     <string name="ai_translate_delete_confirm">删除翻译</string>
+    <string name="ai_translate_retry_incomplete_pages">重试未完成/失败的页面</string>
+    <string name="ai_translate_delete_book_translation">删除本书 AI 翻译</string>
     <string name="reader_ai_translation">AI 翻译</string>
     <string name="reader_ai_translation_icon_text">文</string>
     <string name="reader_ai_translate_current_page">翻译本页</string>
@@ -270,7 +282,7 @@
     <string name="reader_ai_test_started">已开始测试 AI 翻译</string>
     <string name="reader_ai_test_success">AI 翻译测试通过</string>
     <string name="reader_ai_test_failed">AI 翻译测试失败，请检查模型配置、网络或图片传输方式。</string>
-    <string name="reader_ai_retry_started">已开始重试本页 AI 翻译</string>
+    <string name="reader_ai_retry_started">已开始 AI 翻译</string>
     <string name="reader_ai_retry_success">本页 AI 翻译已更新</string>
     <string name="reader_ai_retry_failed">本页 AI 翻译重试失败</string>
     <string name="reader_ai_error_title">AI 翻译错误</string>
@@ -284,6 +296,12 @@
     <string name="ai_translation_resume_all">全部继续</string>
     <string name="ai_translation_retry_failed">重试失败页</string>
     <string name="ai_translation_no_tasks">暂无 AI 翻译任务</string>
+    <string name="ai_translation_task_status_idle">空闲</string>
+    <string name="ai_translation_task_status_queued">排队中</string>
+    <string name="ai_translation_task_status_running">翻译中</string>
+    <string name="ai_translation_task_status_paused">已暂停</string>
+    <string name="ai_translation_task_status_done">已完成</string>
+    <string name="ai_translation_task_status_failed">失败</string>
     <string name="settings_section_webdav_backup">WebDAV 备份</string>
     <string name="settings_webdav_url">WebDAV 服务器 URL</string>
     <string name="settings_webdav_username">WebDAV 用户名</string>

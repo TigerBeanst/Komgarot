@@ -51,6 +51,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import fail.tiger.komgarot.KomgarotApp
+import fail.tiger.komgarot.BuildConfig
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookDto
@@ -97,6 +98,7 @@ fun AppNavGraph(app: KomgarotApp) {
     val einkMode by app.authPreferences.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val user by sessionVm.user.collectAsStateWithLifecycle()
     val canEditMetadata = canEditKomgaMetadata(user)
+    val aiTranslationAvailable = BuildConfig.AI_TRANSLATION_AVAILABLE
     val startDest = if (serverUrl.isNotEmpty()) Screen.Library.route else Screen.Login.route
     val scope = rememberCoroutineScope()
 
@@ -397,7 +399,7 @@ fun AppNavGraph(app: KomgarotApp) {
                     app.seriesRepository,
                     imageCacheInvalidator,
                     textProvider,
-                    app.aiTranslationRepository
+                    if (aiTranslationAvailable) app.aiTranslationRepositoryOrNull else null
                 )
             )
             BookDetailScreen(
@@ -423,6 +425,7 @@ fun AppNavGraph(app: KomgarotApp) {
                     navController.navigate(Screen.Series.go(null, "author:$authorName"))
                 },
                 onTagClick = { tag -> navController.navigate(Screen.Series.go(id = null, tag = tag)) },
+                aiTranslationAvailable = aiTranslationAvailable,
                 vm = vm,
                 prefs = app.authPreferences
             )
@@ -448,7 +451,7 @@ fun AppNavGraph(app: KomgarotApp) {
                     app.bookRepository,
                     app.authPreferences,
                     textProvider,
-                    app.aiTranslationRepository
+                    if (aiTranslationAvailable) app.aiTranslationRepositoryOrNull else null
                 )
             )
             ReaderScreen(
@@ -467,6 +470,7 @@ fun AppNavGraph(app: KomgarotApp) {
                     }
                 },
                 canEditMetadata = canEditMetadata,
+                aiTranslationAvailable = aiTranslationAvailable,
                 vm = vm
             )
         }
@@ -503,8 +507,10 @@ fun AppNavGraph(app: KomgarotApp) {
             MeScreen(
                 userEmail = user?.email,
                 isAdmin = canEditMetadata,
+                aiTranslationAvailable = aiTranslationAvailable,
                 onCachedBooksClick = { navController.navigate(Screen.CachedBooks.route) },
                 onAiTranslationTasksClick = { navController.navigate(Screen.AiTranslationTasks.route) },
+                appUpdateRepository = app.appUpdateRepository,
                 onAdminClick = { navController.navigate(Screen.Admin.route) },
                 onSettingsClick = { navController.navigate(Screen.Settings.route) },
                 onLogout = {
@@ -538,18 +544,20 @@ fun AppNavGraph(app: KomgarotApp) {
             )
         }
 
-        composable(Screen.AiTranslationTasks.route) {
-            val vm: AiTranslationTaskViewModel = viewModel(
-                factory = AiTranslationTaskViewModel.Factory(app.aiTranslationStore)
-            )
-            AiTranslationTaskScreen(
-                vm = vm,
-                onBack = { navController.popBackStack() }
-            )
+        if (aiTranslationAvailable) {
+            composable(Screen.AiTranslationTasks.route) {
+                val vm: AiTranslationTaskViewModel = viewModel(
+                    factory = AiTranslationTaskViewModel.Factory(app.aiTranslationStore, app.aiTranslationRepositoryOrNull, serverUrl)
+                )
+                AiTranslationTaskScreen(
+                    vm = vm,
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(Screen.Settings.route) {
-            SettingsScreen(onBack = { navController.popBackStack() }, prefs = app.authPreferences)
+            SettingsScreen(onBack = { navController.popBackStack() }, prefs = app.authPreferences, aiTranslationAvailable = aiTranslationAvailable)
         }
     }
     }
