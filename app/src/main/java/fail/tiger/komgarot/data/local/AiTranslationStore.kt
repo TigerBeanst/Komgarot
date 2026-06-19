@@ -406,6 +406,7 @@ data class AiTranslationTaskSummary(
 
 enum class AiTranslationTaskStatus {
     IDLE,
+    QUEUED,
     RUNNING,
     PAUSED,
     DONE,

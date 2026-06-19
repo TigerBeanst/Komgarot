@@ -43,6 +43,7 @@ Preserve Japanese corner quotes 「」 and nested corner quotes 『』 when they
 Quote style is part of the translation contract: if the source crop or sourceText uses 「...」 or 『...』, translatedLines must use the same outer quote marks at the corresponding quoted spans.
 For Chinese targets, Japanese manga quoted dialogue, title text, emphasis, and quoted narration use 「」 and 『』. Standard curly quotes “ ” are used only when the source crop itself uses “ ”.
 Decorative text may be omitted.
+If a crop is a pure number such as a page number, chapter number, score, price, or standalone numeric label, return sourceText and translatedLines as an empty array for that localRegionId so the app leaves the original image unchanged.
 For each page, return pageIndex and translations.
 Each translation must include localRegionId, sourceText, translatedLines, and kind.
 Translate one local text region into one returned translation. Preserve the localRegionId exactly.
@@ -86,6 +87,7 @@ fun aiTranslationUserPrompt(
         appendLine("Rect values are normalized page coordinates. imageRef values match text-region crop image metadata.")
         appendLine("The attached images are ordered: page context image first for each page, then text-region crop images in the same order as the region list.")
         appendLine("Read text from each text-region crop image. Return sourceText from the crop image.")
+        appendLine("For a pure number region, return sourceText and translatedLines as an empty array; do not translate or rewrite digits.")
         appendLine("Choose translatedLines breaks at phrase or clause boundaries, keeping connected words together.")
         appendLine("Before returning JSON, check punctuation: source with no visible sentence-final mark returns no added period/full stop.")
         appendLine("Before returning JSON, check line breaks: no translatedLines entry should contain only punctuation.")

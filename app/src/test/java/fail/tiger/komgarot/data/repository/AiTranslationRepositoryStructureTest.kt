@@ -80,6 +80,15 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
+    fun bookTranslationRunsThroughGlobalQueueAndUpdatesProgressAfterEachPage() {
+        assertTrue(source.contains("private val bookTranslationQueue = Semaphore(1)"))
+        assertTrue(source.contains("bookTranslationQueue.withPermit"))
+        assertTrue(source.contains("AiTranslationTaskStatus.QUEUED"))
+        assertTrue(source.contains("updateTask(book, AiTranslationTaskStatus.RUNNING)"))
+        assertTrue(source.contains("onPageTranslated = { updateTask(book, AiTranslationTaskStatus.RUNNING) }"))
+    }
+
+    @Test
     fun fullBookTranslationStartsPagesInPageIndexOrderAcrossConcurrentWorkers() {
         assertTrue(source.contains("AtomicInteger"))
         assertTrue(source.contains("translatePendingPagesInPageOrder("))
@@ -93,12 +102,12 @@ class AiTranslationRepositoryStructureTest {
     fun base64ImageInputIsCompressedBeforeSendingToAi() {
         assertTrue(source.contains("preparePageInput("))
         assertTrue(source.contains("fallbackMimeType = page.mediaType"))
-        assertTrue(source.contains("compressPageImageForAi(tempFile, settings.imageMaxEdge)"))
+        assertTrue(source.contains("compressPageImageForAi(cachedPageFile, settings.imageMaxEdge)"))
         assertTrue(source.contains("compressPageImageForAi("))
         assertTrue(source.contains("BitmapFactory.Options().apply { inJustDecodeBounds = true }"))
         assertTrue(source.contains("Bitmap.CompressFormat.JPEG"))
         assertTrue(source.contains("AI_IMAGE_JPEG_QUALITY"))
-        assertTrue(source.contains("tempFile.outputStream().use"))
+        assertTrue(source.contains("entry.tempFile.outputStream().use"))
         assertTrue(source.contains("Base64.getEncoder().encodeToString(compressed.bytes)"))
         assertTrue(!source.contains("Base64.getEncoder().encodeToString(body.bytes())"))
     }
@@ -230,6 +239,8 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(appSource.contains("import fail.tiger.komgarot.data.repository.AiLocalTextDetector"))
         assertTrue(appSource.contains("import fail.tiger.komgarot.data.repository.AiPaddleTextDetector"))
         assertTrue(appSource.contains("aiLocalModelRepository = AiLocalModelRepository(filesDir)"))
+        assertTrue(appSource.contains("if (BuildConfig.AI_TRANSLATION_AVAILABLE)"))
+        assertTrue(appSource.contains("aiTranslationRepositoryOrNull"))
         assertTrue(appSource.contains("paddleTextDetector = AiPaddleTextDetector(applicationContext, aiLocalModelRepository)"))
     }
 
@@ -250,8 +261,24 @@ class AiTranslationRepositoryStructureTest {
         val inputStart = source.indexOf("private fun preparePageInput(")
         val inputEnd = source.indexOf("private fun updateTask(", inputStart)
         val inputSource = source.substring(inputStart, inputEnd)
-        assertTrue(inputSource.contains("localTextDetector.detect(tempFile, pageIndex, settings)"))
+        assertTrue(inputSource.contains("val cachedPageFile = ensureCachedPageFile("))
+        assertTrue(inputSource.contains("localTextDetector.detect(cachedPageFile, pageIndex, settings)"))
         assertTrue(inputSource.contains("store.upsertPages(bookId, listOf(localDetectionPlaceholderPage(localContext, mode)))"))
+    }
+
+    @Test
+    fun repositoryUsesReaderPageCacheBeforeAiProcessing() {
+        assertTrue(source.contains("import fail.tiger.komgarot.data.local.ReaderPageCache"))
+        assertTrue(source.contains("private fun ensureCachedPageFile("))
+        assertTrue(source.contains("ReaderPageCache.cachedFile(context, seriesId, bookId, url)"))
+        assertTrue(source.contains("ReaderPageCache.entry(context, seriesId, bookId, url)"))
+        assertTrue(source.contains("ReaderPageCache.commit(context, entry, prefs.readerCacheSizeBytesBlocking)"))
+        val inputStart = source.indexOf("private fun preparePageInput(")
+        val inputEnd = source.indexOf("private fun ensureCachedPageFile(", inputStart)
+        val inputSource = source.substring(inputStart, inputEnd)
+        assertTrue(inputSource.contains("file = cachedPageFile"))
+        assertTrue(inputSource.contains("compressPageImageForAi(cachedPageFile, settings.imageMaxEdge)"))
+        assertTrue(!source.contains("File.createTempFile(\"ai-page-\", \".img\", context.cacheDir)"))
     }
 
     @Test
@@ -326,5 +353,50 @@ class AiTranslationRepositoryStructureTest {
         assertEquals("#FFFFFF", block.maskColor)
         assertEquals(0.82f, block.maskAlpha)
         assertEquals(0.96f, block.fontScale)
+    }
+
+    @Test
+    fun pureNumberRegionsAreSkippedFromTranslatedOverlayBlocks() {
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 2,
+            imageWidth = 1000,
+            imageHeight = 1400,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p2-r1",
+                    rect = AiTranslationRect(x = 0.40f, y = 0.20f, width = 0.08f, height = 0.08f),
+                    textDirection = AiTranslationTextDirection.HORIZONTAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.90f,
+                    estimatedFontScale = 1.0f
+                )
+            )
+        )
+        val json = """
+            {
+              "pages": [
+                {
+                  "pageIndex": 2,
+                  "translations": [
+                    {
+                      "localRegionId": "p2-r1",
+                      "sourceText": "12345",
+                      "translatedLines": ["12345"]
+                    }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val pages = translatedPagesFromLocalRegionResponse(
+            normalizedJson = json,
+            fallbackPageIndexes = listOf(2),
+            localPageContexts = listOf(context),
+            mode = AiTranslationMode.LOCAL_DETECTION
+        )
+
+        assertTrue(pages.isEmpty())
     }
 }

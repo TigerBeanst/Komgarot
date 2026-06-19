@@ -26,6 +26,7 @@ import fail.tiger.komgarot.data.local.AiTranslationTaskStatus
 import fail.tiger.komgarot.data.local.AiTranslationTaskSummary
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.local.SecureAiSettingsStore
 import fail.tiger.komgarot.data.remote.AiTranslationClient
 import fail.tiger.komgarot.data.remote.AiTranslationImageInput
@@ -70,6 +71,7 @@ class AiTranslationRepository(
     private val aiClient: AiTranslationClient = AiTranslationClient()
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val bookTranslationQueue = Semaphore(1)
 
     fun readBookState(bookId: String) = store.readBook(bookId)
 
@@ -102,9 +104,53 @@ class AiTranslationRepository(
 
     fun startBookTranslation(book: BookDto, serverUrl: String) {
         scope.launch {
-            val pages = bookRepository.getPages(book.id)
-            ensureBookFile(book, pages.size, AiTranslationMode.LOCAL_DETECTION)
-            translatePages(book, serverUrl, pages.indices.toList(), force = false, knownPages = pages)
+            updateTask(book, AiTranslationTaskStatus.QUEUED)
+            bookTranslationQueue.withPermit {
+                val pages = bookRepository.getPages(book.id)
+                ensureBookFile(book, pages.size, AiTranslationMode.LOCAL_DETECTION)
+                val result = translatePages(
+                    book,
+                    serverUrl,
+                    pages.indices.toList(),
+                    force = false,
+                    knownPages = pages,
+                    onPageTranslated = { updateTask(book, AiTranslationTaskStatus.RUNNING) }
+                )
+                updateTask(book, if (result.ok) AiTranslationTaskStatus.DONE else AiTranslationTaskStatus.FAILED)
+            }
+        }
+    }
+
+    fun retryIncompleteBookTranslation(book: BookDto, serverUrl: String) {
+        scope.launch {
+            updateTask(book, AiTranslationTaskStatus.QUEUED)
+            bookTranslationQueue.withPermit {
+                val pages = bookRepository.getPages(book.id)
+                ensureBookFile(book, pages.size, AiTranslationMode.LOCAL_DETECTION)
+                val currentPages = store.readBook(book.id)?.pages.orEmpty()
+                val completed = currentPages
+                    .filter { it.status == AiTranslationPageStatus.DONE }
+                    .map { it.pageIndex }
+                    .toSet()
+                val pending = pages.indices.filterNot { it in completed }
+                val result = translatePages(
+                    book,
+                    serverUrl,
+                    pending,
+                    force = true,
+                    knownPages = pages,
+                    cachedPages = pages,
+                    onPageTranslated = { updateTask(book, AiTranslationTaskStatus.RUNNING) }
+                )
+                updateTask(book, if (result.ok) AiTranslationTaskStatus.DONE else AiTranslationTaskStatus.FAILED)
+            }
+        }
+    }
+
+    fun retryIncompleteBookTranslation(bookId: String, serverUrl: String) {
+        scope.launch {
+            val book = bookRepository.getBookById(bookId).getOrNull() ?: return@launch
+            retryIncompleteBookTranslation(book, serverUrl)
         }
     }
 
@@ -116,15 +162,18 @@ class AiTranslationRepository(
     ): AiTranslationPageActionResult {
         val runMode = AiTranslationMode.LOCAL_DETECTION
         ensureBookFile(book, book.media.pagesCount, runMode)
-        val result = translatePages(
-            book,
-            serverUrl,
-            listOf(pageIndex),
-            force = true,
-            requireEnabled = false,
-            knownPages = cachedPages,
-            cachedPages = cachedPages
-        )
+        val result = bookTranslationQueue.withPermit {
+            translatePages(
+                book,
+                serverUrl,
+                listOf(pageIndex),
+                force = true,
+                requireEnabled = false,
+                knownPages = cachedPages,
+                cachedPages = cachedPages,
+                onPageTranslated = { updateTask(book, AiTranslationTaskStatus.RUNNING) }
+            )
+        }
         return AiTranslationPageActionResult(
             ok = result.ok,
             summary = result.summary.ifBlank { "AI translation retry failed: book=${book.id}, page=$pageIndex, no repository diagnostic summary." }
@@ -143,15 +192,18 @@ class AiTranslationRepository(
     ): Boolean {
         val runMode = AiTranslationMode.LOCAL_DETECTION
         ensureBookFile(book, book.media.pagesCount, runMode)
-        val ok = translatePages(
-            book,
-            serverUrl,
-            listOf(pageIndex),
-            force = true,
-            requireEnabled = false,
-            knownPages = cachedPages,
-            cachedPages = cachedPages
-        ).ok
+        val ok = bookTranslationQueue.withPermit {
+            translatePages(
+                book,
+                serverUrl,
+                listOf(pageIndex),
+                force = true,
+                requireEnabled = false,
+                knownPages = cachedPages,
+                cachedPages = cachedPages,
+                onPageTranslated = { updateTask(book, AiTranslationTaskStatus.RUNNING) }
+            )
+        }.ok
         if (ok) {
             prefs.setAiConfigurationTestPassed(true)
             prefs.setAiTestModeEnabled(false)
@@ -166,7 +218,8 @@ class AiTranslationRepository(
         force: Boolean,
         requireEnabled: Boolean = true,
         knownPages: List<PageDto> = emptyList(),
-        cachedPages: List<PageDto> = emptyList()
+        cachedPages: List<PageDto> = emptyList(),
+        onPageTranslated: () -> Unit = {}
     ): AiTranslationRunResult = withContext(Dispatchers.IO) {
         val secure = secureAiSettingsStore.read()
         val settings = AiSettings.defaults(
@@ -239,7 +292,8 @@ class AiTranslationRepository(
             apiKey = secure.apiKey,
             imageUrlExtraQuery = secure.imageUrlExtraQuery,
             pending = pending,
-            allPages = allPages
+            allPages = allPages,
+            onPageTranslated = onPageTranslated
         )
         val ok = results.all { it.ok }
         val summary = summarizeAiTranslationResults(pending, results)
@@ -254,7 +308,8 @@ class AiTranslationRepository(
         apiKey: String,
         imageUrlExtraQuery: String,
         pending: List<Int>,
-        allPages: List<PageDto>
+        allPages: List<PageDto>,
+        onPageTranslated: () -> Unit = {}
     ): List<AiTranslationRunResult> = coroutineScope {
         val orderedPending = pending.sorted()
         val workerCount = min(settings.concurrentRequests.coerceAtLeast(1), orderedPending.size.coerceAtLeast(1))
@@ -269,6 +324,7 @@ class AiTranslationRepository(
                         if (offset >= orderedPending.size) break
                         val pageIndex = orderedPending[offset]
                         workerResults += translateBatch(book, serverUrl, settings, apiKey, imageUrlExtraQuery, listOf(pageIndex), allPages)
+                        onPageTranslated()
                     }
                 }
                 workerResults
@@ -321,6 +377,7 @@ class AiTranslationRepository(
                 val page = pages.getOrNull(index) ?: return@mapNotNull null
                 val url = readerPageUrl(serverUrl, book.id, page)
                 preparePageInput(
+                    seriesId = book.seriesId,
                     bookId = book.id,
                     pageIndex = index,
                     url = url,
@@ -483,6 +540,7 @@ class AiTranslationRepository(
     }
 
     private fun preparePageInput(
+        seriesId: String,
         bookId: String,
         pageIndex: Int,
         url: String,
@@ -491,55 +549,66 @@ class AiTranslationRepository(
         imageUrlExtraQuery: String,
         mode: AiTranslationMode
     ): PreparedAiPageInput {
+        val cachedPageFile = ensureCachedPageFile(seriesId, bookId, url)
+        val localContext = localTextDetector.detect(cachedPageFile, pageIndex, settings)
+        if (localContext.regions.isNotEmpty()) {
+            store.upsertPages(bookId, listOf(localDetectionPlaceholderPage(localContext, mode)))
+        }
+        val pageImageInput = if (settings.imageTransport == AiImageTransport.IMAGE_URL) {
+            AiTranslationImageInput(
+                pageIndex = pageIndex,
+                transport = AiImageTransport.IMAGE_URL,
+                mimeType = fallbackMimeType,
+                base64 = "",
+                imageUrl = appendImageUrlExtraQuery(url, imageUrlExtraQuery)
+            )
+        } else {
+            val compressed = compressPageImageForAi(cachedPageFile, settings.imageMaxEdge)
+            AiTranslationImageInput(
+                pageIndex = pageIndex,
+                transport = AiImageTransport.BASE64,
+                mimeType = compressed.mimeType.takeIf { it.isNotBlank() } ?: fallbackMimeType,
+                base64 = Base64.getEncoder().encodeToString(compressed.bytes),
+                imageUrl = ""
+            )
+        }
+        val regionImageInputs = buildTextRegionImageInputs(
+            file = cachedPageFile,
+            pageIndex = pageIndex,
+            regions = localContext.regions
+        )
+        return PreparedAiPageInput(
+            pageImageInput = pageImageInput,
+            localContext = localContext,
+            regionImageInputs = regionImageInputs
+        )
+    }
+
+    private fun ensureCachedPageFile(seriesId: String, bookId: String, url: String): File {
+        ReaderPageCache.cachedFile(context, seriesId, bookId, url)?.let { return it }
+        val entry = ReaderPageCache.entry(context, seriesId, bookId, url)
         val request = Request.Builder()
             .url(url)
             .header("Accept", "image/*,*/*;q=0.8")
             .build()
-        komgaHttpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) error(response.message)
-            val body = response.body ?: error("empty image body")
-            val tempFile = File.createTempFile("ai-page-", ".img", context.cacheDir)
-            return try {
-                tempFile.outputStream().use { output ->
+        try {
+            komgaHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) error(response.message)
+                val body = response.body ?: error("empty image body")
+                entry.tempFile.parentFile?.mkdirs()
+                entry.tempFile.outputStream().use { output ->
                     body.byteStream().use { input -> input.copyTo(output) }
                 }
-                val localContext = localTextDetector.detect(tempFile, pageIndex, settings)
-                if (localContext.regions.isNotEmpty()) {
-                    store.upsertPages(bookId, listOf(localDetectionPlaceholderPage(localContext, mode)))
-                }
-                val pageImageInput = if (settings.imageTransport == AiImageTransport.IMAGE_URL) {
-                    AiTranslationImageInput(
-                        pageIndex = pageIndex,
-                        transport = AiImageTransport.IMAGE_URL,
-                        mimeType = fallbackMimeType,
-                        base64 = "",
-                        imageUrl = appendImageUrlExtraQuery(url, imageUrlExtraQuery)
-                    )
-                } else {
-                    val compressed = compressPageImageForAi(tempFile, settings.imageMaxEdge)
-                    AiTranslationImageInput(
-                        pageIndex = pageIndex,
-                        transport = AiImageTransport.BASE64,
-                        mimeType = compressed.mimeType.takeIf { it.isNotBlank() }
-                        ?: body.contentType()?.toString()?.takeIf { it.isNotBlank() }
-                        ?: fallbackMimeType,
-                        base64 = Base64.getEncoder().encodeToString(compressed.bytes),
-                        imageUrl = ""
-                    )
-                }
-                val regionImageInputs = buildTextRegionImageInputs(
-                    file = tempFile,
-                    pageIndex = pageIndex,
-                    regions = localContext.regions
-                )
-                PreparedAiPageInput(
-                    pageImageInput = pageImageInput,
-                    localContext = localContext,
-                    regionImageInputs = regionImageInputs
-                )
-            } finally {
-                tempFile.delete()
             }
+            if (!ReaderPageCache.commit(context, entry, prefs.readerCacheSizeBytesBlocking)) {
+                error("failed to cache page image")
+            }
+            return ReaderPageCache.cachedFile(context, seriesId, bookId, url)
+                ?: entry.file.takeIf { it.isFile && it.length() > 0L }
+                ?: error("cached page image is missing")
+        } catch (throwable: Throwable) {
+            ReaderPageCache.discard(entry)
+            throw throwable
         }
     }
 
@@ -619,7 +688,11 @@ internal fun buildTranslatedPageFromLocalContext(
     mode: AiTranslationMode
 ): AiTranslatedPage? {
     val translationsByRegion = translations
-        .filter { it.localRegionId.isNotBlank() && it.translatedLines.any { line -> line.isNotBlank() } }
+        .filter {
+            it.localRegionId.isNotBlank() &&
+                it.translatedLines.any { line -> line.isNotBlank() } &&
+                !isPureNumberAiTranslationSource(it.sourceText)
+        }
         .associateBy { it.localRegionId }
     val blocks = localContext.regions.mapNotNull { region ->
         val translation = translationsByRegion[region.id] ?: return@mapNotNull null
@@ -651,6 +724,57 @@ internal fun buildTranslatedPageFromLocalContext(
         mode = mode.storedValue
     )
 }
+
+internal fun isPureNumberAiTranslationSource(value: String): Boolean {
+    val compact = value.trim()
+        .replace(" ", "")
+        .replace("\n", "")
+        .replace("\t", "")
+    if (compact.isBlank()) return false
+    return compact.all { char ->
+        char.isPureNumberAllowedCharacter()
+    } && compact.any { it.isNumericValueCharacter() }
+}
+
+private fun Char.isPureNumberAllowedCharacter(): Boolean =
+    isNumericValueCharacter() || code in PURE_NUMBER_SEPARATOR_CODE_POINTS
+
+private fun Char.isNumericValueCharacter(): Boolean =
+    isDigit() || code in 0xFF10..0xFF19 || code in CJK_NUMERIC_IDEOGRAPH_CODE_POINTS
+
+private val CJK_NUMERIC_IDEOGRAPH_CODE_POINTS = setOf(
+    0x3007,
+    0x96F6,
+    0x4E00,
+    0x4E8C,
+    0x4E09,
+    0x56DB,
+    0x4E94,
+    0x516D,
+    0x4E03,
+    0x516B,
+    0x4E5D,
+    0x5341,
+    0x767E,
+    0x5343,
+    0x4E07
+)
+
+private val PURE_NUMBER_SEPARATOR_CODE_POINTS = setOf(
+    0x002C,
+    0xFF0C,
+    0x002E,
+    0xFF0E,
+    0x30FB,
+    0x002F,
+    0xFF0F,
+    0x002D,
+    0xFF0D,
+    0x2014,
+    0x2013,
+    0x007E,
+    0x301C
+)
 
 internal data class AiLocalRegionTranslationPage(
     val pageIndex: Int,
