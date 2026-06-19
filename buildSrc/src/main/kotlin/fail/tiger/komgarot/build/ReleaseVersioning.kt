@@ -36,9 +36,13 @@ object ReleaseVersioning {
         )
     }
 
-    fun apkFileName(versionName: String, versionCode: Int, abi: String? = null): String {
+    fun apkFileName(versionName: String, versionCode: Int, abi: String? = null, edition: String? = null): String {
+        val editionSegment = edition
+            ?.takeIf { it.equals("lite", ignoreCase = true) }
+            ?.let { "_lite" }
+            .orEmpty()
         val abiSuffix = abi?.takeIf { it.isNotBlank() }?.let { "_${it}" }.orEmpty()
-        return "Komgarot_${versionName}_${versionCode}${abiSuffix}.apk"
+        return "Komgarot${editionSegment}_${versionName}_${versionCode}${abiSuffix}.apk"
     }
 
     fun readState(file: File): ReleaseVersionState? {

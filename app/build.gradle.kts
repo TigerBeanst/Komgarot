@@ -2,6 +2,9 @@ import fail.tiger.komgarot.build.GenerateReleaseVersionTask
 import fail.tiger.komgarot.build.ReleaseVersioning
 import fail.tiger.komgarot.build.ReleaseVersionState
 import com.android.build.api.variant.FilterConfiguration
+import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.Delete
 
 plugins {
     alias(libs.plugins.android.application)
@@ -43,6 +46,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "edition"
+    productFlavors {
+        create("full") {
+            dimension = "edition"
+            buildConfigField("boolean", "AI_TRANSLATION_AVAILABLE", "true")
+        }
+        create("lite") {
+            dimension = "edition"
+            buildConfigField("boolean", "AI_TRANSLATION_AVAILABLE", "false")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -56,6 +71,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     splits {
         abi {
@@ -69,6 +85,65 @@ android {
 
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
+        val variantName = variant.name
+        val capitalizedVariantName = variantName.replaceFirstChar { it.titlecase() }
+        val edition = variant.flavorName
+        val apkOutputDirectory = "outputs/apk/$edition/release"
+        val projectFlavorReleaseDirectory = layout.projectDirectory.dir("$edition/release")
+        val releaseArtifactSuffix = if (edition == "lite") "_lite" else ""
+        val outputMetadataFileName = "output-metadata$releaseArtifactSuffix.json"
+        val baselineProfilesDirectoryName = "baselineProfiles$releaseArtifactSuffix"
+        val releaseDirectory = layout.projectDirectory.dir("release")
+        val releaseApkIncludePattern = if (edition == "lite") "Komgarot_lite_*.apk" else "Komgarot_*.apk"
+        val releaseApkExcludePattern = if (edition == "lite") null else "Komgarot_lite_*.apk"
+        val deleteExistingProjectReleaseArtifacts = tasks.register<Delete>("delete${capitalizedVariantName}ExistingProjectReleaseArtifacts") {
+            delete(releaseDirectory.asFileTree.matching {
+                include(releaseApkIncludePattern)
+                releaseApkExcludePattern?.let { exclude(it) }
+            })
+            delete(releaseDirectory.file(outputMetadataFileName))
+            delete(releaseDirectory.dir(baselineProfilesDirectoryName))
+        }
+        val copyReleaseArtifactsToProjectRelease = tasks.register<Copy>("copy${capitalizedVariantName}ArtifactsToProjectRelease") {
+            duplicatesStrategy = DuplicatesStrategy.INCLUDE
+            into(releaseDirectory)
+
+            from(projectFlavorReleaseDirectory) {
+                include("*.apk")
+            }
+            from(layout.buildDirectory.dir(apkOutputDirectory)) {
+                include("*.apk")
+            }
+
+            from(projectFlavorReleaseDirectory) {
+                include("output-metadata.json")
+                rename { outputMetadataFileName }
+            }
+            from(layout.buildDirectory.dir(apkOutputDirectory)) {
+                include("output-metadata.json")
+                rename { outputMetadataFileName }
+            }
+
+            from(projectFlavorReleaseDirectory.dir("baselineProfiles")) {
+                into(baselineProfilesDirectoryName)
+            }
+            from(layout.buildDirectory.dir("$apkOutputDirectory/baselineProfiles")) {
+                into(baselineProfilesDirectoryName)
+            }
+        }
+        val deleteProjectFlavorReleaseDirectory = tasks.register<Delete>("delete${capitalizedVariantName}ProjectReleaseDirectory") {
+            delete(projectFlavorReleaseDirectory)
+        }
+        tasks.matching { it.name == "assemble$capitalizedVariantName" }.configureEach {
+            finalizedBy(copyReleaseArtifactsToProjectRelease)
+        }
+        tasks.matching { it.name == "package$capitalizedVariantName" }.configureEach {
+            finalizedBy(copyReleaseArtifactsToProjectRelease)
+        }
+        copyReleaseArtifactsToProjectRelease.configure {
+            dependsOn(deleteExistingProjectReleaseArtifacts)
+            finalizedBy(deleteProjectFlavorReleaseDirectory)
+        }
         variant.outputs.forEach { output ->
             output.versionCode.set(releaseVersionCode)
             output.versionName.set(releaseVersionName)
@@ -81,6 +156,7 @@ androidComponents {
                         versionName = state.versionName,
                         versionCode = state.versionCode,
                         abi = abi,
+                        edition = edition,
                     )
                 }
             )
@@ -119,5 +195,5 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.material.motion.compose.core)
     implementation(libs.security.crypto)
-    implementation(libs.onnxruntime.android)
+    add("fullImplementation", libs.onnxruntime.android)
 }
