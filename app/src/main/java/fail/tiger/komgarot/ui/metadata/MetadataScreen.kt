@@ -539,7 +539,7 @@ private fun MetadataCoverSection(
                 }
             }
         }
-        if (canEditMetadata) {
+        if (canEditMetadata && candidate != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 CoverCrop.entries.forEach { option ->
                     FilterChip(

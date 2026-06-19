@@ -229,14 +229,14 @@ fun BookScreen(
                                 Box(
                                     Modifier.fillMaxWidth().align(Alignment.BottomStart)
                                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.75f))))
-                                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                                        .padding(horizontal = 6.dp, vertical = 6.dp)
                                 ) {
                                     Column {
                                         Text(
                                             book.metadata.title.ifEmpty { book.name },
                                             style = MaterialTheme.typography.bodySmall,
                                             color = Color.White,
-                                            maxLines = 1
+                                            maxLines = 2
                                         )
                                         Text(
                                             stringResource(

@@ -223,6 +223,7 @@ fun ReaderScreen(
     onSetBookCover: (String) -> Unit,
     onSetSeriesCover: (String) -> Unit,
     canEditMetadata: Boolean,
+    aiTranslationAvailable: Boolean,
     vm: ReaderViewModel
 ) {
     LaunchedEffect(bookId) { vm.load(bookId, startPage, trackProgress) }
@@ -239,7 +240,27 @@ fun ReaderScreen(
     val keepScreenOn by vm.prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val aiTestModeEnabled by vm.prefs.aiTestModeEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val aiTranslationEnabled by vm.prefs.aiTranslationEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
+    val aiVerticalGlyphSpacingPercent by vm.prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 92)
+    val aiVerticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier(aiVerticalGlyphSpacingPercent)
     var aiTranslationErrorDialogMessage by remember { mutableStateOf<String?>(null) }
+    var readerAiDeleteFirstConfirmation by remember { mutableStateOf(false) }
+    var readerAiDeleteFinalConfirmation by remember { mutableStateOf(false) }
+
+    LaunchedEffect(
+        vm.currentBookId,
+        vm.currentPage,
+        vm.currentAiTranslationDisplayMode,
+        vm.currentAiTranslatedPage(vm.currentPage)?.status,
+        preloadPages,
+        aiTranslationAvailable,
+        aiTranslationEnabled
+    ) {
+        if (aiTranslationAvailable && aiTranslationEnabled) {
+            vm.translateCurrentAiPageIfDisplayEnabled(preloadPages)
+        }
+    }
 
     LaunchedEffect(vm.aiTranslationMessageNonce) {
         val messageRes = vm.aiTranslationMessageRes
@@ -281,12 +302,35 @@ fun ReaderScreen(
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
+        val aiTranslationControlsVisible = aiTranslationAvailable && aiTranslationEnabled
         if (einkMode) {
-            PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata, aiTestModeEnabled)
+            PagerReader(
+                vm,
+                onOpenBook,
+                onSetBookCover,
+                onSetSeriesCover,
+                canEditMetadata,
+                aiTranslationAvailable = aiTranslationControlsVisible,
+                aiTestModeEnabled = aiTranslationAvailable && aiTestModeEnabled,
+                verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier
+            )
         } else {
             when (vm.mode) {
-                ReadingMode.PAGER -> PagerReader(vm, onOpenBook, onSetBookCover, onSetSeriesCover, canEditMetadata, aiTestModeEnabled)
-                ReadingMode.SCROLL -> ScrollReader(vm)
+                ReadingMode.PAGER -> PagerReader(
+                    vm,
+                    onOpenBook,
+                    onSetBookCover,
+                    onSetSeriesCover,
+                    canEditMetadata,
+                    aiTranslationAvailable = aiTranslationControlsVisible,
+                    aiTestModeEnabled = aiTranslationAvailable && aiTestModeEnabled,
+                    verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier
+                )
+                ReadingMode.SCROLL -> ScrollReader(
+                    vm,
+                    aiTranslationAvailable = aiTranslationControlsVisible,
+                    verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier
+                )
             }
         }
 
@@ -331,6 +375,7 @@ fun ReaderScreen(
             if (vm.showControls) {
                 ReaderBottomControls(
                     vm = vm,
+                    aiTranslationAvailable = aiTranslationControlsVisible,
                     containerAlpha = 0.9f,
                     modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
                 )
@@ -342,7 +387,7 @@ fun ReaderScreen(
                 exit = fadeOut() + slideOutVertically { it },
                 modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
             ) {
-                ReaderBottomControls(vm = vm, containerAlpha = 0.8f)
+                ReaderBottomControls(vm = vm, aiTranslationAvailable = aiTranslationControlsVisible, containerAlpha = 0.8f)
             }
         }
 
@@ -376,19 +421,28 @@ fun ReaderScreen(
             }
         }
 
-        AiTranslationFloatingButton(
-            mode = vm.currentAiTranslationDisplayMode,
-            pageStatus = vm.currentAiTranslatedPage(vm.currentPage)?.status,
-            onClick = { vm.cycleAiTranslationDisplayMode() },
-            onLongClick = { vm.showAiTranslationPageActions = true },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .windowInsetsPadding(WindowInsets.systemBars)
-                .padding(end = 16.dp, bottom = 72.dp)
-        )
+        if (aiTranslationAvailable && aiTranslationEnabled) {
+            val rangeStatus = readerAiTranslationPageRange(vm.currentPage, vm.pageUrls.size, preloadPages)
+                .mapNotNull { vm.currentAiTranslatedPage(it)?.status }
+            val floatingStatus = if (rangeStatus.any { it == AiTranslationPageStatus.RUNNING }) {
+                AiTranslationPageStatus.RUNNING
+            } else {
+                vm.currentAiTranslatedPage(vm.currentPage)?.status
+            }
+            AiTranslationFloatingButton(
+                mode = vm.currentAiTranslationDisplayMode,
+                pageStatus = floatingStatus,
+                onClick = { vm.handleAiTranslationButtonClick(preloadPages) },
+                onLongClick = { vm.showAiTranslationPageActions = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .windowInsetsPadding(WindowInsets.systemBars)
+                    .padding(end = 16.dp, bottom = 72.dp)
+            )
+        }
     }
 
-    if (vm.showAiTranslationPageActions) {
+    if (aiTranslationAvailable && aiTranslationEnabled && vm.showAiTranslationPageActions) {
         AlertDialog(
             onDismissRequest = { vm.showAiTranslationPageActions = false },
             title = { Text(stringResource(R.string.reader_ai_translation)) },
@@ -401,25 +455,16 @@ fun ReaderScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(stringResource(R.string.reader_ai_translate_current_page))
-                    }
-                    TextButton(
-                        onClick = {
-                            vm.retryCurrentAiTranslationPage()
-                            vm.showAiTranslationPageActions = false
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
                         Text(stringResource(R.string.reader_ai_retry_current_page))
                     }
                     TextButton(
                         onClick = {
-                            vm.deleteCurrentAiTranslationPage()
                             vm.showAiTranslationPageActions = false
+                            readerAiDeleteFirstConfirmation = true
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(stringResource(R.string.reader_ai_delete_current_page))
+                        Text(stringResource(R.string.ai_translate_delete_book_translation))
                     }
                 }
             },
@@ -432,7 +477,45 @@ fun ReaderScreen(
         )
     }
 
-    aiTranslationErrorDialogMessage?.let { message ->
+    if (readerAiDeleteFirstConfirmation) {
+        AlertDialog(
+            onDismissRequest = { readerAiDeleteFirstConfirmation = false },
+            title = { Text(stringResource(R.string.ai_translate_delete_title)) },
+            text = { Text(stringResource(R.string.ai_translate_delete_message_first)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    readerAiDeleteFirstConfirmation = false
+                    readerAiDeleteFinalConfirmation = true
+                }) { Text(stringResource(R.string.ai_translate_delete_continue)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { readerAiDeleteFirstConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    if (readerAiDeleteFinalConfirmation) {
+        AlertDialog(
+            onDismissRequest = { readerAiDeleteFinalConfirmation = false },
+            title = { Text(stringResource(R.string.ai_translate_delete_title_final)) },
+            text = { Text(stringResource(R.string.ai_translate_delete_message_final)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.clearCurrentBookAiTranslation()
+                    readerAiDeleteFinalConfirmation = false
+                }) { Text(stringResource(R.string.ai_translate_delete_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { readerAiDeleteFinalConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    if (aiTranslationAvailable) aiTranslationErrorDialogMessage?.let { message ->
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         AlertDialog(
             onDismissRequest = { aiTranslationErrorDialogMessage = null },
@@ -499,6 +582,7 @@ private fun ReaderTopControls(
 @Composable
 private fun ReaderBottomControls(
     vm: ReaderViewModel,
+    aiTranslationAvailable: Boolean,
     containerAlpha: Float,
     modifier: Modifier = Modifier
 ) {
@@ -543,9 +627,7 @@ private fun ReaderBottomControls(
                         preloadPages,
                         stringResource(if (currentPageCached) R.string.reader_cached else R.string.reader_network_loading) +
                             " · " +
-                            stringResource(readerAiStatusStringRes(vm.currentAiTranslatedPage(vm.currentPage)?.status)) +
-                            " · " +
-                            stringResource(readerAiModeShortStringRes(vm.currentAiTranslationModeForPage(vm.currentPage)))
+                            readerAiStatusLabel(vm, aiTranslationAvailable)
                     ),
                     color = Color.White,
                     style = MaterialTheme.typography.labelMedium,
@@ -555,6 +637,16 @@ private fun ReaderBottomControls(
         }
     }
 }
+
+@Composable
+private fun readerAiStatusLabel(vm: ReaderViewModel, aiTranslationAvailable: Boolean): String =
+    if (aiTranslationAvailable) {
+        stringResource(readerAiStatusStringRes(vm.currentAiTranslatedPage(vm.currentPage)?.status)) +
+            " · " +
+            stringResource(readerAiModeShortStringRes(vm.currentAiTranslationModeForPage(vm.currentPage)))
+    } else {
+        stringResource(R.string.disabled)
+    }
 
 @Composable
 private fun ReaderStatusOverlay(
@@ -595,7 +687,9 @@ fun PagerReader(
     onSetBookCover: (String) -> Unit,
     onSetSeriesCover: (String) -> Unit,
     canEditMetadata: Boolean,
-    aiTestModeEnabled: Boolean
+    aiTranslationAvailable: Boolean,
+    aiTestModeEnabled: Boolean,
+    verticalGlyphSpacingMultiplier: Float
 ) {
     if (vm.pageUrls.isEmpty()) return
     val pagerPages = remember(vm.pageUrls, vm.previousBook, vm.nextBook) {
@@ -696,8 +790,9 @@ fun PagerReader(
                         pageFit = pageFit,
                         zoomState = zoomState,
                         einkMode = einkMode,
-                        aiTranslatedPage = vm.currentAiTranslatedPage(actualPageIndex),
-                        aiDisplayMode = vm.aiTranslationDisplayModeForPage(actualPageIndex),
+                        aiTranslatedPage = vm.currentAiTranslatedPage(actualPageIndex).takeIf { aiTranslationAvailable },
+                        aiDisplayMode = if (aiTranslationAvailable) vm.aiTranslationDisplayModeForPage(actualPageIndex) else AiTranslationDisplayMode.OFF,
+                        verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
                         onRetry = { retryKey += 1 },
                         onTap = { tapX, width ->
                             when (
@@ -768,11 +863,13 @@ private fun ZoomableReaderPageContent(
     einkMode: Boolean,
     aiTranslatedPage: AiTranslatedPage?,
     aiDisplayMode: AiTranslationDisplayMode,
+    verticalGlyphSpacingMultiplier: Float,
     onRetry: () -> Unit,
     onTap: (tapX: Float, width: Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var pageWidthPx by remember(pageRequestState.request) { mutableIntStateOf(0) }
+    var pageImageLoaded by remember(pageRequestState.request) { mutableStateOf(false) }
     Box(
         modifier
             .onSizeChanged { pageWidthPx = it.width }
@@ -813,14 +910,18 @@ private fun ZoomableReaderPageContent(
                         onRetry = onRetry
                     )
                 }
-                else -> SubcomposeAsyncImageContent()
+                else -> {
+                    pageImageLoaded = true
+                    SubcomposeAsyncImageContent()
+                }
             }
         }
         AiTranslationOverlay(
-            page = aiTranslatedPage,
+            page = aiTranslatedPage.takeIf { pageImageLoaded },
             mode = aiDisplayMode,
             modifier = Modifier.matchParentSize(),
-            fillWidth = pageFit == "WIDTH"
+            fillWidth = pageFit == "WIDTH",
+            verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier
         )
     }
 }
@@ -1087,7 +1188,11 @@ private fun saveBitmapToCache(context: Context, bitmap: Bitmap): android.net.Uri
 }
 
 @Composable
-fun ScrollReader(vm: ReaderViewModel) {
+fun ScrollReader(
+    vm: ReaderViewModel,
+    aiTranslationAvailable: Boolean,
+    verticalGlyphSpacingMultiplier: Float
+) {
     val listState = rememberLazyListState()
     val context = LocalContext.current
     val imageLoader = coil.Coil.imageLoader(context)
@@ -1152,6 +1257,7 @@ fun ScrollReader(vm: ReaderViewModel) {
                     bookId = vm.currentBookId,
                     retryKey = retryKey
                 )
+                var pageImageLoaded by remember(pageRequestState.request) { mutableStateOf(false) }
                 SubcomposeAsyncImage(
                     model = pageRequestState.request,
                     contentDescription = stringResource(R.string.reader_page_description, index + 1),
@@ -1184,15 +1290,21 @@ fun ScrollReader(vm: ReaderViewModel) {
                                 onRetry = { retryKey += 1 }
                             )
                         }
-                        else -> SubcomposeAsyncImageContent()
+                        else -> {
+                            pageImageLoaded = true
+                            SubcomposeAsyncImageContent()
+                        }
                     }
                 }
-                AiTranslationOverlay(
-                    page = vm.currentAiTranslatedPage(index),
-                    mode = vm.aiTranslationDisplayModeForPage(index),
-                    modifier = Modifier.matchParentSize(),
-                    fillWidth = true
-                )
+                if (aiTranslationAvailable) {
+                    AiTranslationOverlay(
+                        page = vm.currentAiTranslatedPage(index).takeIf { pageImageLoaded },
+                        mode = vm.aiTranslationDisplayModeForPage(index),
+                        modifier = Modifier.matchParentSize(),
+                        fillWidth = true,
+                        verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier
+                    )
+                }
             }
         }
     }

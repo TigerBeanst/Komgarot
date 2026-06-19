@@ -20,6 +20,43 @@ class AiTranslationOverlayStructureTest {
     }
 
     @Test
+    fun floatingButtonUsesCircularRippleBounds() {
+        val buttonStart = overlaySource.indexOf("fun AiTranslationFloatingButton(")
+        assertTrue(buttonStart >= 0)
+        val buttonSource = overlaySource.substring(buttonStart)
+
+        assertTrue(buttonSource.contains(".clip(CircleShape)"))
+        assertTrue(buttonSource.contains("ripple(bounded = false, radius = 28.dp)"))
+        assertTrue(buttonSource.contains("MutableInteractionSource()"))
+        assertTrue(buttonSource.indexOf(".clip(CircleShape)") < buttonSource.indexOf(".combinedClickable("))
+    }
+
+    @Test
+    fun floatingButtonKeepsSingleMaterialIconToggleVisualStateWhileRunning() {
+        val buttonStart = overlaySource.indexOf("fun AiTranslationFloatingButton(")
+        assertTrue(buttonStart >= 0)
+        val buttonSource = overlaySource.substring(buttonStart)
+
+        assertTrue(buttonSource.contains("val running = pageStatus == AiTranslationPageStatus.RUNNING"))
+        assertTrue(buttonSource.contains("Surface("))
+        assertTrue(buttonSource.contains("color = if (active || running)"))
+        assertTrue(buttonSource.contains("contentColor = if (active || running)"))
+        assertTrue(buttonSource.contains("tonalElevation = 6.dp"))
+        assertTrue(buttonSource.contains("shadowElevation = 6.dp"))
+        assertTrue(buttonSource.contains("Icon("))
+        assertTrue(buttonSource.contains("Icons.Default.Translate"))
+        assertTrue(buttonSource.contains("combinedClickable"))
+        assertTrue(buttonSource.contains("MutableInteractionSource()"))
+        assertTrue(buttonSource.contains("ripple(bounded = false"))
+        assertTrue(!buttonSource.contains("CircularProgressIndicator("))
+        assertTrue(!buttonSource.contains("rememberInfiniteTransition"))
+        assertTrue(!buttonSource.contains("Icons.Default.Stop"))
+        assertTrue(!buttonSource.contains("Icons.Default.Visibility"))
+        assertTrue(!buttonSource.contains("Icons.Default.VisibilityOff"))
+        assertTrue(!buttonSource.contains("FloatingActionButton("))
+    }
+
+    @Test
     fun readerRendersAiOverlayInPagerAndScrollModes() {
         assertTrue(readerSource.contains("AiTranslationOverlay"))
         assertTrue(readerSource.contains("AiTranslationFloatingButton"))
@@ -42,7 +79,20 @@ class AiTranslationOverlayStructureTest {
         assertTrue(zoomablePageContent.contains(".zoomable("))
         assertTrue(zoomablePageContent.contains("SubcomposeAsyncImage("))
         assertTrue(zoomablePageContent.contains("AiTranslationOverlay("))
+        assertTrue(zoomablePageContent.contains("var pageImageLoaded by remember(pageRequestState.request)"))
+        assertTrue(zoomablePageContent.contains("pageImageLoaded = true"))
+        assertTrue(zoomablePageContent.contains("page = aiTranslatedPage.takeIf { pageImageLoaded }"))
         assertTrue(zoomablePageContent.contains("fillWidth = pageFit == \"WIDTH\""))
+    }
+
+    @Test
+    fun scrollReaderWaitsForPageImageBeforeShowingAiOverlay() {
+        val scrollStart = readerSource.indexOf("fun ScrollReader(")
+        assertTrue(scrollStart >= 0)
+        val scrollSource = readerSource.substring(scrollStart)
+        assertTrue(scrollSource.contains("var pageImageLoaded by remember(pageRequestState.request)"))
+        assertTrue(scrollSource.contains("pageImageLoaded = true"))
+        assertTrue(scrollSource.contains("page = vm.currentAiTranslatedPage(index).takeIf { pageImageLoaded }"))
     }
 
     @Test
@@ -66,7 +116,7 @@ class AiTranslationOverlayStructureTest {
         assertTrue(overlaySource.contains("verticalAlignment = Alignment.Top"))
         assertTrue(overlaySource.contains("val textGroupGap = if (usesSolidTextBoxMask) 0.dp else 1.dp"))
         assertTrue(overlaySource.contains("horizontalArrangement = Arrangement.spacedBy(textGroupGap)"))
-        assertTrue(overlaySource.contains("verticalArrangement = Arrangement.spacedBy(0.dp)"))
+        assertTrue(overlaySource.contains("CompactVerticalTextColumn("))
         assertTrue(overlaySource.contains("letterSpacing = 0.sp"))
         assertTrue(overlaySource.contains("orientation = TextBackgroundOrientation.VERTICAL"))
         assertTrue(overlaySource.contains("private fun Modifier.background("))
@@ -116,6 +166,21 @@ class AiTranslationOverlayStructureTest {
         val placeholderEnd = overlaySource.indexOf("private fun toVerticalText(", placeholderStart)
         val placeholderSource = overlaySource.substring(placeholderStart, placeholderEnd)
         assertTrue(!placeholderSource.contains(".fillMaxSize()"))
+    }
+
+    @Test
+    fun verticalTextUsesExplicitGlyphAdvanceForCompactInlineSpacing() {
+        assertTrue(overlaySource.contains("CompactVerticalTextColumn("))
+        assertTrue(overlaySource.contains("verticalGlyphAdvanceDp(fontSizeSp, glyphSpacingMultiplier)"))
+        assertTrue(overlaySource.contains("verticalGlyphAdvanceDp(fontSizeSp, glyphSpacingMultiplier).roundToPx()"))
+        assertTrue(overlaySource.contains("placeable.placeRelative"))
+    }
+
+    @Test
+    fun readerPassesConfiguredVerticalGlyphSpacingIntoOverlay() {
+        assertTrue(readerSource.contains("val aiVerticalGlyphSpacingPercent by vm.prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle"))
+        assertTrue(readerSource.contains("aiVerticalGlyphSpacingMultiplier(aiVerticalGlyphSpacingPercent)"))
+        assertTrue(readerSource.contains("verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier"))
     }
 
     @Test

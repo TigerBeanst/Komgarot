@@ -50,6 +50,7 @@ class AuthPreferences(private val context: Context) {
     private val AI_TEST_MODE_ENABLED = booleanPreferencesKey("ai_test_mode_enabled")
     private val AI_CONFIGURATION_TEST_PASSED = booleanPreferencesKey("ai_configuration_test_passed")
     private val AI_TRANSLATION_DISPLAY_MODE = stringPreferencesKey("ai_translation_display_mode")
+    private val AI_VERTICAL_GLYPH_SPACING_PERCENT = intPreferencesKey("ai_vertical_glyph_spacing_percent")
 
     private val _serverUrl = MutableStateFlow("")
     private val _username = MutableStateFlow("")
@@ -106,6 +107,9 @@ class AuthPreferences(private val context: Context) {
     val aiTestModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_TEST_MODE_ENABLED] ?: false }
     val aiConfigurationTestPassed: Flow<Boolean> = context.dataStore.data.map { it[AI_CONFIGURATION_TEST_PASSED] ?: false }
     val aiTranslationDisplayMode: Flow<String> = context.dataStore.data.map { it[AI_TRANSLATION_DISPLAY_MODE] ?: "off" }
+    val aiVerticalGlyphSpacingPercent: Flow<Int> = context.dataStore.data.map {
+        (it[AI_VERTICAL_GLYPH_SPACING_PERCENT] ?: 92).coerceIn(70, 130)
+    }
 
     init {
         runBlocking {
@@ -260,6 +264,10 @@ class AuthPreferences(private val context: Context) {
     suspend fun setAiTranslationDisplayMode(value: String) {
         val normalized = if (value == "on") "on" else "off"
         context.dataStore.edit { it[AI_TRANSLATION_DISPLAY_MODE] = normalized }
+    }
+
+    suspend fun setAiVerticalGlyphSpacingPercent(value: Int) {
+        context.dataStore.edit { it[AI_VERTICAL_GLYPH_SPACING_PERCENT] = value.coerceIn(70, 130) }
     }
 
     private val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")

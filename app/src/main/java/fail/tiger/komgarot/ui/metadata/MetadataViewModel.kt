@@ -106,8 +106,12 @@ class MetadataViewModel(
     fun uploadBookCover(id: String, imageBytes: ByteArray, onDone: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             coverSaving = true
+            val seriesId = repo.getBookById(id).getOrNull()?.seriesId
             val ok = runCatching { repo.uploadBookThumbnail(id, imageBytes, "image/jpeg") }
-                .onSuccess { imageCacheInvalidator.invalidateBookThumbnail(id) }
+                .onSuccess {
+                    imageCacheInvalidator.invalidateBookThumbnail(id)
+                    seriesId?.takeIf { it.isNotBlank() }?.let { imageCacheInvalidator.invalidateSeriesThumbnail(it) }
+                }
                 .isSuccess
             coverSaving = false
             onDone(ok)

@@ -73,7 +73,8 @@ class AiTranslationOverlayLayoutTest {
 
     @Test
     fun verticalCharsPerColumnUsesActualGlyphAdvance() {
-        assertEquals(7, verticalCharsPerColumn(heightDp = 80f, fontSizeSp = 10f))
+        assertEquals(8, verticalCharsPerColumn(heightDp = 80f, fontSizeSp = 10f))
+        assertEquals(9, verticalCharsPerColumn(heightDp = 80f, fontSizeSp = 10f, glyphSpacingMultiplier = 0.86f))
     }
 
     @Test

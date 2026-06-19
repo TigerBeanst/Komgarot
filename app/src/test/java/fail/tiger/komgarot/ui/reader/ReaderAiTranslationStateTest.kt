@@ -71,4 +71,122 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("prefs.setAiTranslationDisplayMode(currentAiTranslationDisplayMode.storedValue)"))
         assertTrue(viewModelSource.contains("prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.ON.storedValue)"))
     }
+
+    @Test
+    fun aiButtonStartsCurrentAndPreloadedPagesWhenDisplayIsOff() {
+        assertEquals(listOf(4, 5, 6), readerAiTranslationPageRange(currentPage = 4, pageCount = 10, preloadPages = 2))
+        assertEquals(listOf(8, 9), readerAiTranslationPageRange(currentPage = 8, pageCount = 10, preloadPages = 5))
+        assertTrue(viewModelSource.contains("fun handleAiTranslationButtonClick(preloadPages: Int)"))
+        assertTrue(viewModelSource.contains("if (isAiTranslationWorkRunning())"))
+        assertTrue(viewModelSource.contains("showCachedCurrentAiTranslationIfAvailable()"))
+        assertTrue(viewModelSource.contains("startCurrentAndPreloadedAiTranslation(preloadPages)"))
+        assertTrue(viewModelSource.contains("readerAiTranslationPageRange("))
+        assertTrue(viewModelSource.contains("?.status != AiTranslationPageStatus.DONE"))
+        assertTrue(viewModelSource.contains("if (pageIndexes.isEmpty())"))
+        assertTrue(viewModelSource.contains("for (pageIndex in pageIndexes)"))
+        assertTrue(viewModelSource.contains("repository.retryPageTranslation(loaded, currentServerUrl, pageIndex, currentPages)"))
+    }
+
+    @Test
+    fun cachedCurrentPageShowsTranslationWithoutStartedToast() {
+        assertTrue(viewModelSource.contains("private fun showCachedCurrentAiTranslationIfAvailable(): Boolean"))
+        assertTrue(viewModelSource.contains("repository.readBookState(loaded.id)"))
+        assertTrue(viewModelSource.contains("cachedPage?.status == AiTranslationPageStatus.DONE"))
+        assertTrue(viewModelSource.contains("currentAiTranslationDisplayMode = AiTranslationDisplayMode.ON"))
+        assertTrue(viewModelSource.contains("return true"))
+    }
+
+    @Test
+    fun activeDisplayModeAutoTranslatesUntranslatedPageAfterJump() {
+        val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+
+        assertTrue(viewModelSource.contains("fun translateCurrentAiPageIfDisplayEnabled(preloadPages: Int)"))
+        assertTrue(viewModelSource.contains("currentAiTranslationDisplayMode != AiTranslationDisplayMode.ON"))
+        assertTrue(viewModelSource.contains("isAiTranslationWorkRunning()"))
+        assertTrue(viewModelSource.contains("currentAiTranslatedPage(currentPage)?.status"))
+        assertTrue(viewModelSource.contains("AiTranslationPageStatus.DONE, AiTranslationPageStatus.RUNNING -> return"))
+        assertTrue(viewModelSource.contains("startCurrentAndPreloadedAiTranslation(preloadPages)"))
+        assertTrue(screenSource.contains("vm.translateCurrentAiPageIfDisplayEnabled(preloadPages)"))
+    }
+
+    @Test
+    fun aiButtonStopsRunningTranslationAndHidesOverlayResult() {
+        assertTrue(viewModelSource.contains("private var aiTranslationJob: Job? = null"))
+        assertTrue(viewModelSource.contains("private fun isAiTranslationWorkRunning(): Boolean"))
+        assertTrue(viewModelSource.contains("stopAiTranslationWork()"))
+        assertTrue(viewModelSource.contains("aiTranslationJob?.cancel()"))
+        assertTrue(viewModelSource.contains("currentAiTranslationDisplayMode = AiTranslationDisplayMode.OFF"))
+        assertTrue(viewModelSource.contains("prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.OFF.storedValue)"))
+        assertTrue(viewModelSource.contains("clearRunningAiTranslationState()"))
+        assertTrue(viewModelSource.contains("status = AiTranslationPageStatus.PENDING"))
+        assertTrue(viewModelSource.contains("blocks = emptyList()"))
+    }
+
+    @Test
+    fun automaticTranslationFailuresPublishRetryFeedback() {
+        assertTrue(viewModelSource.contains("publishAiTranslationFailureMessage(loaded, pageIndex, updatedPage, result)"))
+        assertTrue(viewModelSource.contains("private fun publishAiTranslationFailureMessage("))
+        assertTrue(viewModelSource.contains("R.string.reader_ai_retry_failed,"))
+        assertTrue(viewModelSource.contains("pageIndex: Int = currentPage"))
+    }
+
+    @Test
+    fun readerCanClearCurrentBookAiTranslationFromLongPressMenu() {
+        assertTrue(viewModelSource.contains("fun clearCurrentBookAiTranslation()"))
+        assertTrue(viewModelSource.contains("aiTranslationRepository?.clearBook(loaded.id)"))
+        assertTrue(viewModelSource.contains("aiTranslatedBook = aiTranslationRepository?.readBookState(loaded.id)"))
+    }
+
+    @Test
+    fun readerScreenHidesAiTranslationControlsWhenFeatureIsUnavailable() {
+        val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+
+        assertTrue(screenSource.contains("aiTranslationAvailable: Boolean"))
+        assertTrue(screenSource.contains("if (aiTranslationAvailable && aiTranslationEnabled)"))
+        assertTrue(screenSource.contains("AiTranslationFloatingButton"))
+        assertTrue(screenSource.contains("readerAiStatusLabel"))
+        assertTrue(screenSource.contains("aiTestModeEnabled = aiTranslationAvailable && aiTestModeEnabled"))
+        assertTrue(screenSource.contains("onClick = { vm.handleAiTranslationButtonClick(preloadPages) }"))
+    }
+
+    @Test
+    fun longPressTranslationMenuShowsRetryAndClearAllWithTwoStepConfirmation() {
+        val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+        val menuStart = screenSource.indexOf("if (aiTranslationAvailable && aiTranslationEnabled && vm.showAiTranslationPageActions)")
+        assertTrue(menuStart >= 0)
+        val menuSource = screenSource.substring(menuStart)
+
+        assertTrue(menuSource.contains("readerAiDeleteFirstConfirmation"))
+        assertTrue(menuSource.contains("readerAiDeleteFinalConfirmation"))
+        assertTrue(menuSource.contains("R.string.reader_ai_retry_current_page"))
+        assertTrue(menuSource.contains("R.string.ai_translate_delete_book_translation"))
+        assertTrue(menuSource.contains("R.string.ai_translate_delete_title"))
+        assertTrue(menuSource.contains("R.string.ai_translate_delete_message_first"))
+        assertTrue(menuSource.contains("R.string.ai_translate_delete_continue"))
+        assertTrue(menuSource.contains("R.string.ai_translate_delete_title_final"))
+        assertTrue(menuSource.contains("R.string.ai_translate_delete_message_final"))
+        assertTrue(menuSource.contains("R.string.ai_translate_delete_confirm"))
+        assertTrue(menuSource.contains("vm.clearCurrentBookAiTranslation()"))
+        assertTrue(!menuSource.contains("R.string.reader_ai_translate_current_page"))
+        assertTrue(!menuSource.contains("R.string.reader_ai_delete_current_page"))
+    }
+
+    @Test
+    fun aiButtonVisualStateFollowsReaderDisplayModeAcrossPages() {
+        val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+        val buttonStart = screenSource.indexOf("AiTranslationFloatingButton(")
+        assertTrue(buttonStart >= 0)
+        val buttonSource = screenSource.substring(buttonStart, screenSource.indexOf(")", buttonStart) + 1)
+
+        assertTrue(buttonSource.contains("mode = vm.currentAiTranslationDisplayMode"))
+        assertTrue(buttonSource.contains("pageStatus = floatingStatus"))
+    }
+
+    @Test
+    fun pageJumpKeepsAiDisplayOnByCreatingPendingTargetPage() {
+        assertTrue(viewModelSource.contains("fun goToPage(page: Int)"))
+        assertTrue(viewModelSource.contains("ensureAiTranslationPageShell(currentPage)"))
+        assertTrue(viewModelSource.contains("currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON"))
+        assertTrue(viewModelSource.contains("AiTranslatedPage(pageIndex = pageIndex, mode = currentAiTranslationMode.storedValue)"))
+    }
 }
