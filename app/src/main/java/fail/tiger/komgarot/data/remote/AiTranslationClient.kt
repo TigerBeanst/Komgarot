@@ -5,13 +5,18 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import fail.tiger.komgarot.data.local.AiImageTransport
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 data class AiTranslationImageInput(
     val pageIndex: Int,
@@ -49,7 +54,7 @@ enum class AiTranslationErrorCategory {
 class AiTranslationClient(
     private val httpClient: OkHttpClient = OkHttpClient()
 ) {
-    fun translate(
+    suspend fun translate(
         baseUrl: String,
         apiKey: String,
         model: String,
@@ -69,42 +74,64 @@ class AiTranslationClient(
             .header("Content-Type", "application/json")
             .post(body)
             .build()
+        val call = httpClient.newBuilder()
+            .connectTimeout(AI_CONNECT_TIMEOUT_SECONDS.toLong(), TimeUnit.SECONDS)
+            .readTimeout(responseTimeout.toLong(), TimeUnit.SECONDS)
+            .writeTimeout(writeTimeout.toLong(), TimeUnit.SECONDS)
+            .build()
+            .newCall(request)
 
-        return runCatching {
-            httpClient.newBuilder()
-                .connectTimeout(AI_CONNECT_TIMEOUT_SECONDS.toLong(), TimeUnit.SECONDS)
-                .readTimeout(responseTimeout.toLong(), TimeUnit.SECONDS)
-                .writeTimeout(writeTimeout.toLong(), TimeUnit.SECONDS)
-                .build()
-                .newCall(request)
-                .execute()
-                .use { response ->
-                val responseBody = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    val category = if (response.code == 400 || response.code == 404) {
-                        AiTranslationErrorCategory.VISION_UNSUPPORTED
-                    } else {
-                        AiTranslationErrorCategory.NETWORK_OR_API
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) {
+                        continuation.resume(failureResult(e, responseTimeout))
                     }
-                    return AiTranslationRequestResult.Failure(
-                        category,
-                        buildAiHttpFailureSummary(response.code, response.message, responseBody)
-                    )
                 }
-                val json = extractAiTranslationJsonContent(responseBody)
-                AiTranslationRequestResult.Success(json)
-            }
-        }.getOrElse { throwable ->
-            AiTranslationRequestResult.Failure(
-                category = if (throwable is IllegalArgumentException) {
-                    AiTranslationErrorCategory.NON_JSON_RESPONSE
-                } else {
-                    AiTranslationErrorCategory.NETWORK_OR_API
-                },
-                summary = aiTranslationFailureSummary(throwable, responseTimeout)
-            )
+
+                override fun onResponse(call: Call, response: Response) {
+                    val result = runCatching {
+                        response.use { handledResponse ->
+                            aiTranslationResultFromResponse(handledResponse)
+                        }
+                    }.getOrElse { throwable ->
+                        failureResult(throwable, responseTimeout)
+                    }
+                    if (continuation.isActive) {
+                        continuation.resume(result)
+                    }
+                }
+            })
         }
     }
+
+    private fun aiTranslationResultFromResponse(response: Response): AiTranslationRequestResult {
+        val responseBody = response.body?.string().orEmpty()
+        if (!response.isSuccessful) {
+            val category = if (response.code == 400 || response.code == 404) {
+                AiTranslationErrorCategory.VISION_UNSUPPORTED
+            } else {
+                AiTranslationErrorCategory.NETWORK_OR_API
+            }
+            return AiTranslationRequestResult.Failure(
+                category,
+                buildAiHttpFailureSummary(response.code, response.message, responseBody)
+            )
+        }
+        val json = extractAiTranslationJsonContent(responseBody)
+        return AiTranslationRequestResult.Success(json)
+    }
+
+    private fun failureResult(throwable: Throwable, responseTimeout: Int): AiTranslationRequestResult =
+        AiTranslationRequestResult.Failure(
+            category = if (throwable is IllegalArgumentException) {
+                AiTranslationErrorCategory.NON_JSON_RESPONSE
+            } else {
+                AiTranslationErrorCategory.NETWORK_OR_API
+            },
+            summary = aiTranslationFailureSummary(throwable, responseTimeout)
+        )
 }
 
 internal fun aiResponseTimeoutSeconds(timeoutSeconds: Int): Int = timeoutSeconds.coerceAtLeast(0)

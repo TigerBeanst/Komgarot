@@ -38,6 +38,8 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("Short fragments with no visible sentence-final mark should end bare"))
         assertTrue(prompt.contains("Punctuation attaches to the preceding word or phrase"))
         assertTrue(prompt.contains("merged text box or balloon crop"))
+        assertTrue(prompt.contains("pure number"))
+        assertTrue(prompt.contains("translatedLines as an empty array"))
         assertTrue(!prompt.contains("ocrText"))
         assertTrue(!prompt.contains("textColor"))
         assertTrue(!prompt.contains("maskColor"))
@@ -109,6 +111,7 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("source with no visible sentence-final mark returns no added period/full stop"))
         assertTrue(prompt.contains("no translatedLines entry should contain only punctuation"))
         assertTrue(prompt.contains("source 「」/『』 stays as translated 「」/『』"))
+        assertTrue(prompt.contains("pure number"))
         assertTrue(prompt.contains("Return translations only"))
         assertTrue(!prompt.contains("ocrText"))
         assertTrue(!prompt.contains("textColor"))
@@ -380,6 +383,14 @@ class AiTranslationPromptTest {
         assertTrue(clientSource.contains("readTimeout(responseTimeout.toLong(), TimeUnit.SECONDS)"))
         assertTrue(clientSource.contains("writeTimeout(writeTimeout.toLong(), TimeUnit.SECONDS)"))
         assertTrue(clientSource.contains("AI request timed out after"))
+    }
+
+    @Test
+    fun aiClientCancelsHttpCallWhenCoroutineStops() {
+        assertTrue(clientSource.contains("suspend fun translate("))
+        assertTrue(clientSource.contains("suspendCancellableCoroutine"))
+        assertTrue(clientSource.contains("continuation.invokeOnCancellation"))
+        assertTrue(clientSource.contains("call.cancel()"))
     }
 
     @Test
