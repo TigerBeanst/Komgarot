@@ -36,7 +36,6 @@ import fail.tiger.komgarot.KomgarotApp
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.AiImageTransport
 import fail.tiger.komgarot.data.local.AiLocalModelSource
-import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.CacheClearTarget
 import fail.tiger.komgarot.data.local.CacheMaintenance
@@ -50,6 +49,8 @@ import fail.tiger.komgarot.data.repository.GithubRelease
 import fail.tiger.komgarot.data.repository.defaultAiLocalModelPlan
 import fail.tiger.komgarot.data.repository.deviceProfile
 import fail.tiger.komgarot.data.repository.recommendAiLocalModelTier
+import fail.tiger.komgarot.data.repository.s3ImageUrlConfigOrNull
+import fail.tiger.komgarot.data.repository.testAiS3ImageUrlUpload
 import fail.tiger.komgarot.ui.metadata.openExternalUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -216,7 +217,14 @@ private fun SettingsContent(
     var showAiModelCollectionDialog by remember { mutableStateOf(false) }
     var showAiModelRevisionDialog by remember { mutableStateOf(false) }
     var showAiImageTransportDialog by remember { mutableStateOf(false) }
-    var showAiImageUrlExtraQueryDialog by remember { mutableStateOf(false) }
+    var showAiS3EndpointDialog by remember { mutableStateOf(false) }
+    var showAiS3RegionDialog by remember { mutableStateOf(false) }
+    var showAiS3BucketDialog by remember { mutableStateOf(false) }
+    var showAiS3AccessKeyDialog by remember { mutableStateOf(false) }
+    var showAiS3SecretKeyDialog by remember { mutableStateOf(false) }
+    var showAiS3PathPrefixDialog by remember { mutableStateOf(false) }
+    var showAiS3TtlDialog by remember { mutableStateOf(false) }
+    var aiS3Testing by remember { mutableStateOf(false) }
     var showAiPagesPerRequestDialog by remember { mutableStateOf(false) }
     var showAiConcurrencyDialog by remember { mutableStateOf(false) }
     var showAiMaxImagesPerRequestDialog by remember { mutableStateOf(false) }
@@ -228,6 +236,10 @@ private fun SettingsContent(
     var showWebDavPasswordDialog by remember { mutableStateOf(false) }
     var localModelDownloading by remember { mutableStateOf(false) }
     var localModelsInstalled by remember { mutableStateOf(false) }
+    fun saveS3Settings(next: SecureAiSettings) {
+        app?.secureAiSettingsStore?.saveS3Settings(next)
+        secureAiSettings = app?.secureAiSettingsStore?.read() ?: next
+    }
     val appLockEnabled by prefs.appLockEnabled.collectAsStateWithLifecycle(initialValue = false)
     val appLockTimeout by prefs.appLockTimeout.collectAsStateWithLifecycle(initialValue = 0)
     var showLockTimeoutDialog by remember { mutableStateOf(false) }
@@ -422,17 +434,83 @@ private fun SettingsContent(
             )
             if (aiImageTransport == AiImageTransport.IMAGE_URL) {
                 ListItem(
-                    headlineContent = { Text(stringResource(R.string.settings_ai_image_url_extra_query)) },
+                    headlineContent = { Text(stringResource(R.string.settings_ai_s3_endpoint)) },
                     supportingContent = {
                         Text(
-                            if (secureAiSettings.imageUrlExtraQuery.isBlank()) {
-                                stringResource(R.string.settings_ai_image_url_warning)
-                            } else {
-                                stringResource(R.string.settings_configured)
-                            }
+                            secureAiSettings.s3Endpoint.ifBlank { stringResource(R.string.settings_ai_s3_config_required) }
                         )
                     },
-                    modifier = Modifier.clickable { showAiImageUrlExtraQueryDialog = true }
+                    modifier = Modifier.clickable { showAiS3EndpointDialog = true }
+                )
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_ai_s3_region)) },
+                    supportingContent = { Text(secureAiSettings.s3Region.ifBlank { stringResource(R.string.empty_dash) }) },
+                    modifier = Modifier.clickable { showAiS3RegionDialog = true }
+                )
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_ai_s3_bucket)) },
+                    supportingContent = { Text(secureAiSettings.s3Bucket.ifBlank { stringResource(R.string.empty_dash) }) },
+                    modifier = Modifier.clickable { showAiS3BucketDialog = true }
+                )
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_ai_s3_access_key)) },
+                    supportingContent = { Text(stringResource(if (secureAiSettings.s3AccessKey.isBlank()) R.string.settings_not_configured else R.string.settings_configured)) },
+                    modifier = Modifier.clickable { showAiS3AccessKeyDialog = true }
+                )
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_ai_s3_secret_key)) },
+                    supportingContent = { Text(stringResource(if (secureAiSettings.s3SecretKey.isBlank()) R.string.settings_not_configured else R.string.settings_configured)) },
+                    modifier = Modifier.clickable { showAiS3SecretKeyDialog = true }
+                )
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_ai_s3_path_prefix)) },
+                    supportingContent = { Text(secureAiSettings.s3PathPrefix.ifBlank { "ai-temp" }) },
+                    modifier = Modifier.clickable { showAiS3PathPrefixDialog = true }
+                )
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_ai_s3_ttl_seconds)) },
+                    supportingContent = { Text(secureAiSettings.s3TtlSeconds.toString()) },
+                    modifier = Modifier.clickable { showAiS3TtlDialog = true }
+                )
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_ai_s3_path_style)) },
+                    trailingContent = {
+                        Switch(
+                            checked = secureAiSettings.s3PathStyle,
+                            onCheckedChange = { saveS3Settings(secureAiSettings.copy(s3PathStyle = it)) }
+                        )
+                    }
+                )
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_ai_s3_test_upload)) },
+                    supportingContent = {
+                        Text(
+                            stringResource(
+                                if (aiS3Testing) R.string.loading else R.string.settings_ai_s3_test_upload_desc
+                            )
+                        )
+                    },
+                    modifier = Modifier.clickable(enabled = !aiS3Testing) {
+                        val config = secureAiSettings.s3ImageUrlConfigOrNull()
+                        if (config == null) {
+                            Toast.makeText(context, context.getString(R.string.settings_ai_s3_config_required), Toast.LENGTH_SHORT).show()
+                            return@clickable
+                        }
+                        scope.launch {
+                            aiS3Testing = true
+                            val result = withContext(Dispatchers.IO) { testAiS3ImageUrlUpload(config) }
+                            aiS3Testing = false
+                            val message = if (result.isSuccess) {
+                                context.getString(R.string.settings_ai_s3_test_success)
+                            } else {
+                                context.getString(
+                                    R.string.settings_ai_s3_test_failed,
+                                    result.exceptionOrNull()?.message.orEmpty()
+                                )
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 )
             }
             ListItem(
@@ -966,15 +1044,72 @@ private fun SettingsContent(
         )
     }
 
-    if (showAiImageUrlExtraQueryDialog) {
+    if (showAiS3EndpointDialog) {
         TextSettingDialog(
-            title = stringResource(R.string.settings_ai_image_url_extra_query),
-            initialValue = secureAiSettings.imageUrlExtraQuery,
-            onSave = {
-                app?.secureAiSettingsStore?.saveImageUrlExtraQuery(it)
-                secureAiSettings = app?.secureAiSettingsStore?.read() ?: secureAiSettings.copy(imageUrlExtraQuery = it)
+            title = stringResource(R.string.settings_ai_s3_endpoint),
+            initialValue = secureAiSettings.s3Endpoint,
+            placeholder = "https://s3.example.com",
+            onSave = { saveS3Settings(secureAiSettings.copy(s3Endpoint = it)) },
+            onDismiss = { showAiS3EndpointDialog = false }
+        )
+    }
+
+    if (showAiS3RegionDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_s3_region),
+            initialValue = secureAiSettings.s3Region,
+            placeholder = "us-east-1",
+            onSave = { saveS3Settings(secureAiSettings.copy(s3Region = it)) },
+            onDismiss = { showAiS3RegionDialog = false }
+        )
+    }
+
+    if (showAiS3BucketDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_s3_bucket),
+            initialValue = secureAiSettings.s3Bucket,
+            onSave = { saveS3Settings(secureAiSettings.copy(s3Bucket = it)) },
+            onDismiss = { showAiS3BucketDialog = false }
+        )
+    }
+
+    if (showAiS3AccessKeyDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_s3_access_key),
+            initialValue = secureAiSettings.s3AccessKey,
+            onSave = { saveS3Settings(secureAiSettings.copy(s3AccessKey = it)) },
+            onDismiss = { showAiS3AccessKeyDialog = false }
+        )
+    }
+
+    if (showAiS3SecretKeyDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_s3_secret_key),
+            initialValue = secureAiSettings.s3SecretKey,
+            onSave = { saveS3Settings(secureAiSettings.copy(s3SecretKey = it)) },
+            onDismiss = { showAiS3SecretKeyDialog = false }
+        )
+    }
+
+    if (showAiS3PathPrefixDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_s3_path_prefix),
+            initialValue = secureAiSettings.s3PathPrefix,
+            placeholder = "ai-temp",
+            onSave = { saveS3Settings(secureAiSettings.copy(s3PathPrefix = it)) },
+            onDismiss = { showAiS3PathPrefixDialog = false }
+        )
+    }
+
+    if (showAiS3TtlDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_s3_ttl_seconds),
+            initialValue = secureAiSettings.s3TtlSeconds.toString(),
+            placeholder = "300",
+            onSave = { value ->
+                saveS3Settings(secureAiSettings.copy(s3TtlSeconds = value.toIntOrNull() ?: secureAiSettings.s3TtlSeconds))
             },
-            onDismiss = { showAiImageUrlExtraQueryDialog = false }
+            onDismiss = { showAiS3TtlDialog = false }
         )
     }
 

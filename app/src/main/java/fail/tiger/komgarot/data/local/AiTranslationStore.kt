@@ -5,11 +5,15 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import java.io.File
+import java.security.MessageDigest
 
 class AiTranslationStore(private val filesDir: File) {
     private val rootDir = File(filesDir, "ai_translation")
     private val booksDir = File(rootDir, "books")
+    private val localContextDir = File(rootDir, "local_context")
+    private val regionCropDir = File(rootDir, "region_crops")
     private val tasksFile = File(rootDir, "tasks.json")
 
     fun bookFile(bookId: String): File =
@@ -80,6 +84,45 @@ class AiTranslationStore(private val filesDir: File) {
     @Synchronized
     fun clearBook(bookId: String) {
         bookFile(bookId).delete()
+        localContextDir.listFiles { file -> file.name.startsWith("${sanitizeBookId(bookId)}-") }.orEmpty().forEach { it.delete() }
+        regionCropDir.listFiles { file -> file.name.startsWith("${sanitizeBookId(bookId)}-") }.orEmpty().forEach { it.delete() }
+    }
+
+    @Synchronized
+    fun readLocalPageContext(bookId: String, pageIndex: Int, cacheKey: String): AiTranslationLocalPageContext? {
+        val file = cacheFile(localContextDir, bookId, pageIndex, "context", cacheKey, "json")
+        if (!file.isFile) return null
+        return runCatching { storeGson.fromJson(file.readText(), AiTranslationLocalPageContext::class.java) }.getOrNull()
+    }
+
+    @Synchronized
+    fun saveLocalPageContext(bookId: String, pageIndex: Int, cacheKey: String, context: AiTranslationLocalPageContext) {
+        val file = cacheFile(localContextDir, bookId, pageIndex, "context", cacheKey, "json")
+        file.parentFile?.mkdirs()
+        writeAtomically(file, storeGson.toJson(context))
+    }
+
+    @Synchronized
+    fun readRegionCrop(bookId: String, pageIndex: Int, regionId: String, cacheKey: String): ByteArray? {
+        val file = cacheFile(regionCropDir, bookId, pageIndex, regionId, cacheKey, "jpg")
+        return file.takeIf { it.isFile && it.length() > 0L }?.readBytes()
+    }
+
+    @Synchronized
+    fun saveRegionCrop(bookId: String, pageIndex: Int, regionId: String, cacheKey: String, bytes: ByteArray) {
+        if (bytes.isEmpty()) return
+        val file = cacheFile(regionCropDir, bookId, pageIndex, regionId, cacheKey, "jpg")
+        file.parentFile?.mkdirs()
+        val tmp = File.createTempFile("${file.name}.", ".tmp", file.parentFile)
+        try {
+            tmp.writeBytes(bytes)
+            if (!tmp.renameTo(file)) {
+                file.delete()
+                if (!tmp.renameTo(file)) error("failed to replace ${file.name}")
+            }
+        } finally {
+            tmp.delete()
+        }
     }
 
     @Synchronized
@@ -122,6 +165,17 @@ class AiTranslationStore(private val filesDir: File) {
 
     private fun sanitizeBookId(bookId: String): String =
         bookId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+
+    private fun cacheFile(dir: File, bookId: String, pageIndex: Int, id: String, cacheKey: String, extension: String): File {
+        val name = listOf(sanitizeBookId(bookId), pageIndex.toString(), sanitizeBookId(id), sha256(cacheKey))
+            .joinToString("-")
+        return File(dir, "$name.$extension")
+    }
+}
+
+private fun sha256(value: String): String {
+    val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+    return bytes.joinToString("") { "%02x".format(it) }
 }
 
 private fun toAiTranslatedBookJson(book: AiTranslatedBook): String {

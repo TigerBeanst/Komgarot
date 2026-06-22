@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.ui.reader
 
 import java.io.File
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -251,21 +252,17 @@ class AiTranslationOverlayStructureTest {
     }
 
     @Test
-    fun readerDisplayRequestsDecodeToViewportSizeWhileExportKeepsOriginal() {
+    fun readerDisplayAndExportKeepOriginalImageQuality() {
         val rememberRequestStart = readerSource.indexOf("private fun rememberReaderPageRequest(")
         val rememberRequestEnd = readerSource.indexOf("private data class ReaderPageImageRequestState", rememberRequestStart)
         val rememberRequestSource = readerSource.substring(rememberRequestStart, rememberRequestEnd)
-        val preloadRequests = Regex("imageLoader\\.enqueue\\([\\s\\S]*?readerPageRequest\\([\\s\\S]*?\\)\\s*\\)")
-            .findAll(readerSource)
-            .map { it.value }
-            .toList()
         val exportStart = readerSource.indexOf("suspend fun loadBitmap(pageUrl: String)")
         val exportEnd = readerSource.indexOf("val result = imageLoader.execute(req)", exportStart)
         val exportSource = readerSource.substring(exportStart, exportEnd)
 
-        assertTrue(rememberRequestSource.contains("originalSize = false"))
-        assertTrue(preloadRequests.isNotEmpty())
-        assertTrue(preloadRequests.all { it.contains("originalSize = false") })
+        assertTrue(rememberRequestSource.contains("originalSize = true"))
+        assertFalse(readerSource.contains("imageLoader.enqueue("))
+        assertTrue(readerSource.contains("ensureReaderPageFileCached("))
         assertTrue(exportSource.contains("originalSize = true"))
     }
 }

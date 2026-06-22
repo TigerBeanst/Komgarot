@@ -1,5 +1,8 @@
 package fail.tiger.komgarot.data.local
 
+import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
+import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -39,6 +42,52 @@ class AiTranslationStoreTest {
 
         assertFalse(store.bookFile("book-1").exists())
         assertEquals(null, store.readBook("book-1"))
+    }
+
+    @Test
+    fun localDetectionContextCacheRoundTripsByKeyAndIsClearedWithBook() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 4,
+            imageWidth = 1200,
+            imageHeight = 1800,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p4-r1",
+                    rect = AiTranslationRect(x = 0.1f, y = 0.2f, width = 0.3f, height = 0.4f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.91f,
+                    estimatedFontScale = 1.05f
+                )
+            )
+        )
+
+        store.saveLocalPageContext("book-1", pageIndex = 4, cacheKey = "key-a", context = context)
+
+        assertEquals(context, store.readLocalPageContext("book-1", pageIndex = 4, cacheKey = "key-a"))
+        assertEquals(null, store.readLocalPageContext("book-1", pageIndex = 4, cacheKey = "key-b"))
+
+        store.clearBook("book-1")
+
+        assertEquals(null, store.readLocalPageContext("book-1", pageIndex = 4, cacheKey = "key-a"))
+    }
+
+    @Test
+    fun regionCropCacheRoundTripsByRegionAndIsClearedWithBook() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        val bytes = byteArrayOf(1, 2, 3, 4)
+
+        store.saveRegionCrop("book-1", pageIndex = 2, regionId = "p2-r1", cacheKey = "crop-a", bytes = bytes)
+
+        assertArrayEquals(bytes, store.readRegionCrop("book-1", pageIndex = 2, regionId = "p2-r1", cacheKey = "crop-a"))
+        assertEquals(null, store.readRegionCrop("book-1", pageIndex = 2, regionId = "p2-r2", cacheKey = "crop-a"))
+        assertEquals(null, store.readRegionCrop("book-1", pageIndex = 2, regionId = "p2-r1", cacheKey = "crop-b"))
+
+        store.clearBook("book-1")
+
+        assertEquals(null, store.readRegionCrop("book-1", pageIndex = 2, regionId = "p2-r1", cacheKey = "crop-a"))
     }
 
     @Test

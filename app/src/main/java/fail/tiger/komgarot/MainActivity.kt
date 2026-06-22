@@ -2,6 +2,7 @@ package fail.tiger.komgarot
 
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.KeyEvent
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
@@ -20,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import fail.tiger.komgarot.ui.navigation.AppNavGraph
+import fail.tiger.komgarot.ui.reader.ReaderPhysicalKeyDispatcher
 import fail.tiger.komgarot.ui.theme.KomgarotTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
@@ -77,6 +79,11 @@ class MainActivity : AppCompatActivity() {
             promptShowing = true
             showBiometricPrompt()
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (!locked.value && !privacyCovered.value && ReaderPhysicalKeyDispatcher.dispatch(event)) return true
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onPause() {

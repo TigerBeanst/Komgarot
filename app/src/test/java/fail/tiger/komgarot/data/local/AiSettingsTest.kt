@@ -77,6 +77,23 @@ class AiSettingsTest {
         assertEquals("secure_ai_settings", SecureAiSettingsStore.FILE_NAME)
         assertEquals("api_key", SecureAiSettingsStore.API_KEY)
         assertEquals("image_url_extra_query", SecureAiSettingsStore.IMAGE_URL_EXTRA_QUERY)
+        assertEquals("s3_endpoint", SecureAiSettingsStore.S3_ENDPOINT)
+        assertEquals("s3_region", SecureAiSettingsStore.S3_REGION)
+        assertEquals("s3_bucket", SecureAiSettingsStore.S3_BUCKET)
+        assertEquals("s3_access_key", SecureAiSettingsStore.S3_ACCESS_KEY)
+        assertEquals("s3_secret_key", SecureAiSettingsStore.S3_SECRET_KEY)
+        assertEquals("s3_path_prefix", SecureAiSettingsStore.S3_PATH_PREFIX)
+        assertEquals("s3_ttl_seconds", SecureAiSettingsStore.S3_TTL_SECONDS)
+        assertEquals("s3_path_style", SecureAiSettingsStore.S3_PATH_STYLE)
+        assertTrue(
+            SecureAiSettings(
+                s3Endpoint = "https://s3.example.test",
+                s3Region = "us-east-1",
+                s3Bucket = "komgarot-ai",
+                s3AccessKey = "AKID",
+                s3SecretKey = "SECRET"
+            ).hasCompleteS3ImageUrlConfiguration()
+        )
     }
 
     @Test

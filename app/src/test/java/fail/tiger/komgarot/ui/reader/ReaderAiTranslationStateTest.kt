@@ -6,6 +6,7 @@ import fail.tiger.komgarot.data.local.AiTranslationBlock
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -73,6 +74,12 @@ class ReaderAiTranslationStateTest {
     }
 
     @Test
+    fun readerViewModelExposesLoadedPageDimensionsForRenderModeSelection() {
+        assertTrue(viewModelSource.contains("fun pageInfo(pageIndex: Int): PageDto?"))
+        assertTrue(viewModelSource.contains("currentPages.getOrNull(pageIndex)"))
+    }
+
+    @Test
     fun aiButtonStartsCurrentAndPreloadedPagesWhenDisplayIsOff() {
         assertEquals(listOf(4, 5, 6), readerAiTranslationPageRange(currentPage = 4, pageCount = 10, preloadPages = 2))
         assertEquals(listOf(8, 9), readerAiTranslationPageRange(currentPage = 8, pageCount = 10, preloadPages = 5))
@@ -83,8 +90,25 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("readerAiTranslationPageRange("))
         assertTrue(viewModelSource.contains("?.status != AiTranslationPageStatus.DONE"))
         assertTrue(viewModelSource.contains("if (pageIndexes.isEmpty())"))
-        assertTrue(viewModelSource.contains("for (pageIndex in pageIndexes)"))
-        assertTrue(viewModelSource.contains("repository.retryPageTranslation(loaded, currentServerUrl, pageIndex, currentPages)"))
+        assertTrue(viewModelSource.contains("repository.retryPagesTranslation("))
+        assertTrue(viewModelSource.contains("pageIndexes = pageIndexes"))
+    }
+
+    @Test
+    fun currentAndPreloadedAiTranslationUsesBatchRepositoryCall() {
+        val repositorySource = File("src/main/java/fail/tiger/komgarot/data/repository/AiTranslationRepository.kt").readText()
+        val start = viewModelSource.indexOf("private fun startCurrentAndPreloadedAiTranslation")
+        val end = viewModelSource.indexOf("fun retryCurrentAiTranslationPage()", start)
+        assertTrue(start >= 0)
+        assertTrue(end > start)
+        val startSource = viewModelSource.substring(start, end)
+
+        assertTrue(startSource.contains("repository.retryPagesTranslation("))
+        assertTrue(startSource.contains("pageIndexes = pageIndexes"))
+        assertFalse(startSource.contains("for (pageIndex in pageIndexes)"))
+        assertFalse(startSource.contains("repository.retryPageTranslation(loaded, currentServerUrl, pageIndex, currentPages)"))
+        assertTrue(repositorySource.contains("suspend fun retryPagesTranslation("))
+        assertTrue(repositorySource.contains("translatePages("))
     }
 
     @Test
@@ -106,7 +130,7 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("currentAiTranslatedPage(currentPage)?.status"))
         assertTrue(viewModelSource.contains("AiTranslationPageStatus.DONE, AiTranslationPageStatus.RUNNING -> return"))
         assertTrue(viewModelSource.contains("startCurrentAndPreloadedAiTranslation(preloadPages)"))
-        assertTrue(screenSource.contains("vm.translateCurrentAiPageIfDisplayEnabled(preloadPages)"))
+        assertTrue(screenSource.contains("vm.translateCurrentAiPageIfDisplayEnabled(memoryAwarePreloadPages)"))
     }
 
     @Test
@@ -146,7 +170,7 @@ class ReaderAiTranslationStateTest {
         assertTrue(screenSource.contains("AiTranslationFloatingButton"))
         assertTrue(screenSource.contains("readerAiStatusLabel"))
         assertTrue(screenSource.contains("aiTestModeEnabled = aiTranslationAvailable && aiTestModeEnabled"))
-        assertTrue(screenSource.contains("onClick = { vm.handleAiTranslationButtonClick(preloadPages) }"))
+        assertTrue(screenSource.contains("onClick = { vm.handleAiTranslationButtonClick(memoryAwarePreloadPages) }"))
     }
 
     @Test
