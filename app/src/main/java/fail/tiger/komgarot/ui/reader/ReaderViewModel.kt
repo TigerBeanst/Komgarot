@@ -126,6 +126,8 @@ class ReaderViewModel(
     fun currentAiTranslatedPage(pageIndex: Int): AiTranslatedPage? =
         aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }
 
+    fun pageInfo(pageIndex: Int): PageDto? = currentPages.getOrNull(pageIndex)
+
     fun currentAiTranslationModeForPage(pageIndex: Int): String {
         val page = currentAiTranslatedPage(pageIndex)
         return when (page?.status) {
@@ -252,18 +254,24 @@ class ReaderViewModel(
         aiTranslationJob = viewModelScope.launch {
             prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.ON.storedValue)
             try {
-                for (pageIndex in pageIndexes) {
-                    val currentStatus = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }?.status
-                    if (currentStatus == AiTranslationPageStatus.DONE) continue
-                    updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING)
-                    val result = repository.retryPageTranslation(loaded, currentServerUrl, pageIndex, currentPages)
-                    aiTranslatedBook = repository.readBookState(loaded.id)
-                    currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
+                val result = repository.retryPagesTranslation(
+                    book = loaded,
+                    serverUrl = currentServerUrl,
+                    pageIndexes = pageIndexes,
+                    cachedPages = currentPages
+                )
+                aiTranslatedBook = repository.readBookState(loaded.id)
+                currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
+                val failedPageIndex = pageIndexes.firstOrNull { pageIndex ->
+                    aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }?.status != AiTranslationPageStatus.DONE
+                }
+                if (!result.ok || failedPageIndex != null) {
+                    val pageIndex = failedPageIndex ?: pageIndexes.first()
                     val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }
-                    if (!result.ok || updatedPage?.status != AiTranslationPageStatus.DONE) {
+                    if (updatedPage?.status != AiTranslationPageStatus.FAILED) {
                         updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.FAILED)
-                        publishAiTranslationFailureMessage(loaded, pageIndex, updatedPage, result)
                     }
+                    publishAiTranslationFailureMessage(loaded, pageIndex, updatedPage, result)
                 }
                 refreshAiTranslationState()
             } catch (cancelled: CancellationException) {

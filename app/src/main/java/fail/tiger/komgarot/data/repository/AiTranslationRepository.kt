@@ -35,7 +35,6 @@ import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
 import fail.tiger.komgarot.data.remote.AiTranslationRequestResult
 import fail.tiger.komgarot.data.remote.aiTranslationSystemPrompt
 import fail.tiger.komgarot.data.remote.aiTranslationUserPrompt
-import fail.tiger.komgarot.data.remote.appendImageUrlExtraQuery
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.PageDto
 import fail.tiger.komgarot.ui.reader.readerPageUrl
@@ -43,6 +42,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -67,6 +68,7 @@ class AiTranslationRepository(
     private val secureAiSettingsStore: SecureAiSettingsStore,
     private val store: AiTranslationStore,
     private val komgaHttpClient: OkHttpClient = OkHttpClient(),
+    private val imageUploadHttpClient: OkHttpClient = OkHttpClient(),
     private val localTextDetector: AiLocalTextDetector = AiLocalTextDetector(),
     private val aiClient: AiTranslationClient = AiTranslationClient()
 ) {
@@ -159,6 +161,18 @@ class AiTranslationRepository(
         serverUrl: String,
         pageIndex: Int,
         cachedPages: List<PageDto> = emptyList()
+    ): AiTranslationPageActionResult = retryPagesTranslation(
+        book = book,
+        serverUrl = serverUrl,
+        pageIndexes = listOf(pageIndex),
+        cachedPages = cachedPages
+    )
+
+    suspend fun retryPagesTranslation(
+        book: BookDto,
+        serverUrl: String,
+        pageIndexes: List<Int>,
+        cachedPages: List<PageDto> = emptyList()
     ): AiTranslationPageActionResult {
         val runMode = AiTranslationMode.LOCAL_DETECTION
         ensureBookFile(book, book.media.pagesCount, runMode)
@@ -166,7 +180,7 @@ class AiTranslationRepository(
             translatePages(
                 book,
                 serverUrl,
-                listOf(pageIndex),
+                pageIndexes,
                 force = true,
                 requireEnabled = false,
                 knownPages = cachedPages,
@@ -176,7 +190,7 @@ class AiTranslationRepository(
         }
         return AiTranslationPageActionResult(
             ok = result.ok,
-            summary = result.summary.ifBlank { "AI translation retry failed: book=${book.id}, page=$pageIndex, no repository diagnostic summary." }
+            summary = result.summary.ifBlank { "AI translation retry failed: book=${book.id}, pages=${pageIndexes.joinToString(",")}, no repository diagnostic summary." }
         )
     }
 
@@ -290,7 +304,7 @@ class AiTranslationRepository(
             serverUrl = serverUrl,
             settings = settings,
             apiKey = secure.apiKey,
-            imageUrlExtraQuery = secure.imageUrlExtraQuery,
+            s3Uploader = secure.s3ImageUrlConfigOrNull()?.let { AiS3ImageUploader(imageUploadHttpClient, it) },
             pending = pending,
             allPages = allPages,
             onPageTranslated = onPageTranslated
@@ -306,30 +320,75 @@ class AiTranslationRepository(
         serverUrl: String,
         settings: AiSettings,
         apiKey: String,
-        imageUrlExtraQuery: String,
+        s3Uploader: AiS3ImageUploader?,
         pending: List<Int>,
         allPages: List<PageDto>,
         onPageTranslated: () -> Unit = {}
     ): List<AiTranslationRunResult> = coroutineScope {
-        val orderedPending = pending.sorted()
-        val workerCount = min(settings.concurrentRequests.coerceAtLeast(1), orderedPending.size.coerceAtLeast(1))
-        val semaphore = Semaphore(workerCount)
-        val nextPageOffset = AtomicInteger(0)
-        (0 until workerCount).map {
+        val orderedPending = pending.distinct()
+        val remoteWorkerCount = effectiveAiTranslationWorkerCount(settings, orderedPending.size)
+        val preparationWorkerCount = effectiveAiTranslationPreparationWorkerCount(settings, orderedPending.size)
+        val remoteSemaphore = Semaphore(remoteWorkerCount)
+        val preparedPages = orderedPending.map { CompletableDeferred<PreparedAiPageResult>() }
+        val nextPrepareOffset = AtomicInteger(0)
+        val prepareJobs = (0 until preparationWorkerCount).map {
             async {
-                val workerResults = mutableListOf<AiTranslationRunResult>()
-                semaphore.withPermit {
-                    while (true) {
-                        val offset = nextPageOffset.getAndIncrement()
-                        if (offset >= orderedPending.size) break
-                        val pageIndex = orderedPending[offset]
-                        workerResults += translateBatch(book, serverUrl, settings, apiKey, imageUrlExtraQuery, listOf(pageIndex), allPages)
+                while (true) {
+                    val offset = nextPrepareOffset.getAndIncrement()
+                    if (offset >= orderedPending.size) break
+                    val pageIndex = orderedPending[offset]
+                    val prepared = try {
+                        PreparedAiPageResult.Prepared(
+                            preparePageInput(
+                                book = book,
+                                serverUrl = serverUrl,
+                                settings = settings,
+                                s3Uploader = s3Uploader,
+                                pageIndex = pageIndex,
+                                pages = allPages
+                            )
+                        )
+                    } catch (throwable: Throwable) {
+                        if (throwable is CancellationException) throw throwable
+                        PreparedAiPageResult.Failed(
+                            failRun(
+                                book.id,
+                                listOf(pageIndex),
+                                "Failed to build page image input: ${throwable.message.orEmpty()}"
+                            )
+                        )
+                    }
+                    preparedPages[offset].complete(prepared)
+                }
+            }
+        }
+        val remoteJobs = mutableListOf<kotlinx.coroutines.Deferred<AiTranslationRunResult>>()
+        orderedPending.indices.forEach { offset ->
+            when (val prepared = preparedPages[offset].await()) {
+                is PreparedAiPageResult.Failed -> {
+                    remoteJobs += async {
                         onPageTranslated()
+                        prepared.result
                     }
                 }
-                workerResults
+                is PreparedAiPageResult.Prepared -> {
+                    remoteJobs += async {
+                        val result = remoteSemaphore.withPermit {
+                            translatePreparedPage(
+                                book = book,
+                                settings = settings,
+                                apiKey = apiKey,
+                                prepared = listOf(prepared.input)
+                            )
+                        }
+                        onPageTranslated()
+                        result
+                    }
+                }
             }
-        }.awaitAll().flatten()
+        }
+        prepareJobs.awaitAll()
+        remoteJobs.awaitAll()
     }
 
     private fun ensureBookFile(book: BookDto, pageCount: Int, mode: AiTranslationMode) {
@@ -367,29 +426,35 @@ class AiTranslationRepository(
         serverUrl: String,
         settings: AiSettings,
         apiKey: String,
-        imageUrlExtraQuery: String,
+        s3Uploader: AiS3ImageUploader?,
         pageIndexes: List<Int>,
         pages: List<PageDto>
     ): AiTranslationRunResult {
-        val runMode = AiTranslationMode.LOCAL_DETECTION
         val prepared = runCatching {
             pageIndexes.mapNotNull { index ->
-                val page = pages.getOrNull(index) ?: return@mapNotNull null
-                val url = readerPageUrl(serverUrl, book.id, page)
                 preparePageInput(
-                    seriesId = book.seriesId,
-                    bookId = book.id,
-                    pageIndex = index,
-                    url = url,
-                    fallbackMimeType = page.mediaType,
+                    book = book,
+                    serverUrl = serverUrl,
                     settings = settings,
-                    imageUrlExtraQuery = imageUrlExtraQuery,
-                    mode = runMode
+                    s3Uploader = s3Uploader,
+                    pageIndex = index,
+                    pages = pages
                 )
             }
         }.getOrElse { throwable ->
             return failRun(book.id, pageIndexes, "Failed to build page image input: ${throwable.message.orEmpty()}")
         }
+        return translatePreparedPage(book, settings, apiKey, prepared)
+    }
+
+    private suspend fun translatePreparedPage(
+        book: BookDto,
+        settings: AiSettings,
+        apiKey: String,
+        prepared: List<PreparedAiPageInput>
+    ): AiTranslationRunResult {
+        val runMode = AiTranslationMode.LOCAL_DETECTION
+        val pageIndexes = prepared.map { it.localContext.pageIndex }
         if (prepared.isEmpty()) {
             return failRun(book.id, pageIndexes, "No page image input was built.")
         }
@@ -540,42 +605,44 @@ class AiTranslationRepository(
     }
 
     private fun preparePageInput(
-        seriesId: String,
-        bookId: String,
-        pageIndex: Int,
-        url: String,
-        fallbackMimeType: String,
+        book: BookDto,
+        serverUrl: String,
         settings: AiSettings,
-        imageUrlExtraQuery: String,
-        mode: AiTranslationMode
+        s3Uploader: AiS3ImageUploader?,
+        pageIndex: Int,
+        pages: List<PageDto>
     ): PreparedAiPageInput {
-        val cachedPageFile = ensureCachedPageFile(seriesId, bookId, url)
-        val localContext = localTextDetector.detect(cachedPageFile, pageIndex, settings)
+        val mode = AiTranslationMode.LOCAL_DETECTION
+        val bookId = book.id
+        val page = pages.getOrNull(pageIndex) ?: error("page index out of bounds: $pageIndex")
+        val url = readerPageUrl(serverUrl, bookId, page)
+        val cachedPageFile = ensureCachedPageFile(book.seriesId, bookId, url)
+        val localContextCacheKey = aiLocalContextCacheKey(cachedPageFile, settings)
+        val localContext = store.readLocalPageContext(bookId, pageIndex, localContextCacheKey)
+            ?: localTextDetector.detect(cachedPageFile, pageIndex, settings).also { detected ->
+                store.saveLocalPageContext(bookId, pageIndex, localContextCacheKey, detected)
+            }
         if (localContext.regions.isNotEmpty()) {
             store.upsertPages(bookId, listOf(localDetectionPlaceholderPage(localContext, mode)))
         }
-        val pageImageInput = if (settings.imageTransport == AiImageTransport.IMAGE_URL) {
-            AiTranslationImageInput(
-                pageIndex = pageIndex,
-                transport = AiImageTransport.IMAGE_URL,
-                mimeType = fallbackMimeType,
-                base64 = "",
-                imageUrl = appendImageUrlExtraQuery(url, imageUrlExtraQuery)
-            )
-        } else {
-            val compressed = compressPageImageForAi(cachedPageFile, settings.imageMaxEdge)
-            AiTranslationImageInput(
-                pageIndex = pageIndex,
-                transport = AiImageTransport.BASE64,
-                mimeType = compressed.mimeType.takeIf { it.isNotBlank() } ?: fallbackMimeType,
-                base64 = Base64.getEncoder().encodeToString(compressed.bytes),
-                imageUrl = ""
-            )
-        }
+        val compressed = compressPageImageForAi(cachedPageFile, settings.imageMaxEdge)
+        val pageImageInput = imageInputFromBytes(
+            bytes = compressed.bytes,
+            pageIndex = pageIndex,
+            mimeType = compressed.mimeType.takeIf { it.isNotBlank() } ?: page.mediaType,
+            localRegionId = "",
+            objectKey = s3Uploader?.objectKey(bookId, pageIndex, "page", "jpg"),
+            imageTransport = settings.imageTransport,
+            s3Uploader = s3Uploader
+        )
         val regionImageInputs = buildTextRegionImageInputs(
+            bookId = bookId,
+            store = store,
             file = cachedPageFile,
             pageIndex = pageIndex,
-            regions = localContext.regions
+            regions = localContext.regions,
+            imageTransport = settings.imageTransport,
+            s3Uploader = s3Uploader
         )
         return PreparedAiPageInput(
             pageImageInput = pageImageInput,
@@ -632,6 +699,11 @@ class AiTranslationRepository(
         val localContext: AiTranslationLocalPageContext,
         val regionImageInputs: List<AiTranslationImageInput>
     )
+
+    private sealed interface PreparedAiPageResult {
+        data class Prepared(val input: PreparedAiPageInput) : PreparedAiPageResult
+        data class Failed(val result: AiTranslationRunResult) : PreparedAiPageResult
+    }
 }
 
 data class AiTranslationPageActionResult(
@@ -942,35 +1014,93 @@ private fun mergeTranslatedPageFragments(
 
 @Suppress("DEPRECATION")
 private fun buildTextRegionImageInputs(
+    bookId: String,
+    store: AiTranslationStore,
     file: File,
     pageIndex: Int,
-    regions: List<AiTranslationLocalTextRegion>
+    regions: List<AiTranslationLocalTextRegion>,
+    imageTransport: AiImageTransport,
+    s3Uploader: AiS3ImageUploader?
 ): List<AiTranslationImageInput> {
     if (regions.isEmpty()) return emptyList()
-    val decoder = BitmapRegionDecoder.newInstance(file.absolutePath, false) ?: return emptyList()
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    val imageWidth = bounds.outWidth
+    val imageHeight = bounds.outHeight
+    if (imageWidth <= 0 || imageHeight <= 0) return emptyList()
+    var decoder: BitmapRegionDecoder? = null
     return try {
-        val imageWidth = decoder.width
-        val imageHeight = decoder.height
         regions.mapNotNull { region ->
             val cropRect = region.rect.toAiCropRect(imageWidth, imageHeight) ?: return@mapNotNull null
-            val bitmap = decoder.decodeRegion(
-                cropRect,
-                BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }
-            ) ?: return@mapNotNull null
-            val bytes = compressTextRegionCropBitmap(bitmap)
-            AiTranslationImageInput(
+            val cropCacheKey = aiRegionCropCacheKey(file, cropRect)
+            val bytes = store.readRegionCrop(bookId, pageIndex, region.id, cropCacheKey)
+                ?: run {
+                    val activeDecoder = decoder ?: BitmapRegionDecoder.newInstance(file.absolutePath, false)?.also { decoder = it }
+                        ?: return@mapNotNull null
+                    val bitmap = activeDecoder.decodeRegion(
+                        cropRect,
+                        BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }
+                    ) ?: return@mapNotNull null
+                    compressTextRegionCropBitmap(bitmap).also { compressed ->
+                        store.saveRegionCrop(bookId, pageIndex, region.id, cropCacheKey, compressed)
+                    }
+                }
+            imageInputFromBytes(
+                bytes = bytes,
                 pageIndex = pageIndex,
-                transport = AiImageTransport.BASE64,
                 mimeType = "image/jpeg",
-                base64 = Base64.getEncoder().encodeToString(bytes),
-                imageUrl = "",
-                localRegionId = region.id
+                localRegionId = region.id,
+                objectKey = s3Uploader?.objectKey(bookId, pageIndex, region.id, "jpg"),
+                imageTransport = imageTransport,
+                s3Uploader = s3Uploader
             )
         }
     } finally {
-        decoder.recycle()
+        decoder?.recycle()
     }
 }
+
+private fun imageInputFromBytes(
+    bytes: ByteArray,
+    pageIndex: Int,
+    mimeType: String,
+    localRegionId: String,
+    objectKey: String?,
+    imageTransport: AiImageTransport,
+    s3Uploader: AiS3ImageUploader?
+): AiTranslationImageInput {
+    val imageUrl = if (imageTransport == AiImageTransport.IMAGE_URL && objectKey != null) {
+        runCatching { s3Uploader?.uploadImage(bytes, mimeType, objectKey) }.getOrNull()
+    } else {
+        null
+    }
+    return if (imageUrl != null) {
+        AiTranslationImageInput(
+            pageIndex = pageIndex,
+            transport = AiImageTransport.IMAGE_URL,
+            mimeType = mimeType,
+            base64 = "",
+            imageUrl = imageUrl,
+            localRegionId = localRegionId
+        )
+    } else {
+        fallbackBase64Input(bytes, pageIndex, mimeType, localRegionId)
+    }
+}
+
+private fun fallbackBase64Input(
+    bytes: ByteArray,
+    pageIndex: Int,
+    mimeType: String,
+    localRegionId: String = ""
+): AiTranslationImageInput = AiTranslationImageInput(
+    pageIndex = pageIndex,
+    transport = AiImageTransport.BASE64,
+    mimeType = mimeType,
+    base64 = Base64.getEncoder().encodeToString(bytes),
+    imageUrl = "",
+    localRegionId = localRegionId
+)
 
 private fun AiTranslationRect.toAiCropRect(imageWidth: Int, imageHeight: Int): Rect? {
     if (imageWidth <= 0 || imageHeight <= 0 || width <= 0f || height <= 0f) return null
@@ -1020,6 +1150,49 @@ private fun Bitmap.scaledForAiTextRegionCrop(): Bitmap {
 
 private fun regionImagesPerRequest(maxImagesPerRequest: Int): Int =
     AiSettings.normalizeMaxImagesPerRequest(maxImagesPerRequest) - 1
+
+internal fun effectiveAiTranslationWorkerCount(settings: AiSettings, pendingCount: Int, maxMemoryBytes: Long = Runtime.getRuntime().maxMemory()): Int {
+    val configured = settings.concurrentRequests.coerceAtLeast(1)
+    val memoryCap = when {
+        maxMemoryBytes < 256L * 1024L * 1024L -> 1
+        maxMemoryBytes < 512L * 1024L * 1024L -> 2
+        else -> configured
+    }
+    return min(configured, memoryCap).coerceAtMost(pendingCount.coerceAtLeast(1)).coerceAtLeast(1)
+}
+
+internal fun effectiveAiTranslationPreparationWorkerCount(settings: AiSettings, pendingCount: Int, maxMemoryBytes: Long = Runtime.getRuntime().maxMemory()): Int {
+    val configured = settings.concurrentRequests.coerceAtLeast(1)
+    val memoryCap = when {
+        maxMemoryBytes < 256L * 1024L * 1024L -> 1
+        maxMemoryBytes < 512L * 1024L * 1024L -> 2
+        else -> min(configured + 1, 4)
+    }
+    return min(configured, memoryCap).coerceAtMost(pendingCount.coerceAtLeast(1)).coerceAtLeast(1)
+}
+
+private fun aiLocalContextCacheKey(file: File, settings: AiSettings): String =
+    listOf(
+        "local-v1",
+        file.length(),
+        file.lastModified(),
+        settings.localModelSource.storedValue,
+        settings.modelCollectionId,
+        settings.modelRevision,
+        settings.autoSelectDeviceTier
+    ).joinToString(":")
+
+private fun aiRegionCropCacheKey(file: File, rect: Rect): String =
+    listOf(
+        "region-v1",
+        file.length(),
+        file.lastModified(),
+        rect.left,
+        rect.top,
+        rect.right,
+        rect.bottom,
+        AI_REGION_CROP_JPEG_QUALITY
+    ).joinToString(":")
 
 private fun localRegionReadingOrder(): Comparator<AiTranslationLocalTextRegion> =
     Comparator { left, right ->

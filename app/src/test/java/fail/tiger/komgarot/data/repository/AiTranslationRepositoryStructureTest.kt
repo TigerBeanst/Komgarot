@@ -92,23 +92,49 @@ class AiTranslationRepositoryStructureTest {
     fun fullBookTranslationStartsPagesInPageIndexOrderAcrossConcurrentWorkers() {
         assertTrue(source.contains("AtomicInteger"))
         assertTrue(source.contains("translatePendingPagesInPageOrder("))
-        assertTrue(source.contains("pending.sorted()"))
-        assertTrue(source.contains("val nextPageOffset = AtomicInteger(0)"))
+        assertTrue(source.contains("pending.distinct()"))
+        assertTrue(source.contains("val nextPrepareOffset = AtomicInteger(0)"))
         assertTrue(source.contains("val pageIndex = orderedPending[offset]"))
-        assertTrue(source.contains("translateBatch(book, serverUrl, settings, apiKey, imageUrlExtraQuery, listOf(pageIndex), allPages)"))
+        assertTrue(source.contains("effectiveAiTranslationWorkerCount(settings, orderedPending.size)"))
+        assertTrue(source.contains("effectiveAiTranslationPreparationWorkerCount(settings, orderedPending.size)"))
+        assertTrue(source.contains("remoteSemaphore.withPermit"))
+        assertTrue(source.contains("translateBatch("))
+    }
+
+    @Test
+    fun repositoryUsesS3ForImageUrlTransportWithoutSharingKomgaUrls() {
+        assertTrue(source.contains("AiS3ImageUploader"))
+        assertTrue(source.contains("secure.s3ImageUrlConfigOrNull()"))
+        assertTrue(source.contains("private val imageUploadHttpClient: OkHttpClient = OkHttpClient()"))
+        assertTrue(source.contains("AiS3ImageUploader(imageUploadHttpClient, it)"))
+        assertTrue(source.contains("s3Uploader?.uploadImage("))
+        assertTrue(source.contains("transport = AiImageTransport.IMAGE_URL"))
+        assertTrue(source.contains("fallbackBase64Input("))
+        assertTrue(!source.contains("appendImageUrlExtraQuery(url, imageUrlExtraQuery)"))
+    }
+
+    @Test
+    fun repositoryCachesLocalDetectionAndRegionCropImages() {
+        assertTrue(source.contains("readLocalPageContext("))
+        assertTrue(source.contains("saveLocalPageContext("))
+        assertTrue(source.contains("aiLocalContextCacheKey("))
+        assertTrue(source.contains("readRegionCrop("))
+        assertTrue(source.contains("saveRegionCrop("))
+        assertTrue(source.contains("aiRegionCropCacheKey("))
     }
 
     @Test
     fun base64ImageInputIsCompressedBeforeSendingToAi() {
         assertTrue(source.contains("preparePageInput("))
-        assertTrue(source.contains("fallbackMimeType = page.mediaType"))
         assertTrue(source.contains("compressPageImageForAi(cachedPageFile, settings.imageMaxEdge)"))
         assertTrue(source.contains("compressPageImageForAi("))
         assertTrue(source.contains("BitmapFactory.Options().apply { inJustDecodeBounds = true }"))
         assertTrue(source.contains("Bitmap.CompressFormat.JPEG"))
         assertTrue(source.contains("AI_IMAGE_JPEG_QUALITY"))
         assertTrue(source.contains("entry.tempFile.outputStream().use"))
-        assertTrue(source.contains("Base64.getEncoder().encodeToString(compressed.bytes)"))
+        assertTrue(source.contains("bytes = compressed.bytes"))
+        assertTrue(source.contains("fallbackBase64Input(bytes"))
+        assertTrue(source.contains("Base64.getEncoder().encodeToString(bytes)"))
         assertTrue(!source.contains("Base64.getEncoder().encodeToString(body.bytes())"))
     }
 
@@ -164,6 +190,34 @@ class AiTranslationRepositoryStructureTest {
     fun repositoryUsesDetectedRegionsBeforeAiRequest() {
         assertTrue(source.contains("localPageContexts.sumOf { it.regions.size }"))
         assertTrue(source.contains("buildTextRegionImageInputs("))
+    }
+
+    @Test
+    fun repositorySplitsDetectionPreparationFromRemoteTranslation() {
+        val pendingStart = source.indexOf("private suspend fun translatePendingPagesInPageOrder(")
+        val pendingEnd = source.indexOf("private fun ensureBookFile(", pendingStart)
+        assertTrue(pendingStart >= 0)
+        assertTrue(pendingEnd > pendingStart)
+        val pendingSource = source.substring(pendingStart, pendingEnd)
+
+        assertTrue(pendingSource.contains("preparePageInput("))
+        assertTrue(pendingSource.contains("translatePreparedPage("))
+        assertTrue(pendingSource.indexOf("preparePageInput(") < pendingSource.indexOf("translatePreparedPage("))
+        assertTrue(pendingSource.contains("CompletableDeferred<PreparedAiPageResult>"))
+        assertTrue(pendingSource.contains("PreparedAiPageResult.Failed"))
+    }
+
+    @Test
+    fun dynamicWorkerCountsRespectMemoryCapsAndPendingPageCount() {
+        val settings = fail.tiger.komgarot.data.local.AiSettings.defaults().copy(concurrentRequests = 4)
+
+        assertEquals(1, effectiveAiTranslationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 192L * 1024L * 1024L))
+        assertEquals(2, effectiveAiTranslationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 384L * 1024L * 1024L))
+        assertEquals(4, effectiveAiTranslationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 768L * 1024L * 1024L))
+        assertEquals(2, effectiveAiTranslationWorkerCount(settings, pendingCount = 2, maxMemoryBytes = 768L * 1024L * 1024L))
+        assertEquals(1, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 192L * 1024L * 1024L))
+        assertEquals(2, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 384L * 1024L * 1024L))
+        assertEquals(4, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 768L * 1024L * 1024L))
     }
 
     @Test

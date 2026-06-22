@@ -11,6 +11,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.view.KeyEvent
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -26,6 +27,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -129,6 +131,7 @@ private fun rememberReaderPageRequest(
     seriesId: String,
     bookId: String,
     allowHardware: Boolean = false,
+    retainInMemory: Boolean = false,
     retryKey: Int = 0
 ): ReaderPageImageRequestState {
     val context = LocalContext.current
@@ -141,7 +144,7 @@ private fun rememberReaderPageRequest(
         onDispose { progressState.dispose() }
     }
 
-    val request = remember(context, url, allowHardware, retryKey, progressState, cacheVersion) {
+    val request = remember(context, url, allowHardware, retainInMemory, retryKey, progressState, cacheVersion) {
         readerPageRequest(
             context = context,
             url = url,
@@ -149,7 +152,8 @@ private fun rememberReaderPageRequest(
             bookId = bookId,
             cacheVersion = cacheVersion,
             allowHardware = allowHardware,
-            originalSize = false,
+            originalSize = true,
+            retainInMemory = retainInMemory,
             retryKey = retryKey,
             progressListener = progressState.listener,
             listener = object : ImageRequest.Listener {
@@ -242,6 +246,7 @@ fun ReaderScreen(
     val aiTestModeEnabled by vm.prefs.aiTestModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val aiTranslationEnabled by vm.prefs.aiTranslationEnabled.collectAsStateWithLifecycle(initialValue = false)
     val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
+    val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
     val aiVerticalGlyphSpacingPercent by vm.prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 92)
     val aiVerticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier(aiVerticalGlyphSpacingPercent)
     var aiTranslationErrorDialogMessage by remember { mutableStateOf<String?>(null) }
@@ -253,12 +258,12 @@ fun ReaderScreen(
         vm.currentPage,
         vm.currentAiTranslationDisplayMode,
         vm.currentAiTranslatedPage(vm.currentPage)?.status,
-        preloadPages,
+        memoryAwarePreloadPages,
         aiTranslationAvailable,
         aiTranslationEnabled
     ) {
         if (aiTranslationAvailable && aiTranslationEnabled) {
-            vm.translateCurrentAiPageIfDisplayEnabled(preloadPages)
+            vm.translateCurrentAiPageIfDisplayEnabled(memoryAwarePreloadPages)
         }
     }
 
@@ -422,7 +427,7 @@ fun ReaderScreen(
         }
 
         if (aiTranslationAvailable && aiTranslationEnabled) {
-            val rangeStatus = readerAiTranslationPageRange(vm.currentPage, vm.pageUrls.size, preloadPages)
+            val rangeStatus = readerAiTranslationPageRange(vm.currentPage, vm.pageUrls.size, memoryAwarePreloadPages)
                 .mapNotNull { vm.currentAiTranslatedPage(it)?.status }
             val floatingStatus = if (rangeStatus.any { it == AiTranslationPageStatus.RUNNING }) {
                 AiTranslationPageStatus.RUNNING
@@ -432,7 +437,7 @@ fun ReaderScreen(
             AiTranslationFloatingButton(
                 mode = vm.currentAiTranslationDisplayMode,
                 pageStatus = floatingStatus,
-                onClick = { vm.handleAiTranslationButtonClick(preloadPages) },
+                onClick = { vm.handleAiTranslationButtonClick(memoryAwarePreloadPages) },
                 onLongClick = { vm.showAiTranslationPageActions = true },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -707,8 +712,8 @@ fun PagerReader(
     val pageFit by vm.prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val tapPageTurn by vm.prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
-    val imageLoader = coil.Coil.imageLoader(context)
     val pagerScope = rememberCoroutineScope()
+    val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
 
     LaunchedEffect(pagerState.currentPage, pagerPages) {
         when (val page = pagerPages.getOrNull(pagerState.currentPage)) {
@@ -723,37 +728,67 @@ fun PagerReader(
         }
     }
     LaunchedEffect(vm.currentPage) {
-        val currentPagerPage = pagerPages.getOrNull(pagerState.currentPage)
         val targetPage = pagerPages.pagerIndexForActualPage(vm.currentPage)
-        if (currentPagerPage is ReaderPagerPage.Actual && pagerState.currentPage != targetPage) {
+        if (pagerState.currentPage != targetPage) {
             pagerState.scrollToPage(targetPage)
         }
     }
-    LaunchedEffect(pagerState.currentPage, pagerPages, preloadPages, vm.pageUrls) {
+    LaunchedEffect(pagerState.currentPage, pagerPages, memoryAwarePreloadPages, vm.pageUrls) {
         readerPagerActualPreloadRange(
             pagerPages = pagerPages,
             currentPagerIndex = pagerState.currentPage,
-            preloadPages = preloadPages
+            preloadPages = memoryAwarePreloadPages
         ).forEach { pageIndex ->
             val pageUrl = vm.pageUrls.getOrNull(pageIndex)
             if (pageUrl != null) {
-                imageLoader.enqueue(
-                    readerPageRequest(
-                        context = context,
-                        url = pageUrl,
-                        seriesId = vm.currentSeriesId,
-                        bookId = vm.currentBookId,
-                        cacheVersion = ThumbnailVersion.get(vm.currentBookId),
-                        originalSize = false
-                    )
+                ensureReaderPageFileCached(
+                    context = context,
+                    url = pageUrl,
+                    seriesId = vm.currentSeriesId,
+                    bookId = vm.currentBookId
                 )
             }
+        }
+    }
+    DisposableEffect(einkMode, readingDirection, pagerPages, pagerState) {
+        if (!einkMode) {
+            onDispose {}
+        } else {
+            ReaderPhysicalKeyDispatcher.setHandler { event ->
+                val keyAction = readerPhysicalKeyAction(
+                    keyCode = event.keyCode,
+                    einkMode = true,
+                    readingDirection = readingDirection
+                ) ?: return@setHandler false
+                when (event.action) {
+                    KeyEvent.ACTION_DOWN -> {
+                        when (keyAction) {
+                            ReaderPhysicalKeyAction.PreviousPage -> {
+                                pagerScope.launch {
+                                    pagerState.scrollToPage((pagerState.currentPage - 1).coerceAtLeast(0))
+                                }
+                            }
+                            ReaderPhysicalKeyAction.NextPage -> {
+                                pagerScope.launch {
+                                    pagerState.scrollToPage((pagerState.currentPage + 1).coerceAtMost(pagerPages.lastIndex))
+                                }
+                            }
+                            ReaderPhysicalKeyAction.ScrollBackward,
+                            ReaderPhysicalKeyAction.ScrollForward -> Unit
+                        }
+                        true
+                    }
+                    KeyEvent.ACTION_UP -> true
+                    else -> false
+                }
+            }
+            onDispose { ReaderPhysicalKeyDispatcher.setHandler(null) }
         }
     }
 
     HorizontalPager(
         state = pagerState,
-        beyondViewportPageCount = 0,
+        beyondViewportPageCount = readerPagerBeyondViewportPageCount(einkMode),
         reverseLayout = readingDirection == "RTL",
         userScrollEnabled = !einkMode,
         modifier = Modifier.fillMaxSize()
@@ -764,6 +799,9 @@ fun PagerReader(
                 val zoomState = rememberZoomState(maxScale = 5f)
                 LaunchedEffect(actualPageIndex) { zoomState.reset() }
                 val pageUrl = vm.pageUrls[actualPageIndex]
+                val pageInfo = vm.pageInfo(actualPageIndex)
+                val renderMode = if (pageInfo != null) readerPageRenderMode(pageInfo) else ReaderPageRenderMode.COIL
+                val retainInMemory = readerShouldRetainPageInMemory(einkMode, renderMode)
                 var retryKey by remember(pageUrl) { mutableIntStateOf(0) }
 
                 Box(
@@ -782,11 +820,17 @@ fun PagerReader(
                         url = pageUrl,
                         seriesId = vm.currentSeriesId,
                         bookId = vm.currentBookId,
+                        retainInMemory = retainInMemory,
                         retryKey = retryKey
                     )
                     ZoomableReaderPageContent(
                         actualPageIndex = actualPageIndex,
+                        pageUrl = pageUrl,
+                        seriesId = vm.currentSeriesId,
+                        bookId = vm.currentBookId,
                         pageRequestState = pageRequestState,
+                        renderMode = renderMode,
+                        retryKey = retryKey,
                         pageFit = pageFit,
                         zoomState = zoomState,
                         einkMode = einkMode,
@@ -794,6 +838,7 @@ fun PagerReader(
                         aiDisplayMode = if (aiTranslationAvailable) vm.aiTranslationDisplayModeForPage(actualPageIndex) else AiTranslationDisplayMode.OFF,
                         verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
                         onRetry = { retryKey += 1 },
+                        onLongPress = { longPressUrl = pageUrl },
                         onTap = { tapX, width ->
                             when (
                                 readerTapPageAction(
@@ -857,7 +902,12 @@ fun PagerReader(
 @Composable
 private fun ZoomableReaderPageContent(
     actualPageIndex: Int,
+    pageUrl: String,
+    seriesId: String,
+    bookId: String,
     pageRequestState: ReaderPageImageRequestState,
+    renderMode: ReaderPageRenderMode,
+    retryKey: Int,
     pageFit: String,
     zoomState: ZoomState,
     einkMode: Boolean,
@@ -865,54 +915,90 @@ private fun ZoomableReaderPageContent(
     aiDisplayMode: AiTranslationDisplayMode,
     verticalGlyphSpacingMultiplier: Float,
     onRetry: () -> Unit,
+    onLongPress: () -> Unit = {},
     onTap: (tapX: Float, width: Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var pageWidthPx by remember(pageRequestState.request) { mutableIntStateOf(0) }
     var pageImageLoaded by remember(pageRequestState.request) { mutableStateOf(false) }
-    Box(
+    val inputModifier = if (einkMode) {
+        modifier
+            .onSizeChanged { pageWidthPx = it.width }
+            .pointerInput(onTap, onLongPress, pageWidthPx) {
+                detectTapGestures(
+                    onLongPress = { onLongPress() },
+                    onTap = { position -> onTap(position.x, pageWidthPx.toFloat()) }
+                )
+            }
+    } else {
         modifier
             .onSizeChanged { pageWidthPx = it.width }
             .zoomable(
                 zoomState,
                 onTap = { position -> onTap(position.x, pageWidthPx.toFloat()) }
             )
+    }
+    Box(
+        inputModifier
     ) {
-        SubcomposeAsyncImage(
-            model = pageRequestState.request,
-            contentDescription = stringResource(R.string.reader_page_description, actualPageIndex + 1),
-            contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
-            modifier = Modifier.matchParentSize()
-        ) {
-            when (val state = painter.state) {
-                is AsyncImagePainter.State.Loading -> {
-                    CachedPageLoadingContent(
-                        state = state,
+        when (renderMode) {
+            ReaderPageRenderMode.TILED -> ReaderTiledImage(
+                url = pageUrl,
+                seriesId = seriesId,
+                bookId = bookId,
+                retryKey = retryKey,
+                fillWidth = pageFit == "WIDTH",
+                zoomScale = zoomState.scale,
+                progressListener = pageRequestState.progressState.listener,
+                modifier = Modifier.matchParentSize(),
+                loadingContent = {
+                    PageLoadingPlaceholder(
                         progressState = pageRequestState.progressState,
-                        isLocalCacheHit = pageRequestState.isLocalCacheHit,
                         einkMode = einkMode,
                         modifier = Modifier.fillMaxSize()
                     )
-                }
-                AsyncImagePainter.State.Empty -> {
-                    if (!pageRequestState.isLocalCacheHit) {
-                        PageLoadingPlaceholder(
+                },
+                errorContent = { ReaderPageError(onRetry = onRetry) },
+                onLoadStart = pageRequestState.progressState::reset,
+                onLoadComplete = pageRequestState.progressState::complete,
+                onImageReady = { pageImageLoaded = true }
+            )
+            ReaderPageRenderMode.COIL -> SubcomposeAsyncImage(
+                model = pageRequestState.request,
+                contentDescription = stringResource(R.string.reader_page_description, actualPageIndex + 1),
+                contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
+                modifier = Modifier.matchParentSize()
+            ) {
+                when (val state = painter.state) {
+                    is AsyncImagePainter.State.Loading -> {
+                        CachedPageLoadingContent(
+                            state = state,
                             progressState = pageRequestState.progressState,
+                            isLocalCacheHit = pageRequestState.isLocalCacheHit,
                             einkMode = einkMode,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-                }
-                is AsyncImagePainter.State.Error -> {
-                    CachedPageErrorContent(
-                        state = state,
-                        modifier = Modifier.fillMaxSize(),
-                        onRetry = onRetry
-                    )
-                }
-                else -> {
-                    pageImageLoaded = true
-                    SubcomposeAsyncImageContent()
+                    AsyncImagePainter.State.Empty -> {
+                        if (!pageRequestState.isLocalCacheHit) {
+                            PageLoadingPlaceholder(
+                                progressState = pageRequestState.progressState,
+                                einkMode = einkMode,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                    is AsyncImagePainter.State.Error -> {
+                        CachedPageErrorContent(
+                            state = state,
+                            modifier = Modifier.fillMaxSize(),
+                            onRetry = onRetry
+                        )
+                    }
+                    else -> {
+                        pageImageLoaded = true
+                        SubcomposeAsyncImageContent()
+                    }
                 }
             }
         }
@@ -1195,8 +1281,9 @@ fun ScrollReader(
 ) {
     val listState = rememberLazyListState()
     val context = LocalContext.current
-    val imageLoader = coil.Coil.imageLoader(context)
+    val scrollScope = rememberCoroutineScope()
     val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
+    val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
 
     LaunchedEffect(vm.currentPage) {
@@ -1221,24 +1308,51 @@ fun ScrollReader(
             }
     }
 
-    LaunchedEffect(vm.currentPage, preloadPages, vm.pageUrls) {
+    LaunchedEffect(vm.currentPage, memoryAwarePreloadPages, vm.pageUrls) {
         val from = (vm.currentPage - 1).coerceAtLeast(0)
-        val to = (vm.currentPage + preloadPages).coerceAtMost(vm.pageUrls.lastIndex)
+        val to = (vm.currentPage + memoryAwarePreloadPages).coerceAtMost(vm.pageUrls.lastIndex)
         if (from <= to) {
             for (index in from..to) {
                 if (index != vm.currentPage) {
-                    imageLoader.enqueue(
-                        readerPageRequest(
-                            context = context,
-                            url = vm.pageUrls[index],
-                            seriesId = vm.currentSeriesId,
-                            bookId = vm.currentBookId,
-                            cacheVersion = ThumbnailVersion.get(vm.currentBookId),
-                            originalSize = false
-                        )
+                    val pageUrl = vm.pageUrls[index]
+                    ensureReaderPageFileCached(
+                        context = context,
+                        url = pageUrl,
+                        seriesId = vm.currentSeriesId,
+                        bookId = vm.currentBookId
                     )
                 }
             }
+        }
+    }
+    DisposableEffect(einkMode, listState) {
+        if (!einkMode) {
+            onDispose {}
+        } else {
+            ReaderPhysicalKeyDispatcher.setHandler { event ->
+                val keyAction = readerScrollPhysicalKeyAction(event.keyCode, einkMode = true)
+                    ?: return@setHandler false
+                when (event.action) {
+                    KeyEvent.ACTION_DOWN -> {
+                        val viewportHeight = (
+                            listState.layoutInfo.viewportEndOffset -
+                                listState.layoutInfo.viewportStartOffset
+                            ).coerceAtLeast(1)
+                        val distance = (viewportHeight * 0.88f).coerceAtLeast(240f)
+                        val delta = when (keyAction) {
+                            ReaderPhysicalKeyAction.ScrollBackward -> -distance
+                            ReaderPhysicalKeyAction.ScrollForward -> distance
+                            ReaderPhysicalKeyAction.PreviousPage -> -distance
+                            ReaderPhysicalKeyAction.NextPage -> distance
+                        }
+                        scrollScope.launch { listState.scrollBy(delta) }
+                        true
+                    }
+                    KeyEvent.ACTION_UP -> true
+                    else -> false
+                }
+            }
+            onDispose { ReaderPhysicalKeyDispatcher.setHandler(null) }
         }
     }
 
@@ -1257,42 +1371,71 @@ fun ScrollReader(
                     bookId = vm.currentBookId,
                     retryKey = retryKey
                 )
+                val pageInfo = vm.pageInfo(index)
+                val renderMode = if (pageInfo != null) readerPageRenderMode(pageInfo) else ReaderPageRenderMode.COIL
+                val pageAspectRatio = if (pageInfo != null && pageInfo.width > 0 && pageInfo.height > 0) {
+                    pageInfo.width.toFloat() / pageInfo.height.toFloat()
+                } else {
+                    0.7f
+                }
                 var pageImageLoaded by remember(pageRequestState.request) { mutableStateOf(false) }
-                SubcomposeAsyncImage(
-                    model = pageRequestState.request,
-                    contentDescription = stringResource(R.string.reader_page_description, index + 1),
-                    contentScale = ContentScale.FillWidth,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    when (val state = painter.state) {
-                        is AsyncImagePainter.State.Loading -> {
-                            CachedPageLoadingContent(
-                                state = state,
+                when (renderMode) {
+                    ReaderPageRenderMode.TILED -> ReaderTiledImage(
+                        url = url,
+                        seriesId = vm.currentSeriesId,
+                        bookId = vm.currentBookId,
+                        retryKey = retryKey,
+                        fillWidth = true,
+                        progressListener = pageRequestState.progressState.listener,
+                        modifier = Modifier.fillMaxWidth().aspectRatio(pageAspectRatio),
+                        loadingContent = {
+                            PageLoadingPlaceholder(
                                 progressState = pageRequestState.progressState,
-                                isLocalCacheHit = pageRequestState.isLocalCacheHit,
                                 einkMode = einkMode,
                                 modifier = Modifier.fillMaxWidth().height(400.dp)
                             )
-                        }
-                        AsyncImagePainter.State.Empty -> {
-                            if (!pageRequestState.isLocalCacheHit) {
-                                PageLoadingPlaceholder(
+                        },
+                        errorContent = { ReaderPageError(onRetry = { retryKey += 1 }) },
+                        onLoadStart = pageRequestState.progressState::reset,
+                        onLoadComplete = pageRequestState.progressState::complete,
+                        onImageReady = { pageImageLoaded = true }
+                    )
+                    ReaderPageRenderMode.COIL -> SubcomposeAsyncImage(
+                        model = pageRequestState.request,
+                        contentDescription = stringResource(R.string.reader_page_description, index + 1),
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        when (val state = painter.state) {
+                            is AsyncImagePainter.State.Loading -> {
+                                CachedPageLoadingContent(
+                                    state = state,
                                     progressState = pageRequestState.progressState,
+                                    isLocalCacheHit = pageRequestState.isLocalCacheHit,
                                     einkMode = einkMode,
                                     modifier = Modifier.fillMaxWidth().height(400.dp)
                                 )
                             }
-                        }
-                        is AsyncImagePainter.State.Error -> {
-                            CachedPageErrorContent(
-                                state = state,
-                                modifier = Modifier.fillMaxWidth().height(400.dp),
-                                onRetry = { retryKey += 1 }
-                            )
-                        }
-                        else -> {
-                            pageImageLoaded = true
-                            SubcomposeAsyncImageContent()
+                            AsyncImagePainter.State.Empty -> {
+                                if (!pageRequestState.isLocalCacheHit) {
+                                    PageLoadingPlaceholder(
+                                        progressState = pageRequestState.progressState,
+                                        einkMode = einkMode,
+                                        modifier = Modifier.fillMaxWidth().height(400.dp)
+                                    )
+                                }
+                            }
+                            is AsyncImagePainter.State.Error -> {
+                                CachedPageErrorContent(
+                                    state = state,
+                                    modifier = Modifier.fillMaxWidth().height(400.dp),
+                                    onRetry = { retryKey += 1 }
+                                )
+                            }
+                            else -> {
+                                pageImageLoaded = true
+                                SubcomposeAsyncImageContent()
+                            }
                         }
                     }
                 }

@@ -6,6 +6,16 @@ import coil.request.ImageRequest
 import coil.size.Size
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
+import fail.tiger.komgarot.data.remote.dto.PageDto
+
+private const val LOW_MEMORY_PRELOAD_LIMIT = 2
+private const val MID_MEMORY_PRELOAD_LIMIT = 3
+private const val HIGH_MEMORY_PRELOAD_LIMIT = 5
+private const val TILED_RENDER_MAX_EDGE_THRESHOLD = 8192
+private const val TILED_RENDER_MAX_PIXELS_THRESHOLD = 16_000_000
+private const val TILED_RENDER_LONG_STRIP_RATIO = 6f
+
+enum class ReaderPageRenderMode { COIL, TILED }
 
 fun readerPageMemoryCacheKey(
     url: String,
@@ -30,6 +40,7 @@ fun readerPageRequest(
     cacheVersion: Int = 0,
     allowHardware: Boolean = false,
     originalSize: Boolean = false,
+    retainInMemory: Boolean = false,
     retryKey: Int = 0,
     progressListener: ImageDownloadProgressListener? = null,
     listener: ImageRequest.Listener? = null
@@ -48,15 +59,13 @@ fun readerPageRequest(
         .diskCacheKey(readerPageDiskCacheKey(url))
         .setHeader("Accept", "image/*,*/*;q=0.8")
         .setParameter("reader_retry_key", retryKey, memoryCacheKey = null)
-        .memoryCachePolicy(CachePolicy.ENABLED)
+        .memoryCachePolicy(if (retainInMemory) CachePolicy.ENABLED else CachePolicy.DISABLED)
         .diskCachePolicy(CachePolicy.DISABLED)
         .networkCachePolicy(if (cachedFile == null) CachePolicy.ENABLED else CachePolicy.DISABLED)
         .allowHardware(allowHardware)
-        .allowRgb565(!originalSize)
+        .allowRgb565(false)
         .apply {
-            if (originalSize) {
-                size(Size.ORIGINAL)
-            }
+            size(Size.ORIGINAL)
             if (listener != null) {
                 this.listener(listener)
             }
@@ -75,6 +84,42 @@ fun readerPageRequest(
         }
     }
     return builder.build()
+}
+
+fun readerMemoryAwarePreloadPages(
+    requestedPreloadPages: Int,
+    maxMemoryBytes: Long = Runtime.getRuntime().maxMemory()
+): Int {
+    if (requestedPreloadPages <= 0) return 0
+    val memoryLimit = when {
+        maxMemoryBytes < 256L * 1024L * 1024L -> LOW_MEMORY_PRELOAD_LIMIT
+        maxMemoryBytes < 512L * 1024L * 1024L -> MID_MEMORY_PRELOAD_LIMIT
+        else -> HIGH_MEMORY_PRELOAD_LIMIT
+    }
+    return requestedPreloadPages.coerceAtMost(memoryLimit)
+}
+
+fun readerPagerBeyondViewportPageCount(einkMode: Boolean): Int = if (einkMode) 1 else 0
+
+fun readerShouldRetainPageInMemory(einkMode: Boolean, renderMode: ReaderPageRenderMode): Boolean =
+    einkMode && renderMode == ReaderPageRenderMode.COIL
+
+fun readerPageRenderMode(page: PageDto): ReaderPageRenderMode {
+    val width = page.width.coerceAtLeast(0)
+    val height = page.height.coerceAtLeast(0)
+    if (width == 0 || height == 0) return ReaderPageRenderMode.COIL
+    val maxEdge = maxOf(width, height)
+    val minEdge = minOf(width, height).coerceAtLeast(1)
+    val pixels = width.toLong() * height.toLong()
+    return if (
+        maxEdge >= TILED_RENDER_MAX_EDGE_THRESHOLD ||
+        pixels >= TILED_RENDER_MAX_PIXELS_THRESHOLD ||
+        maxEdge.toFloat() / minEdge.toFloat() >= TILED_RENDER_LONG_STRIP_RATIO
+    ) {
+        ReaderPageRenderMode.TILED
+    } else {
+        ReaderPageRenderMode.COIL
+    }
 }
 
 fun readerPagerActualPreloadRange(
