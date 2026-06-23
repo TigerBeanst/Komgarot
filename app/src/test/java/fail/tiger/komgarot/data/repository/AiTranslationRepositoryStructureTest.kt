@@ -375,8 +375,8 @@ class AiTranslationRepositoryStructureTest {
                   "translations": [
                     {
                       "localRegionId": "p3-r1",
-                      "sourceText": "まだ終わってない",
-                      "translatedLines": ["还没有结束"]
+                      "sourceText": "Sample source text",
+                      "translatedLines": ["示例译文"]
                     }
                   ]
                 }
@@ -398,8 +398,8 @@ class AiTranslationRepositoryStructureTest {
         assertEquals(AiTranslationMode.LOCAL_DETECTION.storedValue, page.mode)
         assertEquals("p3-r1", block.localRegionId)
         assertEquals(AiTranslationBlockKind.DIALOGUE, block.kind)
-        assertEquals("まだ終わってない", block.sourceText)
-        assertEquals(listOf("还没有结束"), block.translatedLines)
+        assertEquals("Sample source text", block.sourceText)
+        assertEquals(listOf("示例译文"), block.translatedLines)
         assertEquals(context.regions.single().rect, block.rect)
         assertEquals(context.regions.single().rect, block.translationRect)
         assertEquals(AiTranslationTextDirection.VERTICAL, block.textDirection)

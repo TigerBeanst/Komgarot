@@ -243,14 +243,14 @@ class AiTranslationStoreTest {
                   "blocks": [
                     {
                       "kind": "speech",
-                      "translatedLines": ["没用……"],
+                      "translatedLines": ["示例文本……"],
                       "rect": [0.78, 0.53, 0.13, 0.09],
                       "textColor": "#000000",
                       "maskColor": "#FFFFFF"
                     },
                     {
                       "kind": "sfx",
-                      "translatedLines": ["咕哦哦哦哦"],
+                      "translatedLines": ["示例音效"],
                       "rect": [0.44, 0.44, 0.47, 0.18],
                       "textColor": "#FFFFFF",
                       "maskColor": "#000000"
@@ -288,7 +288,7 @@ class AiTranslationStoreTest {
             {
               "a": "0QPVECHMGS85H",
               "b": "0QPVECHMCS0NW",
-              "c": "ドロヘドロ - Vol.01",
+              "c": "Example Series - Vol.01",
               "d": "",
               "e": 174,
               "f": { "a": "" },
@@ -306,7 +306,7 @@ class AiTranslationStoreTest {
 
         assertEquals("0QPVECHMGS85H", book.bookId)
         assertEquals("0QPVECHMCS0NW", book.seriesId)
-        assertEquals("ドロヘドロ - Vol.01", book.title)
+        assertEquals("Example Series - Vol.01", book.title)
         assertEquals(174, book.pageCount)
         assertEquals(11, page.pageIndex)
         assertEquals(AiTranslationPageStatus.FAILED, page.status)
@@ -323,8 +323,8 @@ class AiTranslationStoreTest {
               "blocks": [
                 {
                   "kind": "dialogue",
-                  "sourceText": "ギロ。",
-                  "translatedLines": ["瞪视。"],
+                  "sourceText": "Test line A.",
+                  "translatedLines": ["测试文本 A。"],
                   "rect": [0.12, 0.13, 0.14, 0.12],
                   "textColor": "#FFFFFF",
                   "maskColor": "#232323",
@@ -350,7 +350,7 @@ class AiTranslationStoreTest {
         assertEquals(0.14f, block.rect.width)
         assertEquals(0.12f, block.rect.height)
         assertTrue(block.rect.x + block.rect.width <= 1.0001f)
-        assertEquals(listOf("瞪视。"), block.translatedLines)
+        assertEquals(listOf("测试文本 A。"), block.translatedLines)
     }
 
     @Test
@@ -363,8 +363,8 @@ class AiTranslationStoreTest {
               "blocks": [
                 {
                   "kind": "speech",
-                  "sourceText": "効かん…",
-                  "translatedLines": ["没用……"],
+                  "sourceText": "Test line B...",
+                  "translatedLines": ["测试文本 B……"],
                   "rect": [0.78, 0.53, 0.13, 0.09],
                   "textColor": "#000000",
                   "maskColor": "#FFFFFF",
@@ -376,8 +376,8 @@ class AiTranslationStoreTest {
                 },
                 {
                   "kind": "sfx",
-                  "sourceText": "ゴオオオオオ",
-                  "translatedLines": ["咕哦哦哦哦"],
+                  "sourceText": "BOOM",
+                  "translatedLines": ["轰隆"],
                   "rect": [0.44, 0.44, 0.47, 0.18],
                   "textColor": "#FFFFFF",
                   "maskColor": "#000000",

@@ -178,7 +178,7 @@ class AiTranslationPromptTest {
         assertTrue(!prompt.contains("\"ocrText\""))
         assertTrue(!prompt.contains("\"a\":4"))
         assertTrue(!prompt.contains("\"b\":"))
-        assertTrue(!prompt.contains("\"c\":\"まだ\""))
+        assertTrue(!prompt.contains("\"c\":\"sample\""))
     }
 
     @Test
