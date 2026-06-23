@@ -10,14 +10,14 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun singleLongHorizontalLineWrapsToFitAvailableWidth() {
         val lines = balancedHorizontalLines(
-            lines = listOf("但现在还不能回去啊"),
+            lines = listOf("示例文本需要换行"),
             widthDp = 44f,
             fontSizeSp = 10f
         )
 
         assertTrue(lines.size > 1)
         assertTrue(lines.all { it.length <= 7 })
-        assertEquals("但现在还不能回去啊", lines.joinToString(""))
+        assertEquals("示例文本需要换行", lines.joinToString(""))
     }
 
     @Test
@@ -120,31 +120,31 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun horizontalWrappingKeepsTrailingPunctuationWithPreviousText() {
         val lines = balancedHorizontalLines(
-            lines = listOf("变成超级大虫怪快过来！"),
+            lines = listOf("示例文本需要断行！"),
             widthDp = 30f,
             fontSizeSp = 10f
         )
 
-        assertEquals(listOf("变成超级大", "虫怪快过来！"), lines)
+        assertEquals(listOf("示例文本需", "要断行！"), lines)
     }
 
     @Test
     fun verticalColumnsKeepTrailingPunctuationWithPreviousText() {
         val columns = verticalTextColumnsForDisplay(
-            lines = listOf("变成虫吧！"),
+            lines = listOf("示例文本！"),
             charsPerColumn = 2
         )
 
-        assertEquals(listOf("虫吧！", "变成"), columns)
+        assertEquals(listOf("文本！", "示例"), columns)
     }
 
     @Test
     fun verticalColumnsAvoidSingleCharacterTailByAllowingSmallOverflow() {
         val columns = verticalTextColumnsForDisplay(
-            lines = listOf("只剩最后的一次机会"),
+            lines = listOf("示例文本测试结尾"),
             charsPerColumn = 4
         )
 
-        assertEquals(listOf("的一次机会", "只剩最后"), columns)
+        assertEquals(listOf("测试结尾", "示例文本"), columns)
     }
 }

@@ -272,7 +272,7 @@ class AiLocalTextDetectorTest {
             estimatedFontScale = 1.1f
         )
         val block = AiTranslationBlock(
-            translatedLines = listOf("那时，站在这条路上的是谁？"),
+            translatedLines = listOf("这是一段示例排版文本。"),
             rect = AiTranslationRect(x = 0.07f, y = 0.17f, width = 0.20f, height = 0.38f),
             translationRect = AiTranslationRect(x = 0.07f, y = 0.17f, width = 0.20f, height = 0.38f),
             textDirection = AiTranslationTextDirection.HORIZONTAL,
@@ -304,7 +304,7 @@ class AiLocalTextDetectorTest {
         )
         val tightRect = AiTranslationRect(x = 0.12f, y = 0.23f, width = 0.07f, height = 0.22f)
         val block = AiTranslationBlock(
-            translatedLines = listOf("那时"),
+            translatedLines = listOf("示例"),
             rect = tightRect,
             translationRect = tightRect,
             textDirection = AiTranslationTextDirection.VERTICAL,
@@ -403,7 +403,7 @@ class AiLocalTextDetectorTest {
         )
         val block = AiTranslationBlock(
             localRegionId = "p0-r2",
-            sourceText = "ニカイドウ",
+            sourceText = "Sample Name",
             rect = AiTranslationRect(x = 0.90f, y = 0.90f, width = 0.06f, height = 0.06f)
         )
 
@@ -430,7 +430,7 @@ class AiLocalTextDetectorTest {
         val block = AiTranslationBlock(
             localRegionId = second.id,
             sourceText = "",
-            translatedLines = listOf("异变部位已经凝固。"),
+            translatedLines = listOf("示例文本已经稳定。"),
             rect = AiTranslationRect(x = 0.02f, y = 0.02f, width = 0.10f, height = 0.10f),
             textDirection = AiTranslationTextDirection.HORIZONTAL
         )
@@ -459,8 +459,8 @@ class AiLocalTextDetectorTest {
         )
         val block = AiTranslationBlock(
             localRegionId = wrongRegion.id,
-            sourceText = "ここは練習被害者病棟じゃないか",
-            translatedLines = listOf("这里是训练受害者的病房吗？"),
+            sourceText = "Sample vertical text",
+            translatedLines = listOf("这里是示例竖排文本。"),
             rect = AiTranslationRect(x = 0.70f, y = 0.56f, width = 0.14f, height = 0.24f),
             textDirection = AiTranslationTextDirection.VERTICAL
         )
@@ -546,17 +546,17 @@ class AiLocalTextDetectorTest {
             confidence = 0.96f,
             estimatedFontScale = 0.9f
         )
-        val nikaido = firstByReadingOrder.copy(
+        val secondByReadingOrder = firstByReadingOrder.copy(
             id = "p0-r2",
             rect = AiTranslationRect(x = 0.22f, y = 0.42f, width = 0.08f, height = 0.24f)
         )
         val block = AiTranslationBlock(
-            sourceText = "ニカイドウ",
-            translatedLines = listOf("二阶堂"),
+            sourceText = "Sample Name",
+            translatedLines = listOf("示例名称"),
             rect = AiTranslationRect(x = 0.80f, y = 0.80f, width = 0.12f, height = 0.12f)
         )
 
-        val corrected = correctBlocksWithLocalRegions(listOf(block), listOf(firstByReadingOrder, nikaido)).single()
+        val corrected = correctBlocksWithLocalRegions(listOf(block), listOf(firstByReadingOrder, secondByReadingOrder)).single()
 
         assertEquals(firstByReadingOrder.rect, corrected.rect)
         assertEquals(firstByReadingOrder.id, corrected.localRegionId)
@@ -601,7 +601,7 @@ class AiLocalTextDetectorTest {
             estimatedFontScale = 1.0f
         )
         val blocks = listOf(
-            AiTranslationBlock(sourceText = "オオ", translatedLines = listOf("喂")),
+            AiTranslationBlock(sourceText = "SFX", translatedLines = listOf("音效")),
             AiTranslationBlock(sourceText = "made up", translatedLines = listOf("虚构"), rect = AiTranslationRect(x = 0.10f, y = 0.80f, width = 0.20f, height = 0.10f))
         )
 
@@ -609,7 +609,7 @@ class AiLocalTextDetectorTest {
 
         assertEquals(1, corrected.size)
         assertEquals(region.rect, corrected.single().rect)
-        assertEquals(listOf("喂"), corrected.single().translatedLines)
+        assertEquals(listOf("音效"), corrected.single().translatedLines)
     }
 
     @Test

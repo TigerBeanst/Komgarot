@@ -101,7 +101,7 @@ class AiTranslationSchemaTest {
             provider = "openai-compatible",
             model = "vision-model"
         ),
-        glossary = listOf(AiGlossaryEntry(source = "Senpai", target = "前辈", note = "称呼")),
+        glossary = listOf(AiGlossaryEntry(source = "Sample term", target = "示例术语", note = "备注")),
         pages = listOf(
             AiTranslatedPage(
                 pageIndex = 0,
