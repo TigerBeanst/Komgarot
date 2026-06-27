@@ -66,17 +66,18 @@ class SeriesViewModel(
     fun init(id: String?, initialSearch: String? = null, initialTag: String? = null) {
         val normalizedInitialSearch = initialSearch?.trim().orEmpty()
         val normalizedInitialTag = initialTag?.trim()?.takeIf { it.isNotEmpty() }
-        if (libraryId != id) {
+        val libraryChanged = libraryId != id
+        if (libraryChanged) {
             libraryId = id
             paging.reset()
             initialized = false
         }
-        if (normalizedInitialSearch != searchQuery) {
+        if (shouldApplySeriesInitialSearch(libraryChanged, initialSearch, searchQuery)) {
             initialized = false
             paging.reset()
             applySearchState(normalizedInitialSearch)
         }
-        if (normalizedInitialTag != filters.tag) {
+        if (shouldApplySeriesInitialTag(libraryChanged, initialTag, filters.tag)) {
             initialized = false
             paging.reset()
             filters = filters.copy(tag = normalizedInitialTag)
@@ -145,6 +146,24 @@ class SeriesViewModel(
 }
 
 private const val DEFAULT_SERIES_SORT = "metadata.titleSort,asc"
+
+internal fun shouldApplySeriesInitialSearch(
+    libraryChanged: Boolean,
+    initialSearch: String?,
+    currentSearch: String
+): Boolean {
+    if (libraryChanged) return true
+    return initialSearch != null && initialSearch.trim() != currentSearch
+}
+
+internal fun shouldApplySeriesInitialTag(
+    libraryChanged: Boolean,
+    initialTag: String?,
+    currentTag: String?
+): Boolean {
+    if (libraryChanged) return true
+    return initialTag != null && initialTag.trim().takeIf { it.isNotEmpty() } != currentTag
+}
 
 private fun String.stripAuthorPrefix(): String =
     if (startsWith("author:", ignoreCase = true)) substringAfter(':').trim() else trim()

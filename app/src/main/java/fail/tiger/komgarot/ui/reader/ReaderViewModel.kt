@@ -258,7 +258,10 @@ class ReaderViewModel(
                     book = loaded,
                     serverUrl = currentServerUrl,
                     pageIndexes = pageIndexes,
-                    cachedPages = currentPages
+                    cachedPages = currentPages,
+                    onPageUpdated = { page ->
+                        viewModelScope.launch { applyAiTranslationPageUpdate(page) }
+                    }
                 )
                 aiTranslatedBook = repository.readBookState(loaded.id)
                 currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
@@ -299,7 +302,15 @@ class ReaderViewModel(
         aiTranslationJob?.cancel()
         aiTranslationJob = viewModelScope.launch {
             try {
-                val result = repository.retryPageTranslation(loaded, currentServerUrl, currentPage, currentPages)
+                val result = repository.retryPageTranslation(
+                    book = loaded,
+                    serverUrl = currentServerUrl,
+                    pageIndex = currentPage,
+                    cachedPages = currentPages,
+                    onPageUpdated = { page ->
+                        viewModelScope.launch { applyAiTranslationPageUpdate(page) }
+                    }
+                )
                 aiTranslatedBook = repository.readBookState(loaded.id)
                 currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
                 val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == currentPage }
@@ -372,6 +383,10 @@ class ReaderViewModel(
             pages = (existing.pages.filterNot { it.pageIndex == pageIndex } + updated)
                 .sortedBy { it.pageIndex }
         )
+    }
+
+    private fun applyAiTranslationPageUpdate(page: AiTranslatedPage) {
+        aiTranslatedBook = mergeAiTranslationPageUpdate(aiTranslatedBook, page)
     }
 
     private fun localAiBookShell(loaded: BookDto): AiTranslatedBook =
@@ -503,4 +518,19 @@ internal fun mergeAiTranslationRefresh(
     } + current.pages.filter { it.pageIndex !in refreshedPageIndexes && it.status == AiTranslationPageStatus.RUNNING }
 
     return refreshed.copy(pages = mergedPages.sortedBy { it.pageIndex })
+}
+
+internal fun mergeAiTranslationPageUpdate(
+    current: AiTranslatedBook?,
+    page: AiTranslatedPage
+): AiTranslatedBook? {
+    if (current == null) return null
+    val existing = current.pages.firstOrNull { it.pageIndex == page.pageIndex }
+    if (existing?.status == AiTranslationPageStatus.DONE && page.status == AiTranslationPageStatus.RUNNING) {
+        return current
+    }
+    return current.copy(
+        pages = (current.pages.filterNot { it.pageIndex == page.pageIndex } + page)
+            .sortedBy { it.pageIndex }
+    )
 }

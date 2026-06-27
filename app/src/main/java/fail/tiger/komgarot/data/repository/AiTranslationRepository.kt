@@ -32,6 +32,7 @@ import fail.tiger.komgarot.data.remote.AiTranslationClient
 import fail.tiger.komgarot.data.remote.AiTranslationImageInput
 import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
+import fail.tiger.komgarot.data.remote.AiTranslationErrorCategory
 import fail.tiger.komgarot.data.remote.AiTranslationRequestResult
 import fail.tiger.komgarot.data.remote.aiTranslationSystemPrompt
 import fail.tiger.komgarot.data.remote.aiTranslationUserPrompt
@@ -50,11 +51,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import kotlin.math.max
@@ -160,19 +163,22 @@ class AiTranslationRepository(
         book: BookDto,
         serverUrl: String,
         pageIndex: Int,
-        cachedPages: List<PageDto> = emptyList()
+        cachedPages: List<PageDto> = emptyList(),
+        onPageUpdated: (AiTranslatedPage) -> Unit = {}
     ): AiTranslationPageActionResult = retryPagesTranslation(
         book = book,
         serverUrl = serverUrl,
         pageIndexes = listOf(pageIndex),
-        cachedPages = cachedPages
+        cachedPages = cachedPages,
+        onPageUpdated = onPageUpdated
     )
 
     suspend fun retryPagesTranslation(
         book: BookDto,
         serverUrl: String,
         pageIndexes: List<Int>,
-        cachedPages: List<PageDto> = emptyList()
+        cachedPages: List<PageDto> = emptyList(),
+        onPageUpdated: (AiTranslatedPage) -> Unit = {}
     ): AiTranslationPageActionResult {
         val runMode = AiTranslationMode.LOCAL_DETECTION
         ensureBookFile(book, book.media.pagesCount, runMode)
@@ -185,7 +191,8 @@ class AiTranslationRepository(
                 requireEnabled = false,
                 knownPages = cachedPages,
                 cachedPages = cachedPages,
-                onPageTranslated = { updateTask(book, AiTranslationTaskStatus.RUNNING) }
+                onPageTranslated = { updateTask(book, AiTranslationTaskStatus.RUNNING) },
+                onPageUpdated = onPageUpdated
             )
         }
         return AiTranslationPageActionResult(
@@ -233,7 +240,8 @@ class AiTranslationRepository(
         requireEnabled: Boolean = true,
         knownPages: List<PageDto> = emptyList(),
         cachedPages: List<PageDto> = emptyList(),
-        onPageTranslated: () -> Unit = {}
+        onPageTranslated: () -> Unit = {},
+        onPageUpdated: (AiTranslatedPage) -> Unit = {}
     ): AiTranslationRunResult = withContext(Dispatchers.IO) {
         val secure = secureAiSettingsStore.read()
         val settings = AiSettings.defaults(
@@ -307,7 +315,8 @@ class AiTranslationRepository(
             s3Uploader = secure.s3ImageUrlConfigOrNull()?.let { AiS3ImageUploader(imageUploadHttpClient, it) },
             pending = pending,
             allPages = allPages,
-            onPageTranslated = onPageTranslated
+            onPageTranslated = onPageTranslated,
+            onPageUpdated = onPageUpdated
         )
         val ok = results.all { it.ok }
         val summary = summarizeAiTranslationResults(pending, results)
@@ -323,7 +332,8 @@ class AiTranslationRepository(
         s3Uploader: AiS3ImageUploader?,
         pending: List<Int>,
         allPages: List<PageDto>,
-        onPageTranslated: () -> Unit = {}
+        onPageTranslated: () -> Unit = {},
+        onPageUpdated: (AiTranslatedPage) -> Unit = {}
     ): List<AiTranslationRunResult> = coroutineScope {
         val orderedPending = pending.distinct()
         val remoteWorkerCount = effectiveAiTranslationWorkerCount(settings, orderedPending.size)
@@ -378,7 +388,8 @@ class AiTranslationRepository(
                                 book = book,
                                 settings = settings,
                                 apiKey = apiKey,
-                                prepared = listOf(prepared.input)
+                                prepared = listOf(prepared.input),
+                                onPageUpdated = onPageUpdated
                             )
                         }
                         onPageTranslated()
@@ -451,7 +462,8 @@ class AiTranslationRepository(
         book: BookDto,
         settings: AiSettings,
         apiKey: String,
-        prepared: List<PreparedAiPageInput>
+        prepared: List<PreparedAiPageInput>,
+        onPageUpdated: (AiTranslatedPage) -> Unit = {}
     ): AiTranslationRunResult {
         val runMode = AiTranslationMode.LOCAL_DETECTION
         val pageIndexes = prepared.map { it.localContext.pageIndex }
@@ -467,58 +479,200 @@ class AiTranslationRepository(
         val translatedPages = mutableListOf<AiTranslatedPage>()
         prepared.forEach { preparedPage ->
             val pageFragments = mutableListOf<AiTranslatedPage>()
+            val pageFragmentsLock = Any()
             val regionImagesById = preparedPage.regionImageInputs.associateBy { it.localRegionId }
             val regionsWithImages = preparedPage.localContext.regions.filter { it.id in regionImagesById }
             if (regionsWithImages.isEmpty()) {
                 return failRun(book.id, pageIndexes, "Failed to build text-region crop images for page=${preparedPage.localContext.pageIndex}.", runMode)
             }
-            regionsWithImages
-                .chunked(regionImagesPerRequest(settings.maxImagesPerRequest))
-                .forEach { regionChunk ->
-                    val regionImages = regionChunk.mapNotNull { region -> regionImagesById[region.id] }
-                    val chunkContext = preparedPage.localContext.copy(regions = regionChunk)
-                    val chunkImages = listOf(preparedPage.pageImageInput) + regionImages
-                    val result = aiClient.translate(
-                        baseUrl = settings.baseUrl,
-                        apiKey = apiKey,
-                        model = settings.modelName,
-                        systemPrompt = aiTranslationSystemPrompt(),
-                        userPrompt = aiTranslationUserPrompt(
-                            bookId = book.id,
-                            targetLocale = settings.targetLocale,
-                            targetLanguageName = settings.targetLanguageName,
-                            translationMode = runMode,
-                            localPageContexts = listOf(chunkContext),
-                            customInstructions = settings.customInstructions
-                        ),
-                        images = chunkImages,
-                        timeoutSeconds = settings.timeoutSeconds
-                    )
-                    when (result) {
-                        is AiTranslationRequestResult.Success -> {
-                            val parsedResponsePages = parseLocalRegionTranslationResponse(result.normalizedJson)
-                            if (parsedResponsePages.isEmpty()) {
-                                return failRun(book.id, pageIndexes, "AI response did not contain parsable page translation JSON for page=${preparedPage.localContext.pageIndex}.", runMode)
+            val regionChunks = regionsWithImages.chunked(regionImagesPerRequest(settings.maxImagesPerRequest))
+            val chunkWorkerCount = effectiveAiTranslationChunkWorkerCount(settings, regionChunks.size)
+            val chunkSemaphore = Semaphore(chunkWorkerCount)
+            val chunkResults = coroutineScope {
+                regionChunks.map { regionChunk ->
+                    async {
+                        chunkSemaphore.withPermit {
+                            val chunkResult = translatePreparedRegionChunk(
+                                book = book,
+                                settings = settings,
+                                apiKey = apiKey,
+                                runMode = runMode,
+                                preparedPage = preparedPage,
+                                regionChunk = regionChunk,
+                                regionImagesById = regionImagesById
+                            )
+                            if (chunkResult is PreparedRegionChunkResult.Success) {
+                                val partialPage = savePartialTranslatedPageFragment(
+                                    bookId = book.id,
+                                    localContext = preparedPage.localContext,
+                                    runMode = runMode,
+                                    fragment = chunkResult.fragment,
+                                    pageFragments = pageFragments,
+                                    pageFragmentsLock = pageFragmentsLock
+                                )
+                                if (partialPage != null) onPageUpdated(partialPage)
                             }
-                            val pageFragment = translatedPagesFromLocalRegionResponse(
-                                normalizedJson = result.normalizedJson,
-                                fallbackPageIndexes = listOf(preparedPage.localContext.pageIndex),
-                                localPageContexts = listOf(chunkContext),
-                                mode = runMode
-                            ).firstOrNull()
-                            if (pageFragment != null) pageFragments += pageFragment
-                        }
-                        is AiTranslationRequestResult.Failure -> {
-                            return failRun(book.id, pageIndexes, "page=${preparedPage.localContext.pageIndex}: ${result.summary}", runMode)
+                            chunkResult
                         }
                     }
-                }
-            val mergedPage = mergeTranslatedPageFragments(preparedPage.localContext, pageFragments, runMode)
-                ?: return failRun(book.id, pageIndexes, "AI response did not contain any translated text-region result for page=${preparedPage.localContext.pageIndex}.", runMode)
+                }.awaitAll()
+            }
+            val failedChunk = chunkResults.filterIsInstance<PreparedRegionChunkResult.Failed>().firstOrNull()
+            if (failedChunk != null) {
+                return failRun(book.id, pageIndexes, failedChunk.summary, runMode)
+            }
+            val pageFragmentsSnapshot = synchronized(pageFragmentsLock) {
+                pageFragments.toList()
+            }
+            val mergedPage = mergeTranslatedPageFragments(
+                localContext = preparedPage.localContext,
+                fragments = pageFragmentsSnapshot,
+                mode = runMode
+            ) ?: return failRun(book.id, pageIndexes, "AI response did not contain any translated text-region result for page=${preparedPage.localContext.pageIndex}.", runMode)
             translatedPages += mergedPage
         }
         store.upsertPages(book.id, translatedPages)
+        translatedPages.forEach(onPageUpdated)
         return verifySavedTranslatedPages(book.id, translatedPages.map { it.pageIndex })
+    }
+
+    private suspend fun translatePreparedRegionChunk(
+        book: BookDto,
+        settings: AiSettings,
+        apiKey: String,
+        runMode: AiTranslationMode,
+        preparedPage: PreparedAiPageInput,
+        regionChunk: List<AiTranslationLocalTextRegion>,
+        regionImagesById: Map<String, AiTranslationImageInput>
+    ): PreparedRegionChunkResult {
+        val regionImages = regionChunk.mapNotNull { region -> regionImagesById[region.id] }
+        val chunkContext = preparedPage.localContext.copy(regions = regionChunk)
+        val chunkImages = listOf(preparedPage.pageImageInput) + regionImages
+        val result = translateRegionChunkImages(
+            settings = settings,
+            apiKey = apiKey,
+            book = book,
+            runMode = runMode,
+            chunkContext = chunkContext,
+            images = chunkImages
+        )
+        val finalResult = if (isRetryableImageUrlFetchFailure(result)) {
+            translateRegionChunkImages(
+                settings = settings,
+                apiKey = apiKey,
+                book = book,
+                runMode = runMode,
+                chunkContext = chunkContext,
+                images = chunkImages.map { it.asBase64Fallback() }
+            )
+        } else {
+            result
+        }
+        return when (finalResult) {
+            is AiTranslationRequestResult.Success -> {
+                val parsedResponsePages = parseLocalRegionTranslationResponse(finalResult.normalizedJson)
+                if (parsedResponsePages.isEmpty()) {
+                    PreparedRegionChunkResult.Failed("AI response did not contain parsable page translation JSON for page=${preparedPage.localContext.pageIndex}.")
+                } else {
+                    val pageFragment = translatedPagesFromLocalRegionResponse(
+                        normalizedJson = finalResult.normalizedJson,
+                        fallbackPageIndexes = listOf(preparedPage.localContext.pageIndex),
+                        localPageContexts = listOf(chunkContext),
+                        mode = runMode
+                    ).firstOrNull()
+                    if (pageFragment != null) {
+                        PreparedRegionChunkResult.Success(pageFragment)
+                    } else {
+                        PreparedRegionChunkResult.Failed("AI response did not contain translated text-region result for page=${preparedPage.localContext.pageIndex}.")
+                    }
+                }
+            }
+            is AiTranslationRequestResult.Failure -> {
+                PreparedRegionChunkResult.Failed("page=${preparedPage.localContext.pageIndex}: ${finalResult.summary}")
+            }
+        }
+    }
+
+    private suspend fun translateRegionChunkImages(
+        settings: AiSettings,
+        apiKey: String,
+        book: BookDto,
+        runMode: AiTranslationMode,
+        chunkContext: AiTranslationLocalPageContext,
+        images: List<AiTranslationImageInput>
+    ): AiTranslationRequestResult {
+        val firstResult = aiClient.translate(
+            baseUrl = settings.baseUrl,
+            apiKey = apiKey,
+            model = settings.modelName,
+            systemPrompt = aiTranslationSystemPrompt(),
+            userPrompt = aiTranslationUserPrompt(
+                bookId = book.id,
+                targetLocale = settings.targetLocale,
+                targetLanguageName = settings.targetLanguageName,
+                translationMode = runMode,
+                localPageContexts = listOf(chunkContext),
+                customInstructions = settings.customInstructions
+            ),
+            images = images,
+            timeoutSeconds = settings.timeoutSeconds
+        )
+        if (!isRetryableAiChunkFailure(firstResult)) return firstResult
+        delay(AI_TRANSLATION_CHUNK_RETRY_DELAY_MS)
+        return aiClient.translate(
+            baseUrl = settings.baseUrl,
+            apiKey = apiKey,
+            model = settings.modelName,
+            systemPrompt = aiTranslationSystemPrompt(),
+            userPrompt = aiTranslationUserPrompt(
+                bookId = book.id,
+                targetLocale = settings.targetLocale,
+                targetLanguageName = settings.targetLanguageName,
+                translationMode = runMode,
+                localPageContexts = listOf(chunkContext),
+                customInstructions = settings.customInstructions
+            ),
+            images = images,
+            timeoutSeconds = settings.timeoutSeconds
+        )
+    }
+
+    private fun isRetryableImageUrlFetchFailure(result: AiTranslationRequestResult): Boolean {
+        if (result !is AiTranslationRequestResult.Failure) return false
+        val summary = result.summary.lowercase()
+        return summary.contains("invalid_image_url") ||
+            summary.contains("timeout while downloading") ||
+            summary.contains("timed out while downloading") ||
+            summary.contains("expired") ||
+            summary.contains("403")
+    }
+
+    private fun isRetryableAiChunkFailure(result: AiTranslationRequestResult): Boolean =
+        result is AiTranslationRequestResult.Failure &&
+            result.category == AiTranslationErrorCategory.NETWORK_OR_API &&
+            !isRetryableImageUrlFetchFailure(result)
+
+    private fun savePartialTranslatedPageFragment(
+        bookId: String,
+        localContext: AiTranslationLocalPageContext,
+        runMode: AiTranslationMode,
+        fragment: AiTranslatedPage,
+        pageFragments: MutableList<AiTranslatedPage>,
+        pageFragmentsLock: Any
+    ): AiTranslatedPage? {
+        val partialPage = synchronized(pageFragmentsLock) {
+            pageFragments += fragment
+            mergeTranslatedPageFragments(
+                localContext = localContext,
+                fragments = pageFragments.toList(),
+                mode = runMode,
+                status = AiTranslationPageStatus.RUNNING
+            )
+        }
+        if (partialPage != null) {
+            store.upsertPages(bookId, listOf(partialPage))
+        }
+        return partialPage
     }
 
     private fun localDetectionEmptyTextMessage(localPageContexts: List<AiTranslationLocalPageContext>): String {
@@ -604,7 +758,7 @@ class AiTranslationRepository(
         )
     }
 
-    private fun preparePageInput(
+    private suspend fun preparePageInput(
         book: BookDto,
         serverUrl: String,
         settings: AiSettings,
@@ -704,6 +858,11 @@ class AiTranslationRepository(
         data class Prepared(val input: PreparedAiPageInput) : PreparedAiPageResult
         data class Failed(val result: AiTranslationRunResult) : PreparedAiPageResult
     }
+
+    private sealed interface PreparedRegionChunkResult {
+        data class Success(val fragment: AiTranslatedPage) : PreparedRegionChunkResult
+        data class Failed(val summary: String) : PreparedRegionChunkResult
+    }
 }
 
 data class AiTranslationPageActionResult(
@@ -721,23 +880,24 @@ internal fun localDetectionPlaceholderPage(
     imageWidth = localContext.imageWidth,
     imageHeight = localContext.imageHeight,
     mode = mode.storedValue,
-    blocks = localContext.regions.map { region ->
-        AiTranslationBlock(
-            localRegionId = region.id,
-            kind = AiTranslationBlockKind.OTHER,
-            sourceText = "",
-            translatedLines = emptyList(),
-            rect = region.rect,
-            translationRect = region.rect,
-            textColor = ensureReadableAiTextColor(region.textColor, region.backgroundColor),
-            maskColor = region.backgroundColor,
-            maskAlpha = 0.55f,
-            fontScale = region.estimatedFontScale,
-            confidence = region.confidence,
-            textDirection = region.textDirection
-        )
-    }
+    blocks = localContext.regions.map(::localDetectionPlaceholderBlock)
 )
+
+private fun localDetectionPlaceholderBlock(region: AiTranslationLocalTextRegion): AiTranslationBlock =
+    AiTranslationBlock(
+        localRegionId = region.id,
+        kind = AiTranslationBlockKind.OTHER,
+        sourceText = "",
+        translatedLines = emptyList(),
+        rect = region.rect,
+        translationRect = region.rect,
+        textColor = ensureReadableAiTextColor(region.textColor, region.backgroundColor),
+        maskColor = region.backgroundColor,
+        maskAlpha = 0.55f,
+        fontScale = region.estimatedFontScale,
+        confidence = region.confidence,
+        textDirection = region.textDirection
+    )
 
 internal fun translatedPagesFromLocalRegionResponse(
     normalizedJson: String,
@@ -993,17 +1153,24 @@ internal fun correctPageWithLocalContext(
 private fun mergeTranslatedPageFragments(
     localContext: AiTranslationLocalPageContext,
     fragments: List<AiTranslatedPage>,
-    mode: AiTranslationMode
+    mode: AiTranslationMode,
+    status: AiTranslationPageStatus = AiTranslationPageStatus.DONE
 ): AiTranslatedPage? {
     val blocksByRegion = fragments
         .flatMap { it.blocks }
         .filter { it.localRegionId.isNotBlank() }
         .associateBy { it.localRegionId }
-    val orderedBlocks = localContext.regions.mapNotNull { region -> blocksByRegion[region.id] }
+    val orderedBlocks = localContext.regions.mapNotNull { region ->
+        blocksByRegion[region.id] ?: if (status == AiTranslationPageStatus.RUNNING) {
+            localDetectionPlaceholderBlock(region)
+        } else {
+            null
+        }
+    }
     if (orderedBlocks.isEmpty()) return null
     return AiTranslatedPage(
         pageIndex = localContext.pageIndex,
-        status = AiTranslationPageStatus.DONE,
+        status = status,
         updatedAt = System.currentTimeMillis(),
         imageWidth = localContext.imageWidth,
         imageHeight = localContext.imageHeight,
@@ -1013,7 +1180,7 @@ private fun mergeTranslatedPageFragments(
 }
 
 @Suppress("DEPRECATION")
-private fun buildTextRegionImageInputs(
+private suspend fun buildTextRegionImageInputs(
     bookId: String,
     store: AiTranslationStore,
     file: File,
@@ -1031,6 +1198,7 @@ private fun buildTextRegionImageInputs(
     var decoder: BitmapRegionDecoder? = null
     return try {
         regions.mapNotNull { region ->
+            yield()
             val cropRect = region.rect.toAiCropRect(imageWidth, imageHeight) ?: return@mapNotNull null
             val cropCacheKey = aiRegionCropCacheKey(file, cropRect)
             val bytes = store.readRegionCrop(bookId, pageIndex, region.id, cropCacheKey)
@@ -1079,7 +1247,7 @@ private fun imageInputFromBytes(
             pageIndex = pageIndex,
             transport = AiImageTransport.IMAGE_URL,
             mimeType = mimeType,
-            base64 = "",
+            base64 = Base64.getEncoder().encodeToString(bytes),
             imageUrl = imageUrl,
             localRegionId = localRegionId
         )
@@ -1166,9 +1334,23 @@ internal fun effectiveAiTranslationPreparationWorkerCount(settings: AiSettings, 
     val memoryCap = when {
         maxMemoryBytes < 256L * 1024L * 1024L -> 1
         maxMemoryBytes < 512L * 1024L * 1024L -> 2
-        else -> min(configured + 1, 4)
+        else -> 2
     }
     return min(configured, memoryCap).coerceAtMost(pendingCount.coerceAtLeast(1)).coerceAtLeast(1)
+}
+
+internal fun effectiveAiTranslationChunkWorkerCount(settings: AiSettings, chunkCount: Int, maxMemoryBytes: Long = Runtime.getRuntime().maxMemory()): Int {
+    val configured = settings.concurrentRequests.coerceAtLeast(1)
+    val transportCap = when (settings.imageTransport) {
+        AiImageTransport.IMAGE_URL -> 3
+        AiImageTransport.BASE64 -> 2
+    }
+    val memoryCap = when {
+        maxMemoryBytes < 384L * 1024L * 1024L -> 1
+        maxMemoryBytes < 768L * 1024L * 1024L -> min(transportCap, 2)
+        else -> transportCap
+    }
+    return min(configured, memoryCap).coerceAtMost(chunkCount.coerceAtLeast(1)).coerceAtLeast(1)
 }
 
 private fun aiLocalContextCacheKey(file: File, settings: AiSettings): String =
@@ -1210,6 +1392,7 @@ private const val AI_REGION_CROP_MIN_PADDING_PX = 2
 private const val AI_REGION_CROP_MAX_PADDING_PX = 48
 private const val AI_REGION_CROP_MIN_SHORT_EDGE = 180
 private const val AI_REGION_CROP_MAX_LONG_EDGE = 1024
+private const val AI_TRANSLATION_CHUNK_RETRY_DELAY_MS = 350L
 
 private data class CompressedAiImage(
     val mimeType: String,
