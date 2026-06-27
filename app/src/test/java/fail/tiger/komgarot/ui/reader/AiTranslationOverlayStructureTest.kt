@@ -38,6 +38,9 @@ class AiTranslationOverlayStructureTest {
         assertTrue(buttonStart >= 0)
         val buttonSource = overlaySource.substring(buttonStart)
 
+        assertTrue(buttonSource.contains("progressLabel: String?"))
+        assertTrue(buttonSource.contains("!progressLabel.isNullOrBlank()"))
+        assertTrue(buttonSource.contains("text = progressLabel"))
         assertTrue(buttonSource.contains("val running = pageStatus == AiTranslationPageStatus.RUNNING"))
         assertTrue(buttonSource.contains("Surface("))
         assertTrue(buttonSource.contains("color = if (active || running)"))
@@ -62,6 +65,7 @@ class AiTranslationOverlayStructureTest {
         assertTrue(readerSource.contains("AiTranslationOverlay"))
         assertTrue(readerSource.contains("AiTranslationFloatingButton"))
         assertTrue(readerSource.contains("readerAiStatusStringRes"))
+        assertTrue(readerSource.contains("progressLabel = readerAiTranslationProgressText(vm.currentAiTranslatedPage(vm.currentPage))"))
     }
 
     @Test
@@ -230,7 +234,12 @@ class AiTranslationOverlayStructureTest {
         assertTrue(readerViewModelSource.contains("AiTranslationDisplayMode.ON -> AiTranslationDisplayMode.OFF"))
         assertTrue(!readerViewModelSource.contains("AiTranslationDisplayMode.PAGE"))
         assertTrue(!readerViewModelSource.contains("AiTranslationDisplayMode.ALL"))
-        assertTrue(readerViewModelSource.contains("val result = repository.retryPageTranslation(loaded, currentServerUrl, currentPage, currentPages)"))
+        assertTrue(readerViewModelSource.contains("val result = repository.retryPageTranslation("))
+        assertTrue(readerViewModelSource.contains("book = loaded"))
+        assertTrue(readerViewModelSource.contains("serverUrl = currentServerUrl"))
+        assertTrue(readerViewModelSource.contains("pageIndex = currentPage"))
+        assertTrue(readerViewModelSource.contains("cachedPages = currentPages"))
+        assertTrue(readerViewModelSource.contains("onPageUpdated = { page ->"))
         assertTrue(readerViewModelSource.contains("aiTranslatedBook = repository.readBookState(loaded.id)"))
         assertTrue(readerViewModelSource.contains("val pageUpdated = result.ok && updatedPage?.status == AiTranslationPageStatus.DONE"))
         assertTrue(readerViewModelSource.contains("if (!pageUpdated) updateCurrentAiTranslationPageStatus(AiTranslationPageStatus.FAILED)"))
