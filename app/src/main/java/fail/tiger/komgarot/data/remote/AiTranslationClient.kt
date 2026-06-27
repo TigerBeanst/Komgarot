@@ -32,6 +32,12 @@ data class AiTranslationImageInput(
             AiImageTransport.IMAGE_URL -> imageUrl
         }
 
+    fun asBase64Fallback(): AiTranslationImageInput =
+        copy(
+            transport = AiImageTransport.BASE64,
+            imageUrl = ""
+        )
+
     fun metadataText(): String = if (localRegionId.isBlank()) {
         "imageRole=page_context; pageIndex=$pageIndex"
     } else {

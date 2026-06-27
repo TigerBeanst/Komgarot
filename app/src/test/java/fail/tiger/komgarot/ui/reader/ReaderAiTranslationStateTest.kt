@@ -66,6 +66,73 @@ class ReaderAiTranslationStateTest {
     }
 
     @Test
+    fun partialPageUpdateMergesIntoCurrentAiTranslationState() {
+        val current = AiTranslatedBook(
+            bookId = "book-1",
+            pageCount = 2,
+            pages = listOf(AiTranslatedPage(pageIndex = 0, status = AiTranslationPageStatus.RUNNING))
+        )
+        val partial = AiTranslatedPage(
+            pageIndex = 0,
+            status = AiTranslationPageStatus.RUNNING,
+            blocks = listOf(AiTranslationBlock(localRegionId = "p0-r1"))
+        )
+
+        val merged = mergeAiTranslationPageUpdate(current, partial)
+        val page = merged?.pages?.single()
+
+        assertEquals(AiTranslationPageStatus.RUNNING, page?.status)
+        assertEquals(listOf("p0-r1"), page?.blocks?.map { it.localRegionId })
+    }
+
+    @Test
+    fun progressTextCountsTranslatedBlocksDuringRunningPage() {
+        val page = AiTranslatedPage(
+            pageIndex = 0,
+            status = AiTranslationPageStatus.RUNNING,
+            blocks = listOf(
+                AiTranslationBlock(localRegionId = "p0-r1", translatedLines = listOf("已完成")),
+                AiTranslationBlock(localRegionId = "p0-r2"),
+                AiTranslationBlock(localRegionId = "p0-r3", translatedLines = listOf("done"))
+            )
+        )
+
+        assertEquals("2/3", readerAiTranslationProgressText(page))
+    }
+
+    @Test
+    fun runningPartialUpdateKeepsFinishedPageState() {
+        val current = AiTranslatedBook(
+            bookId = "book-1",
+            pageCount = 2,
+            pages = listOf(
+                AiTranslatedPage(
+                    pageIndex = 0,
+                    status = AiTranslationPageStatus.DONE,
+                    blocks = listOf(AiTranslationBlock(localRegionId = "p0-final"))
+                )
+            )
+        )
+        val latePartial = AiTranslatedPage(
+            pageIndex = 0,
+            status = AiTranslationPageStatus.RUNNING,
+            blocks = listOf(AiTranslationBlock(localRegionId = "p0-partial"))
+        )
+
+        val merged = mergeAiTranslationPageUpdate(current, latePartial)
+        val page = merged?.pages?.single()
+
+        assertEquals(AiTranslationPageStatus.DONE, page?.status)
+        assertEquals(listOf("p0-final"), page?.blocks?.map { it.localRegionId })
+    }
+
+    @Test
+    fun readerReceivesPartialAiTranslationPageUpdatesDuringRetry() {
+        assertTrue(viewModelSource.contains("onPageUpdated = { page ->"))
+        assertTrue(viewModelSource.contains("mergeAiTranslationPageUpdate(aiTranslatedBook, page)"))
+    }
+
+    @Test
     fun readerLoadsAndPersistsAiTranslationDisplayPreference() {
         assertTrue(viewModelSource.contains("prefs.aiTranslationDisplayMode.first()"))
         assertTrue(viewModelSource.contains("AiTranslationDisplayMode.fromStoredValue"))
