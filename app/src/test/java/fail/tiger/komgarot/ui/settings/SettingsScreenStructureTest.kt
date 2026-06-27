@@ -43,6 +43,17 @@ class SettingsScreenStructureTest {
     }
 
     @Test
+    fun settingsContentIncludesCacheHealthBreakdown() {
+        assertTrue(source.contains("CacheHealthBreakdown("))
+        assertTrue(source.contains("R.string.settings_cache_health"))
+        assertTrue(source.contains("R.string.settings_cache_health_covers"))
+        assertTrue(source.contains("R.string.settings_cache_health_reader_pages"))
+        assertTrue(source.contains("R.string.settings_cache_health_cached_books"))
+        assertTrue(source.contains("BookDownloadIndex(context.cacheDir).list()"))
+        assertTrue(source.contains("ReaderPageCache.cachedBooksSize(context, cachedBooks)"))
+    }
+
+    @Test
     fun settingsContentIncludesAiTranslationOptions() {
         assertTrue(source.contains("R.string.settings_section_ai_translation"))
         assertTrue(source.contains("R.string.settings_ai_translation_enabled"))

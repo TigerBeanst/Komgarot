@@ -51,6 +51,9 @@ fun AiTranslationTaskScreen(
             vm.refresh()
         }
     }
+    val sortedTasks = remember(vm.state.tasks) {
+        vm.state.tasks.sortedWith(aiTranslationTaskPriorityComparator)
+    }
 
     Scaffold(
         topBar = {
@@ -77,7 +80,8 @@ fun AiTranslationTaskScreen(
             if (vm.state.tasks.isEmpty()) {
                 Text(stringResource(R.string.ai_translation_no_tasks), modifier = Modifier.padding(16.dp))
             } else {
-                vm.state.tasks.forEach { task ->
+                AiTranslationTaskOverview(vm.state.tasks)
+                sortedTasks.forEach { task ->
                     ListItem(
                         headlineContent = { Text(task.title.ifBlank { task.bookId }) },
                         supportingContent = {
@@ -148,6 +152,50 @@ fun AiTranslationTaskScreen(
 
 private fun AiTranslationTaskSummary.isActiveAiTranslationTask(): Boolean =
     status == AiTranslationTaskStatus.QUEUED || status == AiTranslationTaskStatus.RUNNING
+
+private val aiTranslationTaskPriorityComparator = compareBy<AiTranslationTaskSummary> { task ->
+    when {
+        task.status == AiTranslationTaskStatus.RUNNING -> 0
+        task.status == AiTranslationTaskStatus.QUEUED -> 1
+        task.status == AiTranslationTaskStatus.FAILED || task.failedPages > 0 -> 2
+        task.status == AiTranslationTaskStatus.PAUSED -> 3
+        task.completedPages + task.failedPages < task.pageCount -> 4
+        task.status == AiTranslationTaskStatus.DONE -> 5
+        else -> 6
+    }
+}.thenByDescending { task -> task.updatedAt }
+
+private fun activeAiTranslationTaskCount(tasks: List<AiTranslationTaskSummary>): Int =
+    tasks.count { it.isActiveAiTranslationTask() }
+
+private fun failedAiTranslationPageCount(tasks: List<AiTranslationTaskSummary>): Int =
+    tasks.sumOf { it.failedPages }
+
+@Composable
+private fun AiTranslationTaskOverview(tasks: List<AiTranslationTaskSummary>) {
+    val totalPages = tasks.sumOf { it.pageCount }.coerceAtLeast(1)
+    val completedPages = tasks.sumOf { it.completedPages }
+    val failedPages = failedAiTranslationPageCount(tasks)
+    ListItem(
+        headlineContent = {
+            Text(
+                stringResource(
+                    R.string.ai_translation_task_overview,
+                    activeAiTranslationTaskCount(tasks),
+                    failedPages,
+                    completedPages,
+                    totalPages
+                )
+            )
+        },
+        supportingContent = {
+            LinearProgressIndicator(
+                progress = { ((completedPages + failedPages).toFloat() / totalPages.toFloat()).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+            )
+        }
+    )
+}
 
 private fun aiTranslationTaskProgress(task: AiTranslationTaskSummary): Float {
     val pageCount = task.pageCount.coerceAtLeast(1)

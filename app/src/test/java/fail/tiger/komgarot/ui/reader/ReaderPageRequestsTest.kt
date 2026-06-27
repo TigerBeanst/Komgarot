@@ -87,6 +87,14 @@ class ReaderPageRequestsTest {
     }
 
     @Test
+    fun quickPreloadCyclesThroughUsefulReaderValues() {
+        assertEquals(2, readerNextQuickPreloadPages(0))
+        assertEquals(5, readerNextQuickPreloadPages(2))
+        assertEquals(8, readerNextQuickPreloadPages(5))
+        assertEquals(0, readerNextQuickPreloadPages(8))
+    }
+
+    @Test
     fun einkPagerComposesAdjacentPageAheadOfTurn() {
         assertEquals(1, readerPagerBeyondViewportPageCount(einkMode = true))
         assertEquals(0, readerPagerBeyondViewportPageCount(einkMode = false))

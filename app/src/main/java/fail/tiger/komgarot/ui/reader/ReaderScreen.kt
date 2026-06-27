@@ -23,11 +23,13 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -652,7 +654,11 @@ private fun ReaderBottomControls(
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             if (vm.pageUrls.isNotEmpty()) {
                 val context = LocalContext.current
+                val scope = rememberCoroutineScope()
                 val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
+                val readingDirection by vm.prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
+                val pageFit by vm.prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
+                val tapPageTurn by vm.prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
                 val currentPageUrl = vm.pageUrls.getOrNull(vm.currentPage)
                 val currentPageCached = currentPageUrl != null &&
                     ReaderPageCache.hasCachedFile(context, vm.currentSeriesId, vm.currentBookId, currentPageUrl)
@@ -681,6 +687,24 @@ private fun ReaderBottomControls(
                         Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = stringResource(R.string.reader_next), tint = Color.White)
                     }
                 }
+                ReaderQuickSettingsRow(
+                    pageFit = pageFit,
+                    readingDirection = readingDirection,
+                    preloadPages = preloadPages,
+                    tapPageTurn = tapPageTurn,
+                    onToggleFit = {
+                        scope.launch { vm.prefs.setPageFit(if (pageFit == "WIDTH") "FIT" else "WIDTH") }
+                    },
+                    onToggleDirection = {
+                        scope.launch { vm.prefs.setReadingDirection(if (readingDirection == "RTL") "LTR" else "RTL") }
+                    },
+                    onCyclePreload = {
+                        scope.launch { vm.prefs.setPreloadPages(readerNextQuickPreloadPages(preloadPages)) }
+                    },
+                    onToggleTapPageTurn = {
+                        scope.launch { vm.prefs.setTapPageTurn(!tapPageTurn) }
+                    }
+                )
                 Text(
                     text = stringResource(
                         R.string.reader_status_format,
@@ -697,6 +721,44 @@ private fun ReaderBottomControls(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ReaderQuickSettingsRow(
+    pageFit: String,
+    readingDirection: String,
+    preloadPages: Int,
+    tapPageTurn: Boolean,
+    onToggleFit: () -> Unit,
+    onToggleDirection: () -> Unit,
+    onCyclePreload: () -> Unit,
+    onToggleTapPageTurn: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        AssistChip(
+            onClick = onToggleFit,
+            label = { Text(stringResource(if (pageFit == "WIDTH") R.string.reader_quick_fit_width else R.string.reader_quick_fit_screen)) }
+        )
+        AssistChip(
+            onClick = onToggleDirection,
+            label = { Text(stringResource(if (readingDirection == "RTL") R.string.reader_quick_direction_rtl else R.string.reader_quick_direction_ltr)) }
+        )
+        AssistChip(
+            onClick = onCyclePreload,
+            label = { Text(stringResource(R.string.reader_quick_preload, preloadPages)) }
+        )
+        FilterChip(
+            selected = tapPageTurn,
+            onClick = onToggleTapPageTurn,
+            label = { Text(stringResource(R.string.reader_quick_tap_turn)) }
+        )
     }
 }
 
