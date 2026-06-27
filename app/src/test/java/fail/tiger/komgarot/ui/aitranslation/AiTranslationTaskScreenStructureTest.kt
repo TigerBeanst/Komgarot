@@ -27,6 +27,16 @@ class AiTranslationTaskScreenStructureTest {
     }
 
     @Test
+    fun taskListShowsOverviewAndSortsActionableTasksFirst() {
+        assertTrue(source.contains("AiTranslationTaskOverview(vm.state.tasks)"))
+        assertTrue(source.contains("val sortedTasks = remember(vm.state.tasks)"))
+        assertTrue(source.contains("aiTranslationTaskPriorityComparator"))
+        assertTrue(source.contains("R.string.ai_translation_task_overview"))
+        assertTrue(source.contains("activeAiTranslationTaskCount"))
+        assertTrue(source.contains("failedAiTranslationPageCount"))
+    }
+
+    @Test
     fun taskViewModelSupportsRetryIncompleteAndClearBook() {
         assertTrue(viewModelSource.contains("retryIncompletePages"))
         assertTrue(viewModelSource.contains("clearBookTranslation"))

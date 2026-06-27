@@ -177,6 +177,12 @@
     <string name="reader_network_loading">联网加载</string>
     <string name="reader_loading_percent">%d%%</string>
     <string name="reader_status_format">%1$d / %2$d · 预加载 %3$d 页 · %4$s</string>
+    <string name="reader_quick_fit_screen">适应屏幕</string>
+    <string name="reader_quick_fit_width">适应宽度</string>
+    <string name="reader_quick_direction_ltr">从左到右</string>
+    <string name="reader_quick_direction_rtl">从右到左</string>
+    <string name="reader_quick_preload">预加载 %1$d</string>
+    <string name="reader_quick_tap_turn">点按翻页</string>
     <string name="reader_retry">重试</string>
     <string name="reader_no_pages">没有可显示的页面</string>
     <string name="reader_image_load_failed">图片加载失败</string>
@@ -315,6 +321,7 @@
     <string name="ai_translation_task_status_paused">已暂停</string>
     <string name="ai_translation_task_status_done">已完成</string>
     <string name="ai_translation_task_status_failed">失败</string>
+    <string name="ai_translation_task_overview">%1$d 个进行中 · %2$d 页失败 · %3$d/%4$d 页</string>
     <string name="settings_section_webdav_backup">WebDAV 备份</string>
     <string name="settings_webdav_url">WebDAV 服务器 URL</string>
     <string name="settings_webdav_username">WebDAV 用户名</string>
@@ -422,6 +429,11 @@
     <string name="settings_clear_cache_reader_pages">仅清除阅读页缓存</string>
     <string name="settings_cache_loading">计算中…</string>
     <string name="settings_cache_size">总计: %1$s · 封面: %2$s · 阅读页: %3$s</string>
+    <string name="settings_cache_health">缓存健康</string>
+    <string name="settings_cache_health_covers">封面图片缓存</string>
+    <string name="settings_cache_health_reader_pages">阅读页缓存</string>
+    <string name="settings_cache_health_cached_books">已缓存书籍</string>
+    <string name="settings_cache_health_cached_books_desc">%1$d 本 · %2$d/%3$d 页 · %4$s</string>
     <string name="cached_books_entry_desc">查看本机已缓存的书籍</string>
     <string name="settings_entry_desc">阅读、缓存和应用锁</string>
     <string name="admin_entry_desc">服务器管理、用户、书库和设置</string>
