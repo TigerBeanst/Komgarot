@@ -37,9 +37,11 @@ import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.AiImageTransport
 import fail.tiger.komgarot.data.local.AiLocalModelSource
 import fail.tiger.komgarot.data.local.AuthPreferences
+import fail.tiger.komgarot.data.local.BookDownloadIndex
 import fail.tiger.komgarot.data.local.CacheClearTarget
 import fail.tiger.komgarot.data.local.CacheMaintenance
 import fail.tiger.komgarot.data.local.CacheSizeOption
+import fail.tiger.komgarot.data.local.CachedBookEntry
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.local.SecureAiSettings
 import fail.tiger.komgarot.data.local.SecureWebDavSettings
@@ -280,6 +282,7 @@ private fun SettingsContent(
                 supportingContent = { Text(cacheSize.displayText()) },
                 modifier = Modifier.clickable { showClearDialog = true }
             )
+            CacheHealthBreakdown(cacheSize)
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_cover_cache_size)) },
                 supportingContent = { Text(formatCacheSize(CacheSizeOption.fromMb(coverCacheSizeMb).bytes)) },
@@ -1330,15 +1333,21 @@ private suspend fun getCacheSize(context: android.content.Context): CacheSizeUi 
     val diskCache = context.imageLoader.diskCache
     val imageBytes = diskCache?.size ?: 0L
     val readerBytes = ReaderPageCache.size(context)
+    val cachedBooks = BookDownloadIndex(context.cacheDir).list()
+    val cachedBookBytes = ReaderPageCache.cachedBooksSize(context, cachedBooks)
     CacheSizeUi(
         imageBytes = imageBytes,
-        readerBytes = readerBytes
+        readerBytes = readerBytes,
+        cachedBooks = cachedBooks,
+        cachedBookBytes = cachedBookBytes
     )
 }
 
 private data class CacheSizeUi(
     val imageBytes: Long,
-    val readerBytes: Long
+    val readerBytes: Long,
+    val cachedBooks: List<CachedBookEntry>,
+    val cachedBookBytes: Long
 ) {
     @Composable
     fun displayText(): String =
@@ -1349,9 +1358,50 @@ private data class CacheSizeUi(
             formatCacheSize(readerBytes)
         )
 
+    val cachedBookCount: Int
+        get() = cachedBooks.size
+
+    val cachedBookPages: Int
+        get() = cachedBooks.sumOf { it.cachedPages }
+
+    val cachedBookTotalPages: Int
+        get() = cachedBooks.sumOf { it.pageCount }
+
     companion object {
-        fun loading(): CacheSizeUi = CacheSizeUi(imageBytes = -1L, readerBytes = -1L)
+        fun loading(): CacheSizeUi = CacheSizeUi(
+            imageBytes = -1L,
+            readerBytes = -1L,
+            cachedBooks = emptyList(),
+            cachedBookBytes = -1L
+        )
     }
+}
+
+@Composable
+private fun CacheHealthBreakdown(cacheSize: CacheSizeUi) {
+    SettingsSectionHeader(stringResource(R.string.settings_cache_health))
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.settings_cache_health_covers)) },
+        supportingContent = { Text(formatCacheSize(cacheSize.imageBytes)) }
+    )
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.settings_cache_health_reader_pages)) },
+        supportingContent = { Text(formatCacheSize(cacheSize.readerBytes)) }
+    )
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.settings_cache_health_cached_books)) },
+        supportingContent = {
+            Text(
+                stringResource(
+                    R.string.settings_cache_health_cached_books_desc,
+                    cacheSize.cachedBookCount,
+                    cacheSize.cachedBookPages,
+                    cacheSize.cachedBookTotalPages,
+                    formatCacheSize(cacheSize.cachedBookBytes)
+                )
+            )
+        }
+    )
 }
 
 private fun formatCacheSize(bytes: Long): String {

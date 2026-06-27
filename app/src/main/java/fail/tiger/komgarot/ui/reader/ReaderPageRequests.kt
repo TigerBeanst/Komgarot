@@ -97,6 +97,13 @@ fun readerMemoryAwarePreloadPages(
     return requestedPreloadPages.coerceAtMost(memoryLimit)
 }
 
+fun readerNextQuickPreloadPages(current: Int): Int = when {
+    current < 2 -> 2
+    current < 5 -> 5
+    current < 8 -> 8
+    else -> 0
+}
+
 fun readerPagerBeyondViewportPageCount(einkMode: Boolean): Int = if (einkMode) 1 else 0
 
 fun readerPagerBeyondViewportPageCount(

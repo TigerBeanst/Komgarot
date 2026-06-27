@@ -151,6 +151,27 @@ object ReaderPageCache {
             .filter { it.isFile }
             .sumOf { it.length() }
 
+    fun cachedBooksSize(context: Context, cachedBooks: List<CachedBookEntry>): Long =
+        cachedBooksSize(context.cacheDir, cachedBooks)
+
+    fun cachedBooksSize(cacheDir: File, cachedBooks: List<CachedBookEntry>): Long {
+        if (cachedBooks.isEmpty()) return 0L
+        val bookHashes = cachedBooks
+            .mapNotNull { entry -> entry.bookId.takeIf { it.isNotBlank() } }
+            .map(::sanitizeId)
+            .toSet()
+        if (bookHashes.isEmpty()) return 0L
+        return readerPageCacheDir(cacheDir)
+            .listFiles { file ->
+                file.isFile && bookHashes.any { hash ->
+                    file.name.startsWith("$hash-") || file.name.contains("-$hash-")
+                }
+            }
+            .orEmpty()
+            .distinctBy { it.absolutePath }
+            .sumOf { it.length() }
+    }
+
     fun prune(context: Context, maxSizeBytes: Long) {
         prune(context.cacheDir, maxSizeBytes, targetSizeBytes(maxSizeBytes))
     }

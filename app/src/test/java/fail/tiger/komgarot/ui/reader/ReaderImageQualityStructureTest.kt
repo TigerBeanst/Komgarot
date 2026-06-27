@@ -133,11 +133,22 @@ class ReaderImageQualityStructureTest {
         assertTrue(openEnd > openStart)
         val openSource = tiledSource.substring(openStart, openEnd)
 
-        assertTrue(openSource.contains("val openedPreview = decodePreviewBitmap("))
+        assertTrue(openSource.contains("val openedPreview = readerPreviewBitmapCache.get(openedPreviewCacheKey) ?: decodePreviewBitmap("))
         assertTrue(openSource.contains("previewBitmap = openedPreview"))
         assertTrue(openSource.contains("previewKey = openedPreviewKey"))
+        assertTrue(openSource.contains("previewCacheKey = openedPreviewCacheKey"))
         assertTrue(tiledSource.contains("override fun onSizeChanged("))
         assertTrue(tiledSource.contains("requestPreviewDecode(readerPreviewKey("))
+    }
+
+    @Test
+    fun tiledRendererReusesPreviewBitmapsAcrossShortRecomposition() {
+        val tiledSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderTiledImage.kt").readText()
+
+        assertTrue(tiledSource.contains("private val readerPreviewBitmapCache"))
+        assertTrue(tiledSource.contains("readerPreviewCacheKey("))
+        assertTrue(tiledSource.contains("readerPreviewBitmapCache.get("))
+        assertTrue(tiledSource.contains("readerPreviewBitmapCache.put("))
     }
 
     @Test

@@ -166,6 +166,7 @@ class ReaderTiledImageView @JvmOverloads constructor(
     private var decoder: BitmapRegionDecoder? = null
     private var previewBitmap: Bitmap? = null
     private var previewKey: String = ""
+    private var previewCacheKey: String = ""
     private var pendingPreviewKey: String = ""
     private var decoderGeneration = 0
     private var imageWidth = 0
@@ -190,6 +191,12 @@ class ReaderTiledImageView @JvmOverloads constructor(
         if (!sameFile) {
             releaseDecoder()
             imageFile = file
+            val cachedPreviewKey = readerPreviewCacheKey(file, width, height, fillWidth)
+            readerPreviewBitmapCache.get(cachedPreviewKey)?.let { cachedPreview ->
+                previewBitmap = cachedPreview
+                previewCacheKey = cachedPreviewKey
+                onPreviewReady?.invoke()
+            }
             openDecoderAsync(file, decoderGeneration)
         }
         invalidate()
@@ -199,23 +206,23 @@ class ReaderTiledImageView @JvmOverloads constructor(
         val viewportWidth = width
         val viewportHeight = height
         val previewFillWidth = fillWidth
+        val openedPreviewCacheKey = readerPreviewCacheKey(file, viewportWidth, viewportHeight, previewFillWidth)
         tileDecodeExecutor.execute {
             val openedDecoder = newReaderBitmapRegionDecoder(file)
             val openedWidth = openedDecoder?.width ?: 0
             val openedHeight = openedDecoder?.height ?: 0
             val openedPreviewKey = readerPreviewKey(openedWidth, openedHeight, viewportWidth, viewportHeight, previewFillWidth)
-            val openedPreview = decodePreviewBitmap(
-                decoder = openedDecoder,
-                imageWidth = openedWidth,
-                imageHeight = openedHeight,
-                viewportWidth = viewportWidth,
-                viewportHeight = viewportHeight,
-                fillWidth = previewFillWidth
-            )
+            val openedPreview = readerPreviewBitmapCache.get(openedPreviewCacheKey) ?: decodePreviewBitmap(
+                    decoder = openedDecoder,
+                    imageWidth = openedWidth,
+                    imageHeight = openedHeight,
+                    viewportWidth = viewportWidth,
+                    viewportHeight = viewportHeight,
+                    fillWidth = previewFillWidth
+                )?.also { readerPreviewBitmapCache.put(openedPreviewCacheKey, it) }
             post {
                 if (generation != decoderGeneration || imageFile?.absolutePath != file.absolutePath) {
                     openedDecoder?.recycle()
-                    openedPreview?.let(::recycleBitmap)
                     return@post
                 }
                 synchronized(decoderLock) {
@@ -225,10 +232,9 @@ class ReaderTiledImageView @JvmOverloads constructor(
                     imageHeight = openedHeight
                 }
                 if (openedPreview != null) {
-                    val oldPreview = previewBitmap
                     previewBitmap = openedPreview
                     previewKey = openedPreviewKey
-                    if (oldPreview != null && oldPreview !== openedPreview) recycleBitmap(oldPreview)
+                    previewCacheKey = openedPreviewCacheKey
                     onPreviewReady?.invoke()
                 }
                 invalidate()
@@ -240,6 +246,17 @@ class ReaderTiledImageView @JvmOverloads constructor(
         super.onSizeChanged(width, height, oldWidth, oldHeight)
         if (width <= 0 || height <= 0 || imageWidth <= 0 || imageHeight <= 0) return
         val key = readerPreviewKey(imageWidth, imageHeight, width, height, fillWidth)
+        val cacheKey = imageFile?.let { readerPreviewCacheKey(it, width, height, fillWidth) }.orEmpty()
+        if (cacheKey.isNotBlank() && previewCacheKey != cacheKey) {
+            readerPreviewBitmapCache.get(cacheKey)?.let { cachedPreview ->
+                previewBitmap = cachedPreview
+                previewKey = key
+                previewCacheKey = cacheKey
+                onPreviewReady?.invoke()
+                invalidate()
+                return
+            }
+        }
         if (previewBitmap == null || previewKey != key) {
             requestPreviewDecode(readerPreviewKey(imageWidth, imageHeight, width, height, fillWidth))
         }
@@ -328,6 +345,19 @@ class ReaderTiledImageView @JvmOverloads constructor(
         val previewViewportWidth = width
         val previewViewportHeight = height
         val previewFillWidth = fillWidth
+        val previewFile = imageFile
+        val cacheKey = previewFile?.let { readerPreviewCacheKey(it, previewViewportWidth, previewViewportHeight, previewFillWidth) }.orEmpty()
+        if (cacheKey.isNotBlank()) {
+            readerPreviewBitmapCache.get(cacheKey)?.let { cachedPreview ->
+                pendingPreviewKey = ""
+                previewBitmap = cachedPreview
+                previewKey = key
+                previewCacheKey = cacheKey
+                onPreviewReady?.invoke()
+                invalidate()
+                return
+            }
+        }
         tileDecodeExecutor.execute {
             val bitmap = synchronized(decoderLock) {
                 val activeDecoder = decoder
@@ -351,10 +381,15 @@ class ReaderTiledImageView @JvmOverloads constructor(
                     recycleBitmap(bitmap)
                     return@post
                 }
-                val oldPreview = previewBitmap
-                previewBitmap = bitmap
+                val cachedBitmap = if (cacheKey.isNotBlank()) {
+                    readerPreviewBitmapCache.put(cacheKey, bitmap)
+                    readerPreviewBitmapCache.get(cacheKey) ?: bitmap
+                } else {
+                    bitmap
+                }
+                previewBitmap = cachedBitmap
                 previewKey = key
-                if (oldPreview != null && oldPreview !== bitmap) recycleBitmap(oldPreview)
+                previewCacheKey = cacheKey
                 onPreviewReady?.invoke()
                 invalidate()
             }
@@ -409,7 +444,7 @@ class ReaderTiledImageView @JvmOverloads constructor(
         pendingTileKeys.clear()
         pendingPreviewKey = ""
         previewKey = ""
-        previewBitmap?.let(::recycleBitmap)
+        previewCacheKey = ""
         previewBitmap = null
         tileCache.evictAll()
         synchronized(decoderLock) {
@@ -432,6 +467,14 @@ private fun readerPreviewKey(
     fillWidth: Boolean
 ): String =
     "$imageWidth:$imageHeight:$viewportWidth:$viewportHeight:$fillWidth"
+
+private fun readerPreviewCacheKey(
+    file: File,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    fillWidth: Boolean
+): String =
+    "${file.absolutePath}:${file.length()}:${file.lastModified()}:$viewportWidth:$viewportHeight:$fillWidth"
 
 private fun decodePreviewBitmap(
     decoder: BitmapRegionDecoder?,
@@ -527,3 +570,13 @@ private fun readerTileCacheBytes(): Int {
 private const val READER_TILE_SOURCE_SIZE = 1024
 private const val READER_TILE_ZOOM_THRESHOLD = 1.4f
 private const val READER_PREVIEW_MAX_BYTES = 48L * 1024L * 1024L
+
+private val readerPreviewBitmapCache = object : LruCache<String, Bitmap>(readerPreviewCacheBytes()) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+}
+
+private fun readerPreviewCacheBytes(): Int {
+    val maxMemory = Runtime.getRuntime().maxMemory()
+    val megabyte = 1024 * 1024
+    return (maxMemory / 10).coerceIn(24L * megabyte, 96L * megabyte).toInt()
+}
