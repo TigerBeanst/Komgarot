@@ -292,6 +292,26 @@ class AiTranslationPromptTest {
     }
 
     @Test
+    fun imageUrlPayloadCanFallbackToBase64AfterRemoteFetchTimeout() {
+        val request = AiTranslationImageInput(
+            pageIndex = 12,
+            transport = AiImageTransport.IMAGE_URL,
+            mimeType = "image/jpeg",
+            base64 = "fallback-bytes",
+            imageUrl = "https://s3.test/page-12-p12-r2.jpg?X-Amz-Signature=abc",
+            localRegionId = "p12-r2"
+        )
+
+        val fallback = request.asBase64Fallback()
+
+        assertEquals(AiImageTransport.BASE64, fallback.transport)
+        assertEquals("fallback-bytes", fallback.base64)
+        assertEquals("", fallback.imageUrl)
+        assertEquals("p12-r2", fallback.localRegionId)
+        assertTrue(fallback.toOpenAiImageUrl().contains("data:image/jpeg;base64,fallback-bytes"))
+    }
+
+    @Test
     fun chatRequestJsonUsesOpenAiVisionMessageShape() {
         val json = buildAiTranslationChatRequestJson(
             model = "vision-model",

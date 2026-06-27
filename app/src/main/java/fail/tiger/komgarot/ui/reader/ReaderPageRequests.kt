@@ -11,9 +11,7 @@ import fail.tiger.komgarot.data.remote.dto.PageDto
 private const val LOW_MEMORY_PRELOAD_LIMIT = 2
 private const val MID_MEMORY_PRELOAD_LIMIT = 3
 private const val HIGH_MEMORY_PRELOAD_LIMIT = 5
-private const val TILED_RENDER_MAX_EDGE_THRESHOLD = 8192
-private const val TILED_RENDER_MAX_PIXELS_THRESHOLD = 16_000_000
-private const val TILED_RENDER_LONG_STRIP_RATIO = 6f
+private const val CANVAS_SAFE_BITMAP_BYTES = 96L * 1024L * 1024L
 
 enum class ReaderPageRenderMode { COIL, TILED }
 
@@ -101,25 +99,43 @@ fun readerMemoryAwarePreloadPages(
 
 fun readerPagerBeyondViewportPageCount(einkMode: Boolean): Int = if (einkMode) 1 else 0
 
+fun readerPagerBeyondViewportPageCount(
+    einkMode: Boolean,
+    pagerPages: List<ReaderPagerPage>,
+    currentPagerIndex: Int,
+    pageInfo: (Int) -> PageDto?
+): Int {
+    if (einkMode) return 1
+    val from = (currentPagerIndex - 1).coerceAtLeast(0)
+    val to = (currentPagerIndex + 1).coerceAtMost(pagerPages.lastIndex)
+    return if ((from..to).any { index ->
+            val page = pagerPages.getOrNull(index) as? ReaderPagerPage.Actual
+            page != null && pageInfo(page.pageIndex)?.let(::readerPageRenderMode) == ReaderPageRenderMode.TILED
+        }
+    ) {
+        1
+    } else {
+        0
+    }
+}
+
 fun readerShouldRetainPageInMemory(einkMode: Boolean, renderMode: ReaderPageRenderMode): Boolean =
-    einkMode && renderMode == ReaderPageRenderMode.COIL
+    renderMode == ReaderPageRenderMode.COIL
 
 fun readerPageRenderMode(page: PageDto): ReaderPageRenderMode {
     val width = page.width.coerceAtLeast(0)
     val height = page.height.coerceAtLeast(0)
     if (width == 0 || height == 0) return ReaderPageRenderMode.COIL
-    val maxEdge = maxOf(width, height)
-    val minEdge = minOf(width, height).coerceAtLeast(1)
-    val pixels = width.toLong() * height.toLong()
-    return if (
-        maxEdge >= TILED_RENDER_MAX_EDGE_THRESHOLD ||
-        pixels >= TILED_RENDER_MAX_PIXELS_THRESHOLD ||
-        maxEdge.toFloat() / minEdge.toFloat() >= TILED_RENDER_LONG_STRIP_RATIO
-    ) {
+    return if (readerBitmapExceedsCanvasSafeSize(width, height)) {
         ReaderPageRenderMode.TILED
     } else {
         ReaderPageRenderMode.COIL
     }
+}
+
+fun readerBitmapExceedsCanvasSafeSize(width: Int, height: Int, bytesPerPixel: Int = 4): Boolean {
+    if (width <= 0 || height <= 0 || bytesPerPixel <= 0) return true
+    return width.toLong() * height.toLong() * bytesPerPixel.toLong() >= CANVAS_SAFE_BITMAP_BYTES
 }
 
 fun readerPagerActualPreloadRange(

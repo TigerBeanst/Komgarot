@@ -29,6 +29,8 @@ import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
 import java.io.File
 import java.io.IOException
+import java.util.Collections
+import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -75,19 +77,26 @@ fun ReaderTiledImage(
     }
 
     val file = cachedFile
+    var previewReady by remember(file) { mutableStateOf(false) }
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         when {
             file != null -> AndroidView(
                 factory = { viewContext -> ReaderTiledImageView(viewContext) },
                 update = { view ->
+                    view.onPreviewReady = {
+                        if (!previewReady) {
+                            previewReady = true
+                            onImageReady()
+                        }
+                    }
                     view.setImageFile(file, fillWidth, zoomScale)
-                    onImageReady()
                 },
                 modifier = Modifier.fillMaxSize()
             )
             failed -> errorContent()
             else -> loadingContent()
         }
+        if (file != null && !previewReady) loadingContent()
     }
 }
 
@@ -150,12 +159,20 @@ class ReaderTiledImageView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+    private val tileDecodeExecutor = Executors.newSingleThreadExecutor()
+    private val pendingTileKeys = Collections.synchronizedSet(mutableSetOf<String>())
+    private val decoderLock = Any()
     private var imageFile: File? = null
     private var decoder: BitmapRegionDecoder? = null
+    private var previewBitmap: Bitmap? = null
+    private var previewKey: String = ""
+    private var pendingPreviewKey: String = ""
+    private var decoderGeneration = 0
     private var imageWidth = 0
     private var imageHeight = 0
     private var fillWidth = false
     private var zoomScale = 1f
+    var onPreviewReady: (() -> Unit)? = null
     private val tileCache = object : LruCache<String, Bitmap>(readerTileCacheBytes()) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 
@@ -173,12 +190,59 @@ class ReaderTiledImageView @JvmOverloads constructor(
         if (!sameFile) {
             releaseDecoder()
             imageFile = file
-            decoder = newReaderBitmapRegionDecoder(file)?.also { regionDecoder ->
-                imageWidth = regionDecoder.width
-                imageHeight = regionDecoder.height
-            }
+            openDecoderAsync(file, decoderGeneration)
         }
         invalidate()
+    }
+
+    private fun openDecoderAsync(file: File, generation: Int) {
+        val viewportWidth = width
+        val viewportHeight = height
+        val previewFillWidth = fillWidth
+        tileDecodeExecutor.execute {
+            val openedDecoder = newReaderBitmapRegionDecoder(file)
+            val openedWidth = openedDecoder?.width ?: 0
+            val openedHeight = openedDecoder?.height ?: 0
+            val openedPreviewKey = readerPreviewKey(openedWidth, openedHeight, viewportWidth, viewportHeight, previewFillWidth)
+            val openedPreview = decodePreviewBitmap(
+                decoder = openedDecoder,
+                imageWidth = openedWidth,
+                imageHeight = openedHeight,
+                viewportWidth = viewportWidth,
+                viewportHeight = viewportHeight,
+                fillWidth = previewFillWidth
+            )
+            post {
+                if (generation != decoderGeneration || imageFile?.absolutePath != file.absolutePath) {
+                    openedDecoder?.recycle()
+                    openedPreview?.let(::recycleBitmap)
+                    return@post
+                }
+                synchronized(decoderLock) {
+                    decoder?.recycle()
+                    decoder = openedDecoder
+                    imageWidth = openedWidth
+                    imageHeight = openedHeight
+                }
+                if (openedPreview != null) {
+                    val oldPreview = previewBitmap
+                    previewBitmap = openedPreview
+                    previewKey = openedPreviewKey
+                    if (oldPreview != null && oldPreview !== openedPreview) recycleBitmap(oldPreview)
+                    onPreviewReady?.invoke()
+                }
+                invalidate()
+            }
+        }
+    }
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        if (width <= 0 || height <= 0 || imageWidth <= 0 || imageHeight <= 0) return
+        val key = readerPreviewKey(imageWidth, imageHeight, width, height, fillWidth)
+        if (previewBitmap == null || previewKey != key) {
+            requestPreviewDecode(readerPreviewKey(imageWidth, imageHeight, width, height, fillWidth))
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -196,6 +260,19 @@ class ReaderTiledImageView @JvmOverloads constructor(
         val renderedHeight = imageHeight * fitScale
         val offsetX = (width - renderedWidth) / 2f
         val offsetY = if (fillWidth && renderedHeight > height) 0f else (height - renderedHeight) / 2f
+        val fullDestinationRect = Rect(
+            offsetX.toInt(),
+            offsetY.toInt(),
+            (offsetX + renderedWidth).toInt(),
+            (offsetY + renderedHeight).toInt()
+        )
+        val desiredPreviewKey = readerPreviewKey(imageWidth, imageHeight, width, height, fillWidth)
+        if (previewBitmap == null || previewKey != desiredPreviewKey) {
+            requestPreviewDecode(desiredPreviewKey)
+        }
+        drawPreviewBitmap(canvas, fullDestinationRect)
+        if (!shouldDrawReaderTiles(zoomScale)) return
+
         val sampleSize = readerTileSampleSize(imageWidth, imageHeight, width, height, zoomScale)
         val tileSize = READER_TILE_SOURCE_SIZE * sampleSize
         val clipBounds = canvas.clipBounds
@@ -220,7 +297,12 @@ class ReaderTiledImageView @JvmOverloads constructor(
                     minOf(left + tileSize, imageWidth),
                     minOf(top + tileSize, imageHeight)
                 )
-                val bitmap = tileBitmap(regionDecoder, sourceRect, sampleSize) ?: continue
+                val key = readerTileKey(sourceRect, sampleSize)
+                val bitmap = tileCache.get(key)
+                if (bitmap == null) {
+                    requestTileDecode(key, sourceRect, sampleSize)
+                    continue
+                }
                 val destinationRect = Rect(
                     (offsetX + sourceRect.left * fitScale).toInt(),
                     (offsetY + sourceRect.top * fitScale).toInt(),
@@ -232,32 +314,145 @@ class ReaderTiledImageView @JvmOverloads constructor(
         }
     }
 
-    private fun tileBitmap(decoder: BitmapRegionDecoder, rect: Rect, sampleSize: Int): Bitmap? {
-        val key = "${rect.left}:${rect.top}:${rect.right}:${rect.bottom}:$sampleSize"
-        tileCache.get(key)?.let { return it }
-        val bitmap = decoder.decodeRegion(
-            rect,
-            BitmapFactory.Options().apply {
-                inSampleSize = sampleSize
-                inPreferredConfig = Bitmap.Config.ARGB_8888
+    private fun drawPreviewBitmap(canvas: Canvas, destinationRect: Rect) {
+        val bitmap = previewBitmap ?: return
+        canvas.drawBitmap(bitmap, null, destinationRect, paint)
+    }
+
+    private fun requestPreviewDecode(key: String) {
+        if (key == pendingPreviewKey) return
+        pendingPreviewKey = key
+        val generation = decoderGeneration
+        val previewImageWidth = imageWidth
+        val previewImageHeight = imageHeight
+        val previewViewportWidth = width
+        val previewViewportHeight = height
+        val previewFillWidth = fillWidth
+        tileDecodeExecutor.execute {
+            val bitmap = synchronized(decoderLock) {
+                val activeDecoder = decoder
+                if (activeDecoder == null || activeDecoder.isRecycled || generation != decoderGeneration) {
+                    null
+                } else {
+                    decodePreviewBitmap(
+                        decoder = activeDecoder,
+                        imageWidth = previewImageWidth,
+                        imageHeight = previewImageHeight,
+                        viewportWidth = previewViewportWidth,
+                        viewportHeight = previewViewportHeight,
+                        fillWidth = previewFillWidth
+                    )
+                }
             }
-        ) ?: return null
-        tileCache.put(key, bitmap)
-        return bitmap
+            post {
+                if (pendingPreviewKey == key) pendingPreviewKey = ""
+                if (bitmap == null) return@post
+                if (generation != decoderGeneration) {
+                    recycleBitmap(bitmap)
+                    return@post
+                }
+                val oldPreview = previewBitmap
+                previewBitmap = bitmap
+                previewKey = key
+                if (oldPreview != null && oldPreview !== bitmap) recycleBitmap(oldPreview)
+                onPreviewReady?.invoke()
+                invalidate()
+            }
+        }
+    }
+
+    private fun requestTileDecode(key: String, rect: Rect, sampleSize: Int) {
+        if (tileCache.get(key) != null) return
+        if (!pendingTileKeys.add(key)) return
+        val generation = decoderGeneration
+        val decodeRect = Rect(rect)
+        tileDecodeExecutor.execute {
+            val bitmap = synchronized(decoderLock) {
+                val activeDecoder = decoder
+                if (activeDecoder == null || activeDecoder.isRecycled || generation != decoderGeneration) {
+                    null
+                } else {
+                    runCatching {
+                        activeDecoder.decodeRegion(
+                            decodeRect,
+                            BitmapFactory.Options().apply {
+                                inSampleSize = sampleSize
+                                inPreferredConfig = Bitmap.Config.ARGB_8888
+                            }
+                        )
+                    }.getOrNull()
+                }
+            }
+            post {
+                pendingTileKeys.remove(key)
+                if (bitmap == null) {
+                    return@post
+                }
+                if (generation != decoderGeneration) {
+                    recycleBitmap(bitmap)
+                } else {
+                    tileCache.put(key, bitmap)
+                    invalidate()
+                }
+            }
+        }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         releaseDecoder()
+        tileDecodeExecutor.shutdownNow()
     }
 
     private fun releaseDecoder() {
+        decoderGeneration += 1
+        pendingTileKeys.clear()
+        pendingPreviewKey = ""
+        previewKey = ""
+        previewBitmap?.let(::recycleBitmap)
+        previewBitmap = null
         tileCache.evictAll()
-        decoder?.recycle()
-        decoder = null
+        synchronized(decoderLock) {
+            decoder?.recycle()
+            decoder = null
+        }
         imageWidth = 0
         imageHeight = 0
     }
+}
+
+private fun readerTileKey(rect: Rect, sampleSize: Int): String =
+    "${rect.left}:${rect.top}:${rect.right}:${rect.bottom}:$sampleSize"
+
+private fun readerPreviewKey(
+    imageWidth: Int,
+    imageHeight: Int,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    fillWidth: Boolean
+): String =
+    "$imageWidth:$imageHeight:$viewportWidth:$viewportHeight:$fillWidth"
+
+private fun decodePreviewBitmap(
+    decoder: BitmapRegionDecoder?,
+    imageWidth: Int,
+    imageHeight: Int,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    fillWidth: Boolean
+): Bitmap? {
+    if (decoder == null || decoder.isRecycled || imageWidth <= 0 || imageHeight <= 0 || viewportWidth <= 0 || viewportHeight <= 0) {
+        return null
+    }
+    return runCatching {
+        decoder.decodeRegion(
+            Rect(0, 0, imageWidth, imageHeight),
+            BitmapFactory.Options().apply {
+                inSampleSize = readerPreviewSampleSize(imageWidth, imageHeight, viewportWidth, viewportHeight, fillWidth)
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+        )
+    }.getOrNull()
 }
 
 @Suppress("DEPRECATION")
@@ -284,6 +479,41 @@ internal fun readerTileSampleSize(
     return sampleSize
 }
 
+internal fun shouldDrawReaderTiles(zoomScale: Float): Boolean =
+    zoomScale >= READER_TILE_ZOOM_THRESHOLD
+
+internal fun readerPreviewSampleSize(
+    imageWidth: Int,
+    imageHeight: Int,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    fillWidth: Boolean
+): Int {
+    if (imageWidth <= 0 || imageHeight <= 0 || viewportWidth <= 0 || viewportHeight <= 0) return 1
+    val fitScale = if (fillWidth) {
+        viewportWidth / imageWidth.toFloat()
+    } else {
+        minOf(viewportWidth / imageWidth.toFloat(), viewportHeight / imageHeight.toFloat())
+    }.coerceAtLeast(0.0001f)
+    val targetWidth = (imageWidth * fitScale).toInt().coerceAtLeast(1)
+    val targetHeight = (imageHeight * fitScale).toInt().coerceAtLeast(1)
+    var sampleSize = 1
+    while (
+        imageWidth / (sampleSize * 2) >= targetWidth &&
+        imageHeight / (sampleSize * 2) >= targetHeight &&
+        sampleSize < 32
+    ) {
+        sampleSize *= 2
+    }
+    while (
+        imageWidth.toLong() / sampleSize * (imageHeight.toLong() / sampleSize) * 4L > READER_PREVIEW_MAX_BYTES &&
+        sampleSize < 32
+    ) {
+        sampleSize *= 2
+    }
+    return sampleSize
+}
+
 private fun readerTileCacheBytes(): Int {
     val maxMemory = Runtime.getRuntime().maxMemory()
     val megabyte = 1024 * 1024
@@ -295,3 +525,5 @@ private fun readerTileCacheBytes(): Int {
 }
 
 private const val READER_TILE_SOURCE_SIZE = 1024
+private const val READER_TILE_ZOOM_THRESHOLD = 1.4f
+private const val READER_PREVIEW_MAX_BYTES = 48L * 1024L * 1024L

@@ -606,6 +606,7 @@ private fun imageContentBounds(
 fun AiTranslationFloatingButton(
     mode: AiTranslationDisplayMode,
     pageStatus: AiTranslationPageStatus?,
+    progressLabel: String? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -638,11 +639,35 @@ fun AiTranslationFloatingButton(
             )
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = Icons.Default.Translate,
-                contentDescription = stringResource(R.string.reader_ai_translation),
-                modifier = Modifier.alpha(if (active || running) 1f else 0.72f)
-            )
+            if (!progressLabel.isNullOrBlank()) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Translate,
+                        contentDescription = stringResource(R.string.reader_ai_translation),
+                        modifier = Modifier
+                            .size(18.dp)
+                            .alpha(if (active || running) 1f else 0.72f)
+                    )
+                    Text(
+                        text = progressLabel,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            lineHeight = 10.sp,
+                            platformStyle = PlatformTextStyle(includeFontPadding = false)
+                        ),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Translate,
+                    contentDescription = stringResource(R.string.reader_ai_translation),
+                    modifier = Modifier.alpha(if (active || running) 1f else 0.72f)
+                )
+            }
             Text(
                 text = stringResource(R.string.reader_ai_translation_icon_text),
                 style = MaterialTheme.typography.labelSmall,
@@ -659,6 +684,14 @@ fun readerAiStatusStringRes(status: AiTranslationPageStatus?): Int =
         AiTranslationPageStatus.FAILED -> R.string.reader_ai_status_failed
         else -> R.string.reader_ai_status_pending
     }
+
+internal fun readerAiTranslationProgressText(page: AiTranslatedPage?): String? {
+    if (page?.status != AiTranslationPageStatus.RUNNING) return null
+    val total = page.blocks.size
+    if (total <= 0) return null
+    val translated = page.blocks.count { block -> block.translatedLines.any { it.isNotBlank() } }
+    return "$translated/$total"
+}
 
 fun readerAiModeShortStringRes(mode: String?): Int =
     R.string.ai_translation_mode_local_detection_short

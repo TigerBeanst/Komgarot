@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.data.repository
 
 import java.io.File
+import fail.tiger.komgarot.data.local.AiImageTransport
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiTranslationMode
@@ -150,6 +151,42 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
+    fun regionChunksTranslateConcurrentlyAndSavePartialPageResults() {
+        val translateStart = source.indexOf("private suspend fun translatePreparedPage(")
+        val translateEnd = source.indexOf("private fun localDetectionEmptyTextMessage(", translateStart)
+        assertTrue(translateStart >= 0)
+        assertTrue(translateEnd > translateStart)
+        val translateSource = source.substring(translateStart, translateEnd)
+
+        assertTrue(translateSource.contains("val regionChunks = regionsWithImages.chunked(regionImagesPerRequest(settings.maxImagesPerRequest))"))
+        assertTrue(translateSource.contains("val chunkWorkerCount = effectiveAiTranslationChunkWorkerCount(settings, regionChunks.size)"))
+        assertTrue(translateSource.contains("val chunkSemaphore = Semaphore(chunkWorkerCount)"))
+        assertTrue(translateSource.contains("chunkSemaphore.withPermit"))
+        assertTrue(translateSource.contains("async {"))
+        assertTrue(translateSource.contains("savePartialTranslatedPageFragment("))
+        assertTrue(source.contains("blocks = localContext.regions.map(::localDetectionPlaceholderBlock)"))
+        assertTrue(source.contains("blocksByRegion[region.id] ?: if (status == AiTranslationPageStatus.RUNNING)"))
+    }
+
+    @Test
+    fun imageUrlFetchTimeoutFallsBackToBase64ChunkRetry() {
+        val chunkStart = source.indexOf("private suspend fun translatePreparedRegionChunk(")
+        val chunkEnd = source.indexOf("private fun savePartialTranslatedPageFragment(", chunkStart)
+        assertTrue(chunkStart >= 0)
+        assertTrue(chunkEnd > chunkStart)
+        val chunkSource = source.substring(chunkStart, chunkEnd)
+
+        assertTrue(chunkSource.contains("isRetryableImageUrlFetchFailure(result)"))
+        assertTrue(chunkSource.contains("chunkImages.map { it.asBase64Fallback() }"))
+        assertTrue(chunkSource.contains("translateRegionChunkImages("))
+        assertTrue(source.contains("private fun isRetryableImageUrlFetchFailure("))
+        assertTrue(source.contains("invalid_image_url"))
+        assertTrue(source.contains("timeout while downloading"))
+        assertTrue(source.contains("private fun isRetryableAiChunkFailure("))
+        assertTrue(source.contains("delay(AI_TRANSLATION_CHUNK_RETRY_DELAY_MS)"))
+    }
+
+    @Test
     fun repositorySendsDetectedRegionsWithoutLocalText() {
         assertTrue(source.contains("val detectedRegionCount = localPageContexts.sumOf { it.regions.size }"))
         assertTrue(source.contains("if (detectedRegionCount <= 0)"))
@@ -217,7 +254,32 @@ class AiTranslationRepositoryStructureTest {
         assertEquals(2, effectiveAiTranslationWorkerCount(settings, pendingCount = 2, maxMemoryBytes = 768L * 1024L * 1024L))
         assertEquals(1, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 192L * 1024L * 1024L))
         assertEquals(2, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 384L * 1024L * 1024L))
-        assertEquals(4, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 768L * 1024L * 1024L))
+        assertEquals(2, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 768L * 1024L * 1024L))
+    }
+
+    @Test
+    fun chunkWorkerCountsUseConservativeCaps() {
+        val base64Settings = fail.tiger.komgarot.data.local.AiSettings.defaults().copy(
+            concurrentRequests = 4,
+            imageTransport = AiImageTransport.BASE64
+        )
+        val imageUrlSettings = base64Settings.copy(imageTransport = AiImageTransport.IMAGE_URL)
+
+        assertEquals(1, effectiveAiTranslationChunkWorkerCount(base64Settings, chunkCount = 4, maxMemoryBytes = 256L * 1024L * 1024L))
+        assertEquals(2, effectiveAiTranslationChunkWorkerCount(base64Settings, chunkCount = 4, maxMemoryBytes = 768L * 1024L * 1024L))
+        assertEquals(3, effectiveAiTranslationChunkWorkerCount(imageUrlSettings, chunkCount = 4, maxMemoryBytes = 768L * 1024L * 1024L))
+        assertEquals(1, effectiveAiTranslationChunkWorkerCount(imageUrlSettings, chunkCount = 1, maxMemoryBytes = 768L * 1024L * 1024L))
+    }
+
+    @Test
+    fun regionCropPreparationYieldsBetweenRegions() {
+        val cropStart = source.indexOf("private suspend fun buildTextRegionImageInputs(")
+        val cropEnd = source.indexOf("private fun imageInputFromBytes(", cropStart)
+        assertTrue(cropStart >= 0)
+        assertTrue(cropEnd > cropStart)
+        val cropSource = source.substring(cropStart, cropEnd)
+
+        assertTrue(cropSource.contains("yield()"))
     }
 
     @Test
@@ -312,7 +374,7 @@ class AiTranslationRepositoryStructureTest {
     @Test
     fun repositoryAlwaysDownloadsPageForLocalDetectionBeforeRemoteAiTranslation() {
         assertTrue(!source.contains("mode == AiTranslationMode.VISION && settings.imageTransport == AiImageTransport.IMAGE_URL"))
-        val inputStart = source.indexOf("private fun preparePageInput(")
+        val inputStart = source.indexOf("private suspend fun preparePageInput(")
         val inputEnd = source.indexOf("private fun updateTask(", inputStart)
         val inputSource = source.substring(inputStart, inputEnd)
         assertTrue(inputSource.contains("val cachedPageFile = ensureCachedPageFile("))
@@ -327,7 +389,7 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("ReaderPageCache.cachedFile(context, seriesId, bookId, url)"))
         assertTrue(source.contains("ReaderPageCache.entry(context, seriesId, bookId, url)"))
         assertTrue(source.contains("ReaderPageCache.commit(context, entry, prefs.readerCacheSizeBytesBlocking)"))
-        val inputStart = source.indexOf("private fun preparePageInput(")
+        val inputStart = source.indexOf("private suspend fun preparePageInput(")
         val inputEnd = source.indexOf("private fun ensureCachedPageFile(", inputStart)
         val inputSource = source.substring(inputStart, inputEnd)
         assertTrue(inputSource.contains("file = cachedPageFile"))
