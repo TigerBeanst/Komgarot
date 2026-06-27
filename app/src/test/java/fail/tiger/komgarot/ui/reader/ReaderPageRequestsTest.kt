@@ -93,10 +93,59 @@ class ReaderPageRequestsTest {
     }
 
     @Test
-    fun einkReaderRetainsOnlyNormalDecodedPagesInMemory() {
+    fun pagerPrecomposesAdjacentHugePageAheadOfTurn() {
+        val pagerPages = buildReaderPagerPages(
+            pageCount = 3,
+            previousBook = null,
+            nextBook = null
+        )
+        val pageInfos = listOf(
+            PageDto(number = 1, mediaType = "image/jpeg", width = 1600, height = 2400),
+            PageDto(number = 2, mediaType = "image/jpeg", width = 12000, height = 18000),
+            PageDto(number = 3, mediaType = "image/jpeg", width = 1600, height = 2400)
+        )
+
+        assertEquals(
+            1,
+            readerPagerBeyondViewportPageCount(
+                einkMode = false,
+                pagerPages = pagerPages,
+                currentPagerIndex = pagerPages.pagerIndexForActualPage(0),
+                pageInfo = pageInfos::getOrNull
+            )
+        )
+    }
+
+    @Test
+    fun pagerKeepsNormalPagesSingleViewport() {
+        val pagerPages = buildReaderPagerPages(
+            pageCount = 3,
+            previousBook = null,
+            nextBook = null
+        )
+        val pageInfos = listOf(
+            PageDto(number = 1, mediaType = "image/jpeg", width = 1600, height = 2400),
+            PageDto(number = 2, mediaType = "image/jpeg", width = 4000, height = 6000),
+            PageDto(number = 3, mediaType = "image/jpeg", width = 1600, height = 2400)
+        )
+
+        assertEquals(
+            0,
+            readerPagerBeyondViewportPageCount(
+                einkMode = false,
+                pagerPages = pagerPages,
+                currentPagerIndex = pagerPages.pagerIndexForActualPage(1),
+                pageInfo = pageInfos::getOrNull
+            )
+        )
+    }
+
+    @Test
+    fun readerRetainsOnlyNormalDecodedPagesInMemory() {
         assertTrue(readerShouldRetainPageInMemory(einkMode = true, renderMode = ReaderPageRenderMode.COIL))
-        assertFalse(readerShouldRetainPageInMemory(einkMode = false, renderMode = ReaderPageRenderMode.COIL))
+        assertTrue(readerShouldRetainPageInMemory(einkMode = false, renderMode = ReaderPageRenderMode.COIL))
         assertFalse(readerShouldRetainPageInMemory(einkMode = true, renderMode = ReaderPageRenderMode.TILED))
+        assertFalse(readerShouldRetainPageInMemory(einkMode = false, renderMode = ReaderPageRenderMode.TILED))
     }
 
     @Test
@@ -110,19 +159,33 @@ class ReaderPageRequestsTest {
             readerPageRenderMode(PageDto(number = 2, mediaType = "image/jpeg", width = 1600, height = 16000))
         )
         assertEquals(
-            ReaderPageRenderMode.TILED,
+            ReaderPageRenderMode.COIL,
             readerPageRenderMode(PageDto(number = 3, mediaType = "image/jpeg", width = 4000, height = 6000))
         )
         assertEquals(
             ReaderPageRenderMode.COIL,
             readerPageRenderMode(PageDto(number = 4, mediaType = "image/jpeg", width = 1600, height = 2400))
         )
+        assertEquals(
+            ReaderPageRenderMode.COIL,
+            readerPageRenderMode(PageDto(number = 5, mediaType = "image/jpeg", width = 0, height = 0))
+        )
+        assertTrue(readerBitmapExceedsCanvasSafeSize(width = 9049, height = 9049))
     }
 
     @Test
     fun tiledRenderingUsesSharperTilesWhenZoomed() {
         assertEquals(4, readerTileSampleSize(12000, 18000, 1080, 2400, zoomScale = 1f))
         assertEquals(1, readerTileSampleSize(12000, 18000, 1080, 2400, zoomScale = 5f))
+    }
+
+    @Test
+    fun tiledPreviewUsesSafeScreenSizedDecodeBeforeZoom() {
+        assertFalse(shouldDrawReaderTiles(zoomScale = 1f))
+        assertFalse(shouldDrawReaderTiles(zoomScale = 1.39f))
+        assertTrue(shouldDrawReaderTiles(zoomScale = 1.4f))
+        assertEquals(8, readerPreviewSampleSize(9049, 9049, 1080, 2400, fillWidth = false))
+        assertEquals(2, readerPreviewSampleSize(1600, 16000, 1080, 2400, fillWidth = true))
     }
 
     @Test

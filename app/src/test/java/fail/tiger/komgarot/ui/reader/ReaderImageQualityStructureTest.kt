@@ -36,10 +36,13 @@ class ReaderImageQualityStructureTest {
     }
 
     @Test
-    fun einkPagerPrecomposesAndRetainsAdjacentNormalPages() {
+    fun pagerPrecomposesEinkPagesAndAdjacentHugePages() {
         assertTrue(requestSource.contains("fun readerPagerBeyondViewportPageCount("))
         assertTrue(requestSource.contains("fun readerShouldRetainPageInMemory("))
-        assertTrue(source.contains("beyondViewportPageCount = readerPagerBeyondViewportPageCount(einkMode)"))
+        assertTrue(source.contains("beyondViewportPageCount = readerPagerBeyondViewportPageCount("))
+        assertTrue(source.contains("pagerPages = pagerPages"))
+        assertTrue(source.contains("currentPagerIndex = pagerState.currentPage"))
+        assertTrue(source.contains("pageInfo = vm::pageInfo"))
         assertTrue(source.contains("retainInMemory = readerShouldRetainPageInMemory("))
     }
 
@@ -71,6 +74,10 @@ class ReaderImageQualityStructureTest {
         assertTrue(requestSource.contains("fun readerPageRenderMode(page: PageDto): ReaderPageRenderMode"))
         assertTrue(source.contains("vm.pageInfo(actualPageIndex)"))
         assertTrue(source.contains("readerPageRenderMode(pageInfo)"))
+        assertTrue(source.contains("var forceTiledRender by remember(pageUrl, renderMode)"))
+        assertTrue(source.contains("readerBitmapExceedsCanvasSafeSize("))
+        assertTrue(source.contains("forceTiledRender = true"))
+        assertTrue(source.contains("val effectiveRenderMode = if (forceTiledRender) ReaderPageRenderMode.TILED else renderMode"))
         assertTrue(source.contains("ReaderTiledImage("))
         assertTrue(tiledSource.contains("BitmapRegionDecoder"))
         assertTrue(tiledSource.contains("decodeRegion("))
@@ -82,6 +89,81 @@ class ReaderImageQualityStructureTest {
         assertTrue(tiledSource.contains("ReaderPageCache.entry(context, seriesId, bookId, url)"))
         assertTrue(tiledSource.contains("ReaderPageCache.commit(context, entry, maxSizeBytes)"))
         assertTrue(tiledSource.contains("ReaderPageCache.discard(entry)"))
+    }
+
+    @Test
+    fun tiledRendererDoesNotDecodeRegionsOnDrawThread() {
+        val tiledSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderTiledImage.kt").readText()
+        val drawStart = tiledSource.indexOf("override fun onDraw(canvas: Canvas)")
+        val drawEnd = tiledSource.indexOf("private fun", drawStart)
+        assertTrue(drawStart >= 0)
+        assertTrue(drawEnd > drawStart)
+        val drawSource = tiledSource.substring(drawStart, drawEnd)
+
+        assertTrue(tiledSource.contains("private val tileDecodeExecutor"))
+        assertTrue(tiledSource.contains("private val pendingTileKeys"))
+        assertTrue(drawSource.contains("requestTileDecode("))
+        assertFalse(drawSource.contains("decodeRegion("))
+        assertFalse(drawSource.contains("tileBitmap("))
+    }
+
+    @Test
+    fun tiledRendererDrawsPreviewBeforeZoomTiles() {
+        val tiledSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderTiledImage.kt").readText()
+        val drawStart = tiledSource.indexOf("override fun onDraw(canvas: Canvas)")
+        val drawEnd = tiledSource.indexOf("private fun", drawStart)
+        assertTrue(drawStart >= 0)
+        assertTrue(drawEnd > drawStart)
+        val drawSource = tiledSource.substring(drawStart, drawEnd)
+
+        assertTrue(tiledSource.contains("private var previewBitmap: Bitmap? = null"))
+        assertTrue(tiledSource.contains("requestPreviewDecode("))
+        assertTrue(drawSource.contains("drawPreviewBitmap("))
+        assertTrue(drawSource.contains("if (!shouldDrawReaderTiles(zoomScale)) return"))
+        assertTrue(drawSource.indexOf("drawPreviewBitmap(") < drawSource.indexOf("if (!shouldDrawReaderTiles(zoomScale)) return"))
+        assertTrue(tiledSource.contains("readerPreviewSampleSize("))
+    }
+
+    @Test
+    fun tiledRendererBuildsInitialPreviewWithDecoderOpen() {
+        val tiledSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderTiledImage.kt").readText()
+        val openStart = tiledSource.indexOf("private fun openDecoderAsync(")
+        val openEnd = tiledSource.indexOf("override fun onDraw", openStart)
+        assertTrue(openStart >= 0)
+        assertTrue(openEnd > openStart)
+        val openSource = tiledSource.substring(openStart, openEnd)
+
+        assertTrue(openSource.contains("val openedPreview = decodePreviewBitmap("))
+        assertTrue(openSource.contains("previewBitmap = openedPreview"))
+        assertTrue(openSource.contains("previewKey = openedPreviewKey"))
+        assertTrue(tiledSource.contains("override fun onSizeChanged("))
+        assertTrue(tiledSource.contains("requestPreviewDecode(readerPreviewKey("))
+    }
+
+    @Test
+    fun tiledRendererReportsReadyAfterPreviewBitmapExists() {
+        val tiledSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderTiledImage.kt").readText()
+
+        assertTrue(tiledSource.contains("var previewReady by remember(file)"))
+        assertTrue(tiledSource.contains("view.onPreviewReady = {"))
+        assertTrue(tiledSource.contains("if (!previewReady)"))
+        assertTrue(tiledSource.contains("previewReady = true"))
+        assertTrue(tiledSource.contains("onImageReady()"))
+        assertTrue(tiledSource.contains("if (file != null && !previewReady) loadingContent()"))
+        assertFalse(tiledSource.contains("view.setImageFile(file, fillWidth, zoomScale)\n                    onImageReady()"))
+    }
+
+    @Test
+    fun tiledRendererOpensDecoderOffDrawThread() {
+        val tiledSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderTiledImage.kt").readText()
+        val setterStart = tiledSource.indexOf("fun setImageFile(")
+        val setterEnd = tiledSource.indexOf("private fun openDecoderAsync", setterStart)
+        assertTrue(setterStart >= 0)
+        assertTrue(setterEnd > setterStart)
+        val setterSource = tiledSource.substring(setterStart, setterEnd)
+
+        assertTrue(tiledSource.contains("openDecoderAsync("))
+        assertFalse(setterSource.contains("newReaderBitmapRegionDecoder(file)"))
     }
 
     @Test

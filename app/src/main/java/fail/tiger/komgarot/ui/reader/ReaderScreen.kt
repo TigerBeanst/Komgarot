@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -210,6 +211,61 @@ private fun SubcomposeAsyncImageScope.CachedPageErrorContent(
     } else {
         Box(modifier) {
             ReaderPageError(onRetry = onRetry)
+        }
+    }
+}
+
+internal fun readerRetainPainterForTransientState(
+    state: AsyncImagePainter.State,
+    retainedPainter: Painter?
+): AsyncImagePainter.State = when (state) {
+    is AsyncImagePainter.State.Loading -> {
+        if (state.painter == null && retainedPainter != null) state.copy(painter = retainedPainter) else state
+    }
+    is AsyncImagePainter.State.Error -> {
+        if (state.painter == null && retainedPainter != null) state.copy(painter = retainedPainter) else state
+    }
+    else -> state
+}
+
+internal fun readerFallbackPainterForTransientState(
+    state: AsyncImagePainter.State,
+    retainedPainter: Painter?
+): Painter? = when (state) {
+    AsyncImagePainter.State.Empty -> retainedPainter
+    is AsyncImagePainter.State.Loading -> retainedPainter.takeIf { state.painter == null }
+    is AsyncImagePainter.State.Error -> retainedPainter.takeIf { state.painter == null }
+    else -> null
+}
+
+private fun MutableMap<String, Painter>.trimReaderPagePainters(
+    pageUrls: List<String>,
+    currentPage: Int,
+    preloadPages: Int
+) {
+    if (pageUrls.isEmpty()) {
+        clear()
+        return
+    }
+    val from = (currentPage - 1).coerceAtLeast(0)
+    val to = (currentPage + preloadPages.coerceAtLeast(1)).coerceAtMost(pageUrls.lastIndex)
+    val retainedUrls = pageUrls.subList(from, to + 1).toSet()
+    keys.toList().forEach { url ->
+        if (url !in retainedUrls) remove(url)
+    }
+}
+
+@Composable
+private fun rememberReaderPagePainterTransform(
+    request: ImageRequest
+): (AsyncImagePainter.State) -> AsyncImagePainter.State {
+    var retainedPainter by remember(request) { mutableStateOf<Painter?>(null) }
+    return remember(request) {
+        { state ->
+            if (state is AsyncImagePainter.State.Success) {
+                retainedPainter = state.painter
+            }
+            readerRetainPainterForTransientState(state, retainedPainter)
         }
     }
 }
@@ -437,6 +493,7 @@ fun ReaderScreen(
             AiTranslationFloatingButton(
                 mode = vm.currentAiTranslationDisplayMode,
                 pageStatus = floatingStatus,
+                progressLabel = readerAiTranslationProgressText(vm.currentAiTranslatedPage(vm.currentPage)),
                 onClick = { vm.handleAiTranslationButtonClick(memoryAwarePreloadPages) },
                 onLongClick = { vm.showAiTranslationPageActions = true },
                 modifier = Modifier
@@ -714,6 +771,7 @@ fun PagerReader(
     val tapPageTurn by vm.prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
     val pagerScope = rememberCoroutineScope()
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
+    val retainedPagePainters = remember(vm.currentBookId) { mutableStateMapOf<String, Painter>() }
 
     LaunchedEffect(pagerState.currentPage, pagerPages) {
         when (val page = pagerPages.getOrNull(pagerState.currentPage)) {
@@ -732,6 +790,9 @@ fun PagerReader(
         if (pagerState.currentPage != targetPage) {
             pagerState.scrollToPage(targetPage)
         }
+    }
+    LaunchedEffect(vm.currentPage, memoryAwarePreloadPages, vm.pageUrls) {
+        retainedPagePainters.trimReaderPagePainters(vm.pageUrls, vm.currentPage, memoryAwarePreloadPages)
     }
     LaunchedEffect(pagerState.currentPage, pagerPages, memoryAwarePreloadPages, vm.pageUrls) {
         readerPagerActualPreloadRange(
@@ -788,7 +849,12 @@ fun PagerReader(
 
     HorizontalPager(
         state = pagerState,
-        beyondViewportPageCount = readerPagerBeyondViewportPageCount(einkMode),
+        beyondViewportPageCount = readerPagerBeyondViewportPageCount(
+            einkMode = einkMode,
+            pagerPages = pagerPages,
+            currentPagerIndex = pagerState.currentPage,
+            pageInfo = vm::pageInfo
+        ),
         reverseLayout = readingDirection == "RTL",
         userScrollEnabled = !einkMode,
         modifier = Modifier.fillMaxSize()
@@ -830,6 +896,7 @@ fun PagerReader(
                         bookId = vm.currentBookId,
                         pageRequestState = pageRequestState,
                         renderMode = renderMode,
+                        retainedPainter = retainedPagePainters[pageUrl],
                         retryKey = retryKey,
                         pageFit = pageFit,
                         zoomState = zoomState,
@@ -837,6 +904,7 @@ fun PagerReader(
                         aiTranslatedPage = vm.currentAiTranslatedPage(actualPageIndex).takeIf { aiTranslationAvailable },
                         aiDisplayMode = if (aiTranslationAvailable) vm.aiTranslationDisplayModeForPage(actualPageIndex) else AiTranslationDisplayMode.OFF,
                         verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
+                        onPainterRetained = { retainedPagePainters[pageUrl] = it },
                         onRetry = { retryKey += 1 },
                         onLongPress = { longPressUrl = pageUrl },
                         onTap = { tapX, width ->
@@ -907,6 +975,7 @@ private fun ZoomableReaderPageContent(
     bookId: String,
     pageRequestState: ReaderPageImageRequestState,
     renderMode: ReaderPageRenderMode,
+    retainedPainter: Painter?,
     retryKey: Int,
     pageFit: String,
     zoomState: ZoomState,
@@ -914,6 +983,7 @@ private fun ZoomableReaderPageContent(
     aiTranslatedPage: AiTranslatedPage?,
     aiDisplayMode: AiTranslationDisplayMode,
     verticalGlyphSpacingMultiplier: Float,
+    onPainterRetained: (Painter) -> Unit,
     onRetry: () -> Unit,
     onLongPress: () -> Unit = {},
     onTap: (tapX: Float, width: Float) -> Unit,
@@ -921,6 +991,8 @@ private fun ZoomableReaderPageContent(
 ) {
     var pageWidthPx by remember(pageRequestState.request) { mutableIntStateOf(0) }
     var pageImageLoaded by remember(pageRequestState.request) { mutableStateOf(false) }
+    var forceTiledRender by remember(pageUrl, renderMode) { mutableStateOf(false) }
+    val effectiveRenderMode = if (forceTiledRender) ReaderPageRenderMode.TILED else renderMode
     val inputModifier = if (einkMode) {
         modifier
             .onSizeChanged { pageWidthPx = it.width }
@@ -941,7 +1013,7 @@ private fun ZoomableReaderPageContent(
     Box(
         inputModifier
     ) {
-        when (renderMode) {
+        when (effectiveRenderMode) {
             ReaderPageRenderMode.TILED -> ReaderTiledImage(
                 url = pageUrl,
                 seriesId = seriesId,
@@ -966,21 +1038,30 @@ private fun ZoomableReaderPageContent(
             ReaderPageRenderMode.COIL -> SubcomposeAsyncImage(
                 model = pageRequestState.request,
                 contentDescription = stringResource(R.string.reader_page_description, actualPageIndex + 1),
+                transform = rememberReaderPagePainterTransform(pageRequestState.request),
                 contentScale = if (pageFit == "WIDTH") ContentScale.FillWidth else ContentScale.Fit,
                 modifier = Modifier.matchParentSize()
             ) {
                 when (val state = painter.state) {
                     is AsyncImagePainter.State.Loading -> {
-                        CachedPageLoadingContent(
-                            state = state,
-                            progressState = pageRequestState.progressState,
-                            isLocalCacheHit = pageRequestState.isLocalCacheHit,
-                            einkMode = einkMode,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        val fallbackPainter = readerFallbackPainterForTransientState(state, retainedPainter)
+                        if (fallbackPainter != null) {
+                            SubcomposeAsyncImageContent(painter = fallbackPainter)
+                        } else {
+                            CachedPageLoadingContent(
+                                state = state,
+                                progressState = pageRequestState.progressState,
+                                isLocalCacheHit = pageRequestState.isLocalCacheHit,
+                                einkMode = einkMode,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                     AsyncImagePainter.State.Empty -> {
-                        if (!pageRequestState.isLocalCacheHit) {
+                        val fallbackPainter = readerFallbackPainterForTransientState(state, retainedPainter)
+                        if (fallbackPainter != null) {
+                            SubcomposeAsyncImageContent(painter = fallbackPainter)
+                        } else if (!pageRequestState.isLocalCacheHit) {
                             PageLoadingPlaceholder(
                                 progressState = pageRequestState.progressState,
                                 einkMode = einkMode,
@@ -989,15 +1070,32 @@ private fun ZoomableReaderPageContent(
                         }
                     }
                     is AsyncImagePainter.State.Error -> {
-                        CachedPageErrorContent(
-                            state = state,
-                            modifier = Modifier.fillMaxSize(),
-                            onRetry = onRetry
-                        )
+                        val fallbackPainter = readerFallbackPainterForTransientState(state, retainedPainter)
+                        if (fallbackPainter != null) {
+                            SubcomposeAsyncImageContent(painter = fallbackPainter)
+                        } else {
+                            CachedPageErrorContent(
+                                state = state,
+                                modifier = Modifier.fillMaxSize(),
+                                onRetry = onRetry
+                            )
+                        }
                     }
                     else -> {
-                        pageImageLoaded = true
-                        SubcomposeAsyncImageContent()
+                        val success = state as? AsyncImagePainter.State.Success
+                        val drawable = success?.result?.drawable
+                        if (readerBitmapExceedsCanvasSafeSize(drawable?.intrinsicWidth ?: 0, drawable?.intrinsicHeight ?: 0)) {
+                            forceTiledRender = true
+                            PageLoadingPlaceholder(
+                                progressState = pageRequestState.progressState,
+                                einkMode = einkMode,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            pageImageLoaded = true
+                            if (success != null) onPainterRetained(success.painter)
+                            SubcomposeAsyncImageContent()
+                        }
                     }
                 }
             }
@@ -1285,6 +1383,7 @@ fun ScrollReader(
     val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
+    val retainedPagePainters = remember(vm.currentBookId) { mutableStateMapOf<String, Painter>() }
 
     LaunchedEffect(vm.currentPage) {
         val currentPageVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == vm.currentPage }
@@ -1309,6 +1408,7 @@ fun ScrollReader(
     }
 
     LaunchedEffect(vm.currentPage, memoryAwarePreloadPages, vm.pageUrls) {
+        retainedPagePainters.trimReaderPagePainters(vm.pageUrls, vm.currentPage, memoryAwarePreloadPages)
         val from = (vm.currentPage - 1).coerceAtLeast(0)
         val to = (vm.currentPage + memoryAwarePreloadPages).coerceAtMost(vm.pageUrls.lastIndex)
         if (from <= to) {
@@ -1379,7 +1479,9 @@ fun ScrollReader(
                     0.7f
                 }
                 var pageImageLoaded by remember(pageRequestState.request) { mutableStateOf(false) }
-                when (renderMode) {
+                var forceTiledRender by remember(url, renderMode) { mutableStateOf(false) }
+                val effectiveRenderMode = if (forceTiledRender) ReaderPageRenderMode.TILED else renderMode
+                when (effectiveRenderMode) {
                     ReaderPageRenderMode.TILED -> ReaderTiledImage(
                         url = url,
                         seriesId = vm.currentSeriesId,
@@ -1403,21 +1505,30 @@ fun ScrollReader(
                     ReaderPageRenderMode.COIL -> SubcomposeAsyncImage(
                         model = pageRequestState.request,
                         contentDescription = stringResource(R.string.reader_page_description, index + 1),
+                        transform = rememberReaderPagePainterTransform(pageRequestState.request),
                         contentScale = ContentScale.FillWidth,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         when (val state = painter.state) {
                             is AsyncImagePainter.State.Loading -> {
-                                CachedPageLoadingContent(
-                                    state = state,
-                                    progressState = pageRequestState.progressState,
-                                    isLocalCacheHit = pageRequestState.isLocalCacheHit,
-                                    einkMode = einkMode,
-                                    modifier = Modifier.fillMaxWidth().height(400.dp)
-                                )
+                                val fallbackPainter = readerFallbackPainterForTransientState(state, retainedPagePainters[url])
+                                if (fallbackPainter != null) {
+                                    SubcomposeAsyncImageContent(painter = fallbackPainter)
+                                } else {
+                                    CachedPageLoadingContent(
+                                        state = state,
+                                        progressState = pageRequestState.progressState,
+                                        isLocalCacheHit = pageRequestState.isLocalCacheHit,
+                                        einkMode = einkMode,
+                                        modifier = Modifier.fillMaxWidth().height(400.dp)
+                                    )
+                                }
                             }
                             AsyncImagePainter.State.Empty -> {
-                                if (!pageRequestState.isLocalCacheHit) {
+                                val fallbackPainter = readerFallbackPainterForTransientState(state, retainedPagePainters[url])
+                                if (fallbackPainter != null) {
+                                    SubcomposeAsyncImageContent(painter = fallbackPainter)
+                                } else if (!pageRequestState.isLocalCacheHit) {
                                     PageLoadingPlaceholder(
                                         progressState = pageRequestState.progressState,
                                         einkMode = einkMode,
@@ -1426,15 +1537,32 @@ fun ScrollReader(
                                 }
                             }
                             is AsyncImagePainter.State.Error -> {
-                                CachedPageErrorContent(
-                                    state = state,
-                                    modifier = Modifier.fillMaxWidth().height(400.dp),
-                                    onRetry = { retryKey += 1 }
-                                )
+                                val fallbackPainter = readerFallbackPainterForTransientState(state, retainedPagePainters[url])
+                                if (fallbackPainter != null) {
+                                    SubcomposeAsyncImageContent(painter = fallbackPainter)
+                                } else {
+                                    CachedPageErrorContent(
+                                        state = state,
+                                        modifier = Modifier.fillMaxWidth().height(400.dp),
+                                        onRetry = { retryKey += 1 }
+                                    )
+                                }
                             }
                             else -> {
-                                pageImageLoaded = true
-                                SubcomposeAsyncImageContent()
+                                val success = state as? AsyncImagePainter.State.Success
+                                val drawable = success?.result?.drawable
+                                if (readerBitmapExceedsCanvasSafeSize(drawable?.intrinsicWidth ?: 0, drawable?.intrinsicHeight ?: 0)) {
+                                    forceTiledRender = true
+                                    PageLoadingPlaceholder(
+                                        progressState = pageRequestState.progressState,
+                                        einkMode = einkMode,
+                                        modifier = Modifier.fillMaxWidth().height(400.dp)
+                                    )
+                                } else {
+                                    pageImageLoaded = true
+                                    if (success != null) retainedPagePainters[url] = success.painter
+                                    SubcomposeAsyncImageContent()
+                                }
                             }
                         }
                     }
