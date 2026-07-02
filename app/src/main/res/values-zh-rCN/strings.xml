@@ -212,6 +212,10 @@
     <string name="settings_ai_model_name">模型名</string>
     <string name="settings_ai_model_requires_vision">选择的模型需要支持视觉输入。</string>
     <string name="settings_ai_target_language">目标语言</string>
+    <string name="settings_ai_source_text_profile">原文类型</string>
+    <string name="settings_ai_source_text_profile_auto">自动</string>
+    <string name="settings_ai_source_text_profile_japanese_manga">日文漫画</string>
+    <string name="settings_ai_source_text_profile_korean_horizontal_webtoon">韩文横排条漫</string>
     <string name="settings_ai_local_detection_pipeline_desc">本地模型负责文本区域和位置，远端视觉模型读取每个区域截图并结合整页语境翻译。</string>
     <string name="settings_ai_pages_per_request">每次请求页数</string>
     <string name="settings_ai_max_images_per_request">单次 AI 请求图片数</string>

@@ -24,6 +24,7 @@ data class AiBookTranslationMetadata(
     val provider: String = "openai-compatible",
     val model: String = "",
     val mode: String = AiTranslationMode.LOCAL_DETECTION.storedValue,
+    val sourceTextProfile: String = AiSourceTextProfile.AUTO.storedValue,
     val modePinned: Boolean = false
 )
 

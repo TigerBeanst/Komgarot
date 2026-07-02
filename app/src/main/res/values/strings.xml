@@ -215,6 +215,10 @@
     <string name="settings_ai_model_name">Model name</string>
     <string name="settings_ai_model_requires_vision">The selected model must support vision input.</string>
     <string name="settings_ai_target_language">Target language</string>
+    <string name="settings_ai_source_text_profile">Source text type</string>
+    <string name="settings_ai_source_text_profile_auto">Auto</string>
+    <string name="settings_ai_source_text_profile_japanese_manga">Japanese manga</string>
+    <string name="settings_ai_source_text_profile_korean_horizontal_webtoon">Korean horizontal webtoon</string>
     <string name="settings_ai_local_detection_pipeline_desc">Local models find text regions and placement; the remote vision model reads each crop and translates with the full page as context.</string>
     <string name="settings_ai_pages_per_request">Pages per request</string>
     <string name="settings_ai_max_images_per_request">Images per AI request</string>

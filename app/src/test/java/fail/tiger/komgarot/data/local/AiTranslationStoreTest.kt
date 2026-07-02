@@ -400,6 +400,42 @@ class AiTranslationStoreTest {
     }
 
     @Test
+    fun parseAiTranslatedBookReadsSourceTextProfileAndDefaultsLegacyBooksToAuto() {
+        val withProfile = parseAiTranslatedBookJson(
+            """
+            {
+              "schemaVersion": 1,
+              "bookId": "book-1",
+              "pageCount": 1,
+              "translation": {
+                "targetLocale": "zh-CN",
+                "targetLanguageName": "简体中文",
+                "sourceTextProfile": "korean_horizontal_webtoon"
+              },
+              "pages": []
+            }
+            """.trimIndent()
+        )!!
+        val legacy = parseAiTranslatedBookJson(
+            """
+            {
+              "schemaVersion": 1,
+              "bookId": "book-2",
+              "pageCount": 1,
+              "translation": {
+                "targetLocale": "zh-CN",
+                "targetLanguageName": "简体中文"
+              },
+              "pages": []
+            }
+            """.trimIndent()
+        )!!
+
+        assertEquals(AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON.storedValue, withProfile.translation.sourceTextProfile)
+        assertEquals(AiSourceTextProfile.AUTO.storedValue, legacy.translation.sourceTextProfile)
+    }
+
+    @Test
     fun taskSummaryRoundTrips() {
         val store = AiTranslationStore(temporaryFolder.newFolder("files"))
         val summary = AiTranslationTaskSummary(

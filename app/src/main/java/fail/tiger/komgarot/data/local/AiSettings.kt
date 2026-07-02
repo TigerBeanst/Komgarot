@@ -7,6 +7,7 @@ data class AiSettings(
     val targetLocale: String,
     val targetLanguageName: String,
     val preferredMode: AiTranslationMode,
+    val sourceTextProfile: AiSourceTextProfile,
     val localModelSource: AiLocalModelSource,
     val modelCollectionId: String,
     val modelRevision: String,
@@ -36,6 +37,7 @@ data class AiSettings(
             targetLocale = targetLocale,
             targetLanguageName = targetLanguageName,
             preferredMode = AiTranslationMode.LOCAL_DETECTION,
+            sourceTextProfile = AiSourceTextProfile.AUTO,
             localModelSource = AiLocalModelSource.HUGGING_FACE,
             modelCollectionId = "PaddlePaddle/pp-ocrv6",
             modelRevision = "main",
@@ -65,6 +67,17 @@ enum class AiTranslationMode(val storedValue: String) {
     companion object {
         fun fromStoredValue(value: String): AiTranslationMode =
             entries.firstOrNull { it.storedValue == value } ?: LOCAL_DETECTION
+    }
+}
+
+enum class AiSourceTextProfile(val storedValue: String) {
+    AUTO("auto"),
+    JAPANESE_MANGA("japanese_manga"),
+    KOREAN_HORIZONTAL_WEBTOON("korean_horizontal_webtoon");
+
+    companion object {
+        fun fromStoredValue(value: String): AiSourceTextProfile =
+            entries.firstOrNull { it.storedValue == value } ?: AUTO
     }
 }
 

@@ -35,6 +35,7 @@ class AuthPreferences(private val context: Context) {
     private val AI_MODEL_NAME = stringPreferencesKey("ai_model_name")
     private val AI_TARGET_LOCALE = stringPreferencesKey("ai_target_locale")
     private val AI_TARGET_LANGUAGE_NAME = stringPreferencesKey("ai_target_language_name")
+    private val AI_SOURCE_TEXT_PROFILE = stringPreferencesKey("ai_source_text_profile")
     private val AI_LOCAL_MODEL_SOURCE = stringPreferencesKey("ai_local_model_source")
     private val AI_MODEL_COLLECTION_ID = stringPreferencesKey("ai_model_collection_id")
     private val AI_MODEL_REVISION = stringPreferencesKey("ai_model_revision")
@@ -75,6 +76,9 @@ class AuthPreferences(private val context: Context) {
     val aiTargetLocale: Flow<String> = context.dataStore.data.map { it[AI_TARGET_LOCALE] ?: systemTargetLocale() }
     val aiTargetLanguageName: Flow<String> = context.dataStore.data.map {
         it[AI_TARGET_LANGUAGE_NAME] ?: systemTargetLanguageName()
+    }
+    val aiSourceTextProfile: Flow<AiSourceTextProfile> = context.dataStore.data.map {
+        AiSourceTextProfile.fromStoredValue(it[AI_SOURCE_TEXT_PROFILE].orEmpty())
     }
     val aiLocalModelSource: Flow<AiLocalModelSource> = context.dataStore.data.map {
         AiLocalModelSource.fromStoredValue(it[AI_LOCAL_MODEL_SOURCE].orEmpty())
@@ -203,6 +207,10 @@ class AuthPreferences(private val context: Context) {
             it[AI_TARGET_LOCALE] = value.trim()
             it[AI_TARGET_LANGUAGE_NAME] = languageName.trim()
         }
+    }
+
+    suspend fun setAiSourceTextProfile(value: AiSourceTextProfile) {
+        context.dataStore.edit { it[AI_SOURCE_TEXT_PROFILE] = value.storedValue }
     }
 
     suspend fun setAiLocalModelSource(value: AiLocalModelSource) {
