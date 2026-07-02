@@ -5,6 +5,7 @@ import fail.tiger.komgarot.data.local.AiTranslationBlock
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationRect
+import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
 import java.io.File
@@ -118,6 +119,67 @@ class AiLocalTextDetectorTest {
 
         assertEquals(2, merged.size)
         assertEquals(listOf("p0-r1", "p0-r2"), merged.map { it.id })
+    }
+
+    @Test
+    fun japaneseMangaKeepsAdjacentSpeechBubblesAsSeparateTextBoxes() {
+        val columns = listOf(
+            AiTranslationLocalTextRegion(
+                id = "p0-r1",
+                rect = AiTranslationRect(0.70f, 0.18f, 0.030f, 0.22f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.94f,
+                estimatedFontScale = 0.68f
+            ),
+            AiTranslationLocalTextRegion(
+                id = "p0-r2",
+                rect = AiTranslationRect(0.65f, 0.18f, 0.030f, 0.22f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.94f,
+                estimatedFontScale = 0.68f
+            ),
+            AiTranslationLocalTextRegion(
+                id = "p0-r3",
+                rect = AiTranslationRect(0.58f, 0.18f, 0.030f, 0.22f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.94f,
+                estimatedFontScale = 0.68f
+            ),
+            AiTranslationLocalTextRegion(
+                id = "p0-r4",
+                rect = AiTranslationRect(0.53f, 0.18f, 0.030f, 0.22f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.94f,
+                estimatedFontScale = 0.68f
+            )
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(columns, AiSourceTextProfile.JAPANESE_MANGA)
+
+        assertEquals(2, merged.size)
+        assertEquals(listOf("p0-r1", "p0-r3"), merged.map { it.id })
+    }
+
+    @Test
+    fun koreanHorizontalWebtoonProfilePrefersHorizontalDetectedBoxes() {
+        val rect = AiTranslationRect(x = 0.12f, y = 0.20f, width = 0.16f, height = 0.19f)
+
+        assertEquals(
+            AiTranslationTextDirection.HORIZONTAL,
+            detectedTextDirectionForRect(rect, AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON)
+        )
+        assertEquals(
+            AiTranslationTextDirection.VERTICAL,
+            detectedTextDirectionForRect(rect, AiSourceTextProfile.JAPANESE_MANGA)
+        )
     }
 
     @Test

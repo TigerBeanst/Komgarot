@@ -9,6 +9,7 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import fail.tiger.komgarot.data.local.AiSettings
+import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
@@ -33,7 +34,7 @@ class AiPaddleTextDetector(
     ): List<AiTranslationLocalTextRegion> {
         val assets = resolvePaddleAssets(settings) ?: return emptyList()
         return runCatching {
-            runDetectionModel(bitmap, pixels, pageIndex, sourceWidth, sourceHeight, assets, maxRegions)
+            runDetectionModel(bitmap, pixels, pageIndex, sourceWidth, sourceHeight, assets, maxRegions, settings.sourceTextProfile)
         }.getOrElse { emptyList() }
     }
 
@@ -61,7 +62,8 @@ class AiPaddleTextDetector(
         sourceWidth: Int,
         sourceHeight: Int,
         assets: PaddleModelAssets,
-        maxRegions: Int
+        maxRegions: Int,
+        sourceTextProfile: AiSourceTextProfile
     ): List<AiTranslationLocalTextRegion> {
         val input = bitmap.toPaddleDetectorInput()
         val env = OrtEnvironment.getEnvironment()
@@ -84,7 +86,8 @@ class AiPaddleTextDetector(
                             imageWidth = bitmap.width,
                             imageHeight = bitmap.height,
                             sourceWidth = sourceWidth,
-                            sourceHeight = sourceHeight
+                            sourceHeight = sourceHeight,
+                            sourceTextProfile = sourceTextProfile
                         )
                     }
                 }
@@ -201,12 +204,13 @@ private fun PaddleTextRect.toLocalRegion(
     imageWidth: Int,
     imageHeight: Int,
     sourceWidth: Int,
-    sourceHeight: Int
+    sourceHeight: Int,
+    sourceTextProfile: AiSourceTextProfile
 ): AiTranslationLocalTextRegion {
     val pixelRect = rect.toPixelRect(imageWidth, imageHeight)
     val background = estimatePaddleBackgroundColor(pixels, imageWidth, imageHeight, pixelRect)
     val textColor = ensureReadableAiTextColor(if (background == "#FFFFFF") "#111111" else "#F2F2F2", background)
-    val direction = if (rect.height > rect.width * 1.15f) AiTranslationTextDirection.VERTICAL else AiTranslationTextDirection.HORIZONTAL
+    val direction = detectedTextDirectionForRect(rect, sourceTextProfile)
     val fontScale = when (direction) {
         AiTranslationTextDirection.VERTICAL -> rect.width / 0.045f
         AiTranslationTextDirection.HORIZONTAL -> rect.height / 0.055f
