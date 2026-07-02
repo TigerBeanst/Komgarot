@@ -36,6 +36,7 @@ import fail.tiger.komgarot.KomgarotApp
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.AiImageTransport
 import fail.tiger.komgarot.data.local.AiLocalModelSource
+import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.BookDownloadIndex
 import fail.tiger.komgarot.data.local.CacheClearTarget
@@ -164,6 +165,17 @@ private val aiTargetLanguageOptions = listOf(
     AiTargetLanguageOption("ko-KR", R.string.settings_ai_language_ko_kr)
 )
 
+private data class AiSourceTextProfileOption(
+    val profile: AiSourceTextProfile,
+    val labelRes: Int
+)
+
+private val aiSourceTextProfileOptions = listOf(
+    AiSourceTextProfileOption(AiSourceTextProfile.AUTO, R.string.settings_ai_source_text_profile_auto),
+    AiSourceTextProfileOption(AiSourceTextProfile.JAPANESE_MANGA, R.string.settings_ai_source_text_profile_japanese_manga),
+    AiSourceTextProfileOption(AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON, R.string.settings_ai_source_text_profile_korean_horizontal_webtoon)
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalCoilApi::class)
 @Composable
 private fun SettingsContent(
@@ -193,6 +205,7 @@ private fun SettingsContent(
     val aiModelName by prefs.aiModelName.collectAsStateWithLifecycle(initialValue = "")
     val aiTargetLocale by prefs.aiTargetLocale.collectAsStateWithLifecycle(initialValue = "")
     val aiTargetLanguageName by prefs.aiTargetLanguageName.collectAsStateWithLifecycle(initialValue = "")
+    val aiSourceTextProfile by prefs.aiSourceTextProfile.collectAsStateWithLifecycle(initialValue = AiSourceTextProfile.AUTO)
     val aiLocalModelSource by prefs.aiLocalModelSource.collectAsStateWithLifecycle(initialValue = AiLocalModelSource.HUGGING_FACE)
     val aiModelCollectionId by prefs.aiModelCollectionId.collectAsStateWithLifecycle(initialValue = "PaddlePaddle/pp-ocrv6")
     val aiModelRevision by prefs.aiModelRevision.collectAsStateWithLifecycle(initialValue = "main")
@@ -215,6 +228,7 @@ private fun SettingsContent(
     var showAiApiKeyDialog by remember { mutableStateOf(false) }
     var showAiModelDialog by remember { mutableStateOf(false) }
     var showAiTargetLanguageMenu by remember { mutableStateOf(false) }
+    var showAiSourceTextProfileDialog by remember { mutableStateOf(false) }
     var showAiModelSourceDialog by remember { mutableStateOf(false) }
     var showAiModelCollectionDialog by remember { mutableStateOf(false) }
     var showAiModelRevisionDialog by remember { mutableStateOf(false) }
@@ -415,6 +429,13 @@ private fun SettingsContent(
                 headlineContent = { Text(stringResource(R.string.settings_ai_target_language)) },
                 supportingContent = { Text("$aiTargetLanguageName · $aiTargetLocale") },
                 modifier = Modifier.clickable { showAiTargetLanguageMenu = true }
+            )
+            val sourceTextProfileOption = aiSourceTextProfileOptions.firstOrNull { it.profile == aiSourceTextProfile }
+                ?: aiSourceTextProfileOptions.first()
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_source_text_profile)) },
+                supportingContent = { Text(stringResource(sourceTextProfileOption.labelRes)) },
+                modifier = Modifier.clickable { showAiSourceTextProfileDialog = true }
             )
             ListItem(
                 headlineContent = { Text(stringResource(R.string.ai_translation_mode_local_detection)) },
@@ -979,6 +1000,24 @@ private fun SettingsContent(
                         RadioOption(option.locale, "$label · ${option.locale}", aiTargetLocale) {
                             scope.launch { prefs.setAiTargetLocale(option.locale, label) }
                             showAiTargetLanguageMenu = false
+                        }
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    if (showAiSourceTextProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiSourceTextProfileDialog = false },
+            title = { Text(stringResource(R.string.settings_ai_source_text_profile)) },
+            text = {
+                Column {
+                    aiSourceTextProfileOptions.forEach { option ->
+                        RadioOption(option.profile.storedValue, stringResource(option.labelRes), aiSourceTextProfile.storedValue) {
+                            scope.launch { prefs.setAiSourceTextProfile(option.profile) }
+                            showAiSourceTextProfileDialog = false
                         }
                     }
                 }

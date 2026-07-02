@@ -20,6 +20,7 @@ class AiSettingsTest {
         assertEquals(30, settings.timeoutSeconds)
         assertEquals(AiImageMaxEdge.PX_1600, settings.imageMaxEdge)
         assertEquals(AiTranslationMode.LOCAL_DETECTION, settings.preferredMode)
+        assertEquals(AiSourceTextProfile.AUTO, settings.sourceTextProfile)
         assertEquals(AiLocalModelSource.HUGGING_FACE, settings.localModelSource)
         assertEquals("PaddlePaddle/pp-ocrv6", settings.modelCollectionId)
         assertEquals("main", settings.modelRevision)
@@ -115,5 +116,13 @@ class AiSettingsTest {
         assertEquals("Custom/collection", settings.modelCollectionId)
         assertEquals("refs/tags/v1.0.0", settings.modelRevision)
         assertFalse(settings.downloadLatestModel)
+    }
+
+    @Test
+    fun sourceTextProfileStoredValuesRoundTrip() {
+        assertEquals(AiSourceTextProfile.AUTO, AiSourceTextProfile.fromStoredValue(""))
+        assertEquals(AiSourceTextProfile.JAPANESE_MANGA, AiSourceTextProfile.fromStoredValue("japanese_manga"))
+        assertEquals(AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON, AiSourceTextProfile.fromStoredValue("korean_horizontal_webtoon"))
+        assertEquals("korean_horizontal_webtoon", AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON.storedValue)
     }
 }

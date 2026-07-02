@@ -196,6 +196,7 @@ private fun toAiTranslatedBookJson(book: AiTranslatedBook): String {
             addProperty("provider", book.translation.provider)
             addProperty("model", book.translation.model)
             addProperty("mode", book.translation.mode)
+            addProperty("sourceTextProfile", book.translation.sourceTextProfile)
             addProperty("modePinned", book.translation.modePinned)
         })
         add("glossary", JsonArray().apply {
@@ -281,6 +282,9 @@ internal fun parseAiTranslatedBookJson(text: String): AiTranslatedBook? = runCat
                 provider = translation.getStringByAliases("provider").orEmpty().ifBlank { base.translation.provider },
                 model = translation.getStringByAliases("model").orEmpty(),
                 mode = translation.getStringByAliases("mode").orEmpty().ifBlank { AiTranslationMode.LOCAL_DETECTION.storedValue },
+                sourceTextProfile = AiSourceTextProfile.fromStoredValue(
+                    translation.getStringByAliases("sourceTextProfile").orEmpty()
+                ).storedValue,
                 modePinned = translation.getBooleanByAliases("modePinned").orFalse()
             )
         } ?: base.translation),

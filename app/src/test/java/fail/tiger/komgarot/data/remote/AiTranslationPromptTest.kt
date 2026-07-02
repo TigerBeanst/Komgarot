@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.data.remote
 
 import fail.tiger.komgarot.data.local.AiImageTransport
+import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
 import fail.tiger.komgarot.data.local.AiTranslationMode
@@ -61,6 +62,42 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("简体中文"))
         assertTrue(prompt.contains("sourceMode: local_detection"))
         assertTrue(prompt.contains("保留敬语"))
+    }
+
+    @Test
+    fun userPromptIncludesKoreanHorizontalSourceProfileInstructions() {
+        val prompt = aiTranslationUserPrompt(
+            bookId = "book-korean",
+            targetLocale = "zh-CN",
+            targetLanguageName = "简体中文",
+            translationMode = AiTranslationMode.LOCAL_DETECTION,
+            localPageContexts = listOf(
+                AiTranslationLocalPageContext(
+                    pageIndex = 2,
+                    imageWidth = 1080,
+                    imageHeight = 1920,
+                    regions = listOf(
+                        AiTranslationLocalTextRegion(
+                            id = "p2-r1",
+                            rect = AiTranslationRect(x = 0.12f, y = 0.20f, width = 0.48f, height = 0.10f),
+                            textDirection = AiTranslationTextDirection.HORIZONTAL,
+                            textColor = "#111111",
+                            backgroundColor = "#FFFFFF",
+                            confidence = 0.86f,
+                            estimatedFontScale = 1.0f
+                        )
+                    )
+                )
+            ),
+            customInstructions = "",
+            sourceTextProfile = AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON
+        )
+
+        assertTrue(prompt.contains("sourceTextProfile: korean_horizontal_webtoon"))
+        assertTrue(prompt.contains("Korean horizontal webtoon"))
+        assertTrue(prompt.contains("left-to-right"))
+        assertTrue(prompt.contains("top-to-bottom"))
+        assertTrue(prompt.contains("Preserve Korean spaces"))
     }
 
     @Test

@@ -252,6 +252,7 @@ class AiTranslationRepository(
             baseUrl = prefs.aiBaseUrl.first(),
             modelName = prefs.aiModelName.first(),
             preferredMode = AiTranslationMode.LOCAL_DETECTION,
+            sourceTextProfile = prefs.aiSourceTextProfile.first(),
             localModelSource = prefs.aiLocalModelSource.first(),
             modelCollectionId = prefs.aiModelCollectionId.first(),
             modelRevision = prefs.aiModelRevision.first(),
@@ -281,6 +282,7 @@ class AiTranslationRepository(
             }
         val runMode = AiTranslationMode.LOCAL_DETECTION
         ensureBookFile(book, allPages.size, runMode)
+        updateBookTranslationMetadata(book.id, settings, runMode)
         val existing = store.readBook(book.id)
         val pending = pageIndexes
             .filter { it in allPages.indices }
@@ -416,11 +418,11 @@ class AiTranslationRepository(
                 title = book.metadata.title,
                 pageCount = pageCount,
                 translation = AiBookTranslationMetadata(
-                    targetLocale = "",
-                    targetLanguageName = "",
-                    model = "",
-                    mode = mode.storedValue
-                ),
+                targetLocale = "",
+                targetLanguageName = "",
+                model = "",
+                mode = mode.storedValue
+            ),
                 pages = (0 until pageCount.coerceAtLeast(0)).map {
                     AiTranslatedPage(
                         pageIndex = it,
@@ -428,6 +430,21 @@ class AiTranslationRepository(
                         mode = mode.storedValue
                     )
                 }
+            )
+        )
+    }
+
+    private fun updateBookTranslationMetadata(bookId: String, settings: AiSettings, mode: AiTranslationMode) {
+        val existing = store.readBook(bookId) ?: return
+        store.saveBookNow(
+            existing.copy(
+                translation = existing.translation.copy(
+                    targetLocale = settings.targetLocale,
+                    targetLanguageName = settings.targetLanguageName,
+                    model = settings.modelName,
+                    mode = mode.storedValue,
+                    sourceTextProfile = settings.sourceTextProfile.storedValue
+                )
             )
         )
     }
@@ -612,7 +629,8 @@ class AiTranslationRepository(
                 targetLanguageName = settings.targetLanguageName,
                 translationMode = runMode,
                 localPageContexts = listOf(chunkContext),
-                customInstructions = settings.customInstructions
+                customInstructions = settings.customInstructions,
+                sourceTextProfile = settings.sourceTextProfile
             ),
             images = images,
             timeoutSeconds = settings.timeoutSeconds
@@ -630,7 +648,8 @@ class AiTranslationRepository(
                 targetLanguageName = settings.targetLanguageName,
                 translationMode = runMode,
                 localPageContexts = listOf(chunkContext),
-                customInstructions = settings.customInstructions
+                customInstructions = settings.customInstructions,
+                sourceTextProfile = settings.sourceTextProfile
             ),
             images = images,
             timeoutSeconds = settings.timeoutSeconds
@@ -1361,7 +1380,8 @@ private fun aiLocalContextCacheKey(file: File, settings: AiSettings): String =
         settings.localModelSource.storedValue,
         settings.modelCollectionId,
         settings.modelRevision,
-        settings.autoSelectDeviceTier
+        settings.autoSelectDeviceTier,
+        settings.sourceTextProfile.storedValue
     ).joinToString(":")
 
 private fun aiRegionCropCacheKey(file: File, rect: Rect): String =
