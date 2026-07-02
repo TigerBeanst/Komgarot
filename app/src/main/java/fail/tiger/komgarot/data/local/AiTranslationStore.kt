@@ -253,6 +253,7 @@ private fun toAiTranslatedBookJson(book: AiTranslatedBook): String {
                         }
                     })
                     addProperty("errorSummary", page.errorSummary)
+                    addProperty("errorCategory", page.errorCategory)
                 })
             }
         })
@@ -323,9 +324,19 @@ internal fun parseAiTranslationTaskStateJson(text: String): AiTranslationTaskSta
 private fun parseAiTranslatedPageElement(element: JsonElement): AiTranslatedPage? {
     val obj = element.asObjectOrNull() ?: return null
     return runCatching {
+        val status = parseAiTranslationPageStatus(obj.getStringByAliases("status", "b"))
+        val errorCategory = obj.getStringByAliases("errorCategory", "j")
+            .orEmpty()
+            .ifBlank {
+                if (status == AiTranslationPageStatus.FAILED) {
+                    AiTranslationFailureCategory.UNKNOWN.storedValue
+                } else {
+                    ""
+                }
+            }
         AiTranslatedPage(
             pageIndex = obj.getIntByAliases("pageIndex", "a") ?: 0,
-            status = parseAiTranslationPageStatus(obj.getStringByAliases("status", "b")),
+            status = status,
             retryCount = obj.getIntByAliases("retryCount") ?: 0,
             updatedAt = obj.getLongByAliases("updatedAt", "c", "d") ?: System.currentTimeMillis(),
             imageWidth = obj.getIntByAliases("imageWidth", "e") ?: 0,
@@ -334,7 +345,8 @@ private fun parseAiTranslatedPageElement(element: JsonElement): AiTranslatedPage
             blocks = obj.getJsonArrayByAliases("blocks", "d", "g")
                 ?.mapNotNull(::parseAiTranslationBlockElement)
                 .orEmpty(),
-            errorSummary = obj.getStringByAliases("errorSummary", "e", "h").orEmpty()
+            errorSummary = obj.getStringByAliases("errorSummary", "e", "h").orEmpty(),
+            errorCategory = errorCategory
         )
     }.getOrNull()
 }
@@ -458,6 +470,7 @@ data class AiTranslationTaskSummary(
     val pageCount: Int = 0,
     val completedPages: Int = 0,
     val failedPages: Int = 0,
+    val failureCategories: Map<String, Int> = emptyMap(),
     val status: AiTranslationTaskStatus = AiTranslationTaskStatus.IDLE,
     val updatedAt: Long = System.currentTimeMillis()
 )

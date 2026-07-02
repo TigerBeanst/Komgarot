@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.data.local.AiTranslationStore
 import fail.tiger.komgarot.data.local.AiTranslationTaskState
+import fail.tiger.komgarot.data.local.AiTranslationTaskStatus
 import fail.tiger.komgarot.data.repository.AiTranslationRepository
 import kotlinx.coroutines.launch
 
@@ -26,12 +27,30 @@ class AiTranslationTaskViewModel(
     }
 
     fun pauseAll() {
-        state = state.copy(paused = true)
+        state = state.copy(
+            paused = true,
+            tasks = state.tasks.map { task ->
+                if (task.status == AiTranslationTaskStatus.QUEUED || task.status == AiTranslationTaskStatus.RUNNING) {
+                    task.copy(status = AiTranslationTaskStatus.PAUSED)
+                } else {
+                    task
+                }
+            }
+        )
         store.saveTaskState(state)
     }
 
     fun resumeAll() {
-        state = state.copy(paused = false)
+        state = state.copy(
+            paused = false,
+            tasks = state.tasks.map { task ->
+                if (task.status == AiTranslationTaskStatus.PAUSED) {
+                    task.copy(status = AiTranslationTaskStatus.RUNNING)
+                } else {
+                    task
+                }
+            }
+        )
         store.saveTaskState(state)
     }
 

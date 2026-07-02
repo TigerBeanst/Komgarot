@@ -37,6 +37,13 @@ class AiTranslationTaskScreenStructureTest {
     }
 
     @Test
+    fun taskListShowsFailureCategoryDiagnostics() {
+        assertTrue(source.contains("aiTranslationFailureCategorySummary("))
+        assertTrue(source.contains("task.failureCategories"))
+        assertTrue(source.contains("R.string.ai_translation_failure_categories"))
+    }
+
+    @Test
     fun taskViewModelSupportsRetryIncompleteAndClearBook() {
         assertTrue(viewModelSource.contains("retryIncompletePages"))
         assertTrue(viewModelSource.contains("clearBookTranslation"))

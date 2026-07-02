@@ -3,11 +3,13 @@ package fail.tiger.komgarot.data.repository
 import java.io.File
 import fail.tiger.komgarot.data.local.AiImageTransport
 import fail.tiger.komgarot.data.local.AiTranslatedPage
+import fail.tiger.komgarot.data.local.AiTranslationFailureCategory
 import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
+import fail.tiger.komgarot.data.remote.AiTranslationErrorCategory
 import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
 import org.junit.Assert.assertTrue
@@ -212,6 +214,59 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("if (pending.isEmpty())"))
         assertTrue(source.contains("failRun(book.id, pageIndexes, \"No page was queued for AI translation.\")"))
         assertTrue(source.contains("AiTranslationRunResult(ok = pageIndexes.isNotEmpty())"))
+    }
+
+    @Test
+    fun repositoryWaitsForTaskResumeBeforePreparationAndRemoteRequests() {
+        assertTrue(source.contains("private suspend fun awaitAiTranslationTaskResumed("))
+        assertTrue(source.contains("while (store.readTaskState().paused)"))
+        assertTrue(source.contains("delay(AI_TRANSLATION_TASK_PAUSE_POLL_MS)"))
+
+        val pendingStart = source.indexOf("private suspend fun translatePendingPagesInPageOrder(")
+        val pendingEnd = source.indexOf("private fun ensureBookFile(", pendingStart)
+        val pendingSource = source.substring(pendingStart, pendingEnd)
+        assertTrue(pendingSource.contains("awaitAiTranslationTaskResumed()"))
+        assertTrue(pendingSource.indexOf("awaitAiTranslationTaskResumed()") < pendingSource.indexOf("preparePageInput("))
+        assertTrue(pendingSource.indexOf("awaitAiTranslationTaskResumed()", pendingSource.indexOf("remoteSemaphore.withPermit")) > 0)
+
+        val chunkStart = source.indexOf("private suspend fun translatePreparedRegionChunk(")
+        val chunkEnd = source.indexOf("private suspend fun translateRegionChunkImages(", chunkStart)
+        val chunkSource = source.substring(chunkStart, chunkEnd)
+        assertTrue(chunkSource.contains("awaitAiTranslationTaskResumed()"))
+        assertTrue(chunkSource.indexOf("awaitAiTranslationTaskResumed()") < chunkSource.indexOf("translateRegionChunkImages("))
+    }
+
+    @Test
+    fun repositoryStoresFailureCategoriesForTaskDiagnostics() {
+        assertTrue(source.contains("AiTranslationFailureCategory"))
+        assertTrue(source.contains("aiTranslationFailureCategory("))
+        assertTrue(source.contains("errorCategory = category.storedValue"))
+        assertTrue(source.contains("failureCategories = failedPages"))
+        assertTrue(source.contains("filterKeys { it.isNotBlank() }"))
+    }
+
+    @Test
+    fun failureCategoryClassifierMapsCommonFailures() {
+        assertEquals(
+            AiTranslationFailureCategory.MODEL_CONFIGURATION,
+            aiTranslationFailureCategory("AI model configuration is incomplete.")
+        )
+        assertEquals(
+            AiTranslationFailureCategory.LOCAL_TEXT_EMPTY,
+            aiTranslationFailureCategory("Local text detection found zero text boxes for pages=1.")
+        )
+        assertEquals(
+            AiTranslationFailureCategory.NETWORK_OR_API,
+            aiTranslationFailureCategory("AI request timed out after 30s.", AiTranslationErrorCategory.NETWORK_OR_API)
+        )
+        assertEquals(
+            AiTranslationFailureCategory.NON_JSON_RESPONSE,
+            aiTranslationFailureCategory("page=2: model returned plain text", AiTranslationErrorCategory.NON_JSON_RESPONSE)
+        )
+        assertEquals(
+            AiTranslationFailureCategory.JSON_VALIDATION_FAILED,
+            aiTranslationFailureCategory("AI response did not contain parsable page translation JSON.")
+        )
     }
 
     @Test
