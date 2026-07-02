@@ -43,6 +43,7 @@ data class AiTranslatedPage(
     val imageHeight: Int = 0,
     val blocks: List<AiTranslationBlock> = emptyList(),
     val errorSummary: String = "",
+    val errorCategory: String = "",
     val mode: String = AiTranslationMode.LOCAL_DETECTION.storedValue
 )
 
@@ -51,6 +52,27 @@ enum class AiTranslationPageStatus {
     RUNNING,
     DONE,
     FAILED
+}
+
+enum class AiTranslationFailureCategory(val storedValue: String) {
+    SETTINGS("settings"),
+    MODEL_CONFIGURATION("model_configuration"),
+    PAGE_LIST("page_list"),
+    IMAGE_INPUT("image_input"),
+    LOCAL_TEXT_EMPTY("local_text_empty"),
+    REGION_CROP("region_crop"),
+    NETWORK_OR_API("network_or_api"),
+    VISION_UNSUPPORTED("vision_unsupported"),
+    NON_JSON_RESPONSE("non_json_response"),
+    JSON_VALIDATION_FAILED("json_validation_failed"),
+    EMPTY_AI_RESULT("empty_ai_result"),
+    SAVE_VERIFICATION("save_verification"),
+    UNKNOWN("unknown");
+
+    companion object {
+        fun fromStoredValue(value: String): AiTranslationFailureCategory =
+            entries.firstOrNull { it.storedValue == value } ?: UNKNOWN
+    }
 }
 
 enum class AiTranslationBlockKind {

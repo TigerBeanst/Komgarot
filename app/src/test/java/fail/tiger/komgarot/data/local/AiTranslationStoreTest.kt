@@ -436,6 +436,40 @@ class AiTranslationStoreTest {
     }
 
     @Test
+    fun failedPageErrorCategoryRoundTripsAndLegacyFailuresDefaultToUnknown() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        val failedPage = AiTranslatedPage(
+            pageIndex = 3,
+            status = AiTranslationPageStatus.FAILED,
+            errorSummary = "AI request timed out after 30s.",
+            errorCategory = AiTranslationFailureCategory.NETWORK_OR_API.storedValue
+        )
+
+        store.saveBookNow(sampleBook().copy(pages = listOf(failedPage)))
+
+        val savedPage = store.readBook("book-1")!!.pages.single()
+        assertEquals(AiTranslationFailureCategory.NETWORK_OR_API.storedValue, savedPage.errorCategory)
+
+        val legacyPage = parseAiTranslatedBookJson(
+            """
+            {
+              "bookId": "legacy-book",
+              "pageCount": 1,
+              "pages": [
+                {
+                  "pageIndex": 0,
+                  "status": "FAILED",
+                  "errorSummary": "timeout"
+                }
+              ]
+            }
+            """.trimIndent()
+        )!!.pages.single()
+
+        assertEquals(AiTranslationFailureCategory.UNKNOWN.storedValue, legacyPage.errorCategory)
+    }
+
+    @Test
     fun taskSummaryRoundTrips() {
         val store = AiTranslationStore(temporaryFolder.newFolder("files"))
         val summary = AiTranslationTaskSummary(
@@ -444,6 +478,7 @@ class AiTranslationStoreTest {
             pageCount = 10,
             completedPages = 4,
             failedPages = 1,
+            failureCategories = mapOf(AiTranslationFailureCategory.NETWORK_OR_API.storedValue to 1),
             status = AiTranslationTaskStatus.RUNNING,
             updatedAt = 123
         )
@@ -454,6 +489,7 @@ class AiTranslationStoreTest {
         assertFalse(state.paused)
         assertEquals("book-1", state.tasks.single().bookId)
         assertEquals(4, state.tasks.single().completedPages)
+        assertEquals(mapOf(AiTranslationFailureCategory.NETWORK_OR_API.storedValue to 1), state.tasks.single().failureCategories)
     }
 
     @Test
