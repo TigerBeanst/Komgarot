@@ -90,7 +90,8 @@ fun AiTranslationOverlay(
                 rectHeightDp = blockHeight.value,
                 textDirection = safe.textDirection,
                 lineCount = safe.translatedLines.size.coerceAtLeast(1),
-                textLength = safe.translatedLines.sumOf { it.length }.coerceAtLeast(1)
+                textLength = safe.translatedLines.sumOf { it.length }.coerceAtLeast(1),
+                kind = safe.kind
             )
             Box(
                 Modifier
@@ -425,7 +426,8 @@ internal fun aiTranslationFontSizeSp(
     rectHeightDp: Float,
     textDirection: AiTranslationTextDirection,
     lineCount: Int,
-    textLength: Int
+    textLength: Int,
+    kind: AiTranslationBlockKind = AiTranslationBlockKind.DIALOGUE
 ): Float {
     val safeTextLength = textLength.coerceAtLeast(1)
     val safeLineCount = lineCount.coerceAtLeast(1)
@@ -447,7 +449,18 @@ internal fun aiTranslationFontSizeSp(
     }
     val minimumReadableSize = if (textDirection == AiTranslationTextDirection.VERTICAL) 8.6f else 8.2f
     val maximumReadableSize = if (textDirection == AiTranslationTextDirection.VERTICAL) 28f else 28f
-    return (rawSize * baseScale).coerceIn(minimumReadableSize, maximumReadableSize)
+    val normalSize = (rawSize * baseScale).coerceIn(minimumReadableSize, maximumReadableSize)
+    return displayAiTranslationFontSizeSp(kind, normalSize, textDirection)
+}
+
+internal fun displayAiTranslationFontSizeSp(
+    kind: AiTranslationBlockKind,
+    normalSizeSp: Float,
+    textDirection: AiTranslationTextDirection
+): Float {
+    if (kind != AiTranslationBlockKind.SFX) return normalSizeSp
+    val maximumSfxSize = if (textDirection == AiTranslationTextDirection.VERTICAL) 18f else 16f
+    return minOf(normalSizeSp * 0.70f, maximumSfxSize).coerceAtLeast(7.2f)
 }
 
 internal fun verticalCharsPerColumn(
@@ -512,10 +525,52 @@ private fun wrapTranslatedLine(
     charsPerLine: Int,
     mergeShortTail: Boolean = false
 ): List<String> {
-    if (line.length <= charsPerLine) return listOf(line)
-    val chunks = line.chunked(charsPerLine).attachDanglingPunctuationToPrevious()
+    val clean = line.trim()
+    if (clean.length <= charsPerLine) return listOf(clean)
+    val chunks = if (clean.any { it.isWhitespace() }) {
+        wrapTranslatedWords(clean, charsPerLine)
+    } else {
+        clean.chunked(charsPerLine)
+    }.attachDanglingPunctuationToPrevious()
     return if (mergeShortTail) chunks.mergeShortTrailingChunk(charsPerLine) else chunks
 }
+
+private fun wrapTranslatedWords(line: String, charsPerLine: Int): List<String> {
+    val words = line.split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (words.isEmpty()) return emptyList()
+    val lines = mutableListOf<String>()
+    var current = ""
+    words.forEach { word ->
+        val candidate = if (current.isBlank()) word else "$current $word"
+        if (current.isBlank() || visualTextUnits(candidate) <= charsPerLine) {
+            current = candidate
+        } else {
+            lines += current
+            current = word
+        }
+    }
+    if (current.isNotBlank()) lines += current
+    return lines.flatMap { value ->
+        if (visualTextUnits(value) <= charsPerLine || value.contains(" ")) {
+            listOf(value)
+        } else {
+            value.chunked(charsPerLine)
+        }
+    }
+}
+
+private fun visualTextUnits(value: String): Float =
+    value.sumOf { char ->
+        when {
+            char.isWhitespace() -> 1.0
+            char.isHangulSyllable() -> 1.0
+            char.code in 0x3040..0x30FF -> 1.0
+            char.code in 0x4E00..0x9FFF -> 1.0
+            else -> 0.58
+        }
+    }.toFloat()
+
+private fun Char.isHangulSyllable(): Boolean = code in 0xAC00..0xD7AF
 
 internal fun verticalTextColumnsForDisplay(lines: List<String>, charsPerColumn: Int): List<String> =
     lines

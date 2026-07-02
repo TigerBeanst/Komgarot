@@ -129,6 +129,42 @@ class AiTranslationOverlayLayoutTest {
     }
 
     @Test
+    fun koreanHorizontalWrappingKeepsWordsTogether() {
+        val lines = balancedHorizontalLines(
+            lines = listOf("우리는 학교에서 만났어!"),
+            widthDp = 42f,
+            fontSizeSp = 10f
+        )
+
+        assertEquals(listOf("우리는", "학교에서", "만났어!"), lines)
+    }
+
+    @Test
+    fun sfxFontSizeStaysSmallerThanDialogueFontSize() {
+        val dialogue = aiTranslationFontSizeSp(
+            baseScale = 1f,
+            rectWidthDp = 160f,
+            rectHeightDp = 64f,
+            textDirection = AiTranslationTextDirection.HORIZONTAL,
+            lineCount = 1,
+            textLength = 2,
+            kind = AiTranslationBlockKind.DIALOGUE
+        )
+        val sfx = aiTranslationFontSizeSp(
+            baseScale = 1f,
+            rectWidthDp = 160f,
+            rectHeightDp = 64f,
+            textDirection = AiTranslationTextDirection.HORIZONTAL,
+            lineCount = 1,
+            textLength = 2,
+            kind = AiTranslationBlockKind.SFX
+        )
+
+        assertTrue(sfx < dialogue * 0.76f)
+        assertTrue(sfx <= 16f)
+    }
+
+    @Test
     fun verticalColumnsKeepTrailingPunctuationWithPreviousText() {
         val columns = verticalTextColumnsForDisplay(
             lines = listOf("示例文本！"),
