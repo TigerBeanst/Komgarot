@@ -104,7 +104,8 @@ class AiTranslationOverlayStructureTest {
     fun overlayUsesAiReturnedRectAndColors() {
         assertTrue(overlaySource.contains("BoxWithConstraints"))
         assertTrue(overlaySource.contains("safe.rect"))
-        assertTrue(overlaySource.contains("safe.translationRect.effectiveOrNull() ?: safe.rect"))
+        assertTrue(overlaySource.contains("val sourcePlacement = safe.rect"))
+        assertTrue(overlaySource.contains("val textPlacement = safe.translationRect.effectiveOrNull() ?: sourcePlacement"))
         assertTrue(overlaySource.contains("imageContentBounds("))
         assertTrue(overlaySource.contains("fillWidth: Boolean = false"))
         assertTrue(overlaySource.contains("page.imageWidth"))
@@ -142,6 +143,8 @@ class AiTranslationOverlayStructureTest {
         assertTrue(overlaySource.contains("AI_TRANSLATION_HORIZONTAL_LINE_HEIGHT_MULTIPLIER = 0.96f"))
         assertTrue(overlaySource.contains("AI_TRANSLATION_VERTICAL_LINE_HEIGHT_MULTIPLIER = 0.92f"))
         assertTrue(overlaySource.contains("fontWeight = FontWeight.SemiBold"))
+        assertTrue(!overlaySource.contains("FontStyle.Italic"))
+        assertTrue(!overlaySource.contains("fontStyle ="))
         assertTrue(overlaySource.contains("PlatformTextStyle(includeFontPadding = false)"))
         assertTrue(overlaySource.contains("val inlineTextPadding = if (usesSolidTextBoxMask) 0.dp else 0.5.dp"))
         assertTrue(overlaySource.contains("val horizontalLinePadding = if (usesSolidTextBoxMask) 0.dp else 1.dp"))
@@ -153,7 +156,9 @@ class AiTranslationOverlayStructureTest {
         assertTrue(overlaySource.contains("usesSolidAiTranslationMask()"))
         assertTrue(overlaySource.contains("normalTextBoxMask("))
         assertTrue(overlaySource.contains("AiTranslationSourceTextMask("))
-        assertTrue(overlaySource.contains("modifier = Modifier\n                                .width(blockWidth)\n                                .height(blockHeight)"))
+        assertTrue(overlaySource.contains(".width(sourceBlockWidth)"))
+        assertTrue(overlaySource.contains(".height(sourceBlockHeight)"))
+        assertTrue(overlaySource.contains(".graphicsLayer(rotationZ = safe.rotationDegrees)"))
         assertTrue(overlaySource.contains("Color.Transparent"))
         assertTrue(overlaySource.contains("AI_TRANSLATION_NORMAL_TEXT_MASK_ALPHA"))
         assertTrue(!overlaySource.contains(".background(\n                        parseAiColor(safe.maskColor).copy(alpha = safe.maskAlpha)"))
@@ -166,7 +171,7 @@ class AiTranslationOverlayStructureTest {
         assertTrue(overlaySource.contains("AiTranslationRegionPlaceholder("))
         assertTrue(overlaySource.contains("placeholderAlpha = AI_TRANSLATION_PLACEHOLDER_ALPHA"))
         assertTrue(overlaySource.contains("modifier = Modifier"))
-        assertTrue(overlaySource.contains(".height(blockHeight)"))
+        assertTrue(overlaySource.contains(".height(sourceBlockHeight)"))
         val placeholderStart = overlaySource.indexOf("private fun AiTranslationRegionPlaceholder(")
         val placeholderEnd = overlaySource.indexOf("private fun toVerticalText(", placeholderStart)
         val placeholderSource = overlaySource.substring(placeholderStart, placeholderEnd)
@@ -198,13 +203,11 @@ class AiTranslationOverlayStructureTest {
     }
 
     @Test
-    fun pageContextMenuShowsAiTestActionWhenTestModeIsEnabled() {
-        assertTrue(readerSource.contains("val aiTestModeEnabled by vm.prefs.aiTestModeEnabled"))
+    fun pageContextMenuOmitsAiTestAction() {
         assertTrue(readerSource.contains("PageContextMenu("))
-        assertTrue(readerSource.contains("aiTestModeEnabled = aiTestModeEnabled"))
-        assertTrue(readerSource.contains("R.string.reader_ai_test_current_page"))
-        assertTrue(readerSource.contains("vm.testCurrentAiTranslationPage()"))
-        assertTrue(readerSource.split("vm.testCurrentAiTranslationPage()").size == 2)
+        assertTrue(!readerSource.contains("aiTestModeEnabled ="))
+        assertTrue(!readerSource.contains("R.string.reader_ai_test_current_page"))
+        assertTrue(!readerSource.contains("vm.testCurrentAiTranslationPage()"))
     }
 
     @Test
@@ -228,7 +231,8 @@ class AiTranslationOverlayStructureTest {
         assertTrue(readerViewModelSource.contains("private var currentPages: List<PageDto> = emptyList()"))
         assertTrue(readerViewModelSource.contains("currentPages = pages"))
         assertTrue(readerViewModelSource.contains("viewModelScope.launch"))
-        assertTrue(readerViewModelSource.contains("updateCurrentAiTranslationPageStatus(AiTranslationPageStatus.RUNNING)"))
+        assertTrue(readerViewModelSource.contains("val pageIndex = currentPage"))
+        assertTrue(readerViewModelSource.contains("updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING)"))
         assertTrue(readerViewModelSource.contains("currentAiTranslationDisplayMode = AiTranslationDisplayMode.ON"))
         assertTrue(readerViewModelSource.contains("AiTranslationDisplayMode.OFF -> AiTranslationDisplayMode.ON"))
         assertTrue(readerViewModelSource.contains("AiTranslationDisplayMode.ON -> AiTranslationDisplayMode.OFF"))
@@ -237,12 +241,12 @@ class AiTranslationOverlayStructureTest {
         assertTrue(readerViewModelSource.contains("val result = repository.retryPageTranslation("))
         assertTrue(readerViewModelSource.contains("book = loaded"))
         assertTrue(readerViewModelSource.contains("serverUrl = currentServerUrl"))
-        assertTrue(readerViewModelSource.contains("pageIndex = currentPage"))
+        assertTrue(readerViewModelSource.contains("pageIndex = pageIndex"))
         assertTrue(readerViewModelSource.contains("cachedPages = currentPages"))
         assertTrue(readerViewModelSource.contains("onPageUpdated = { page ->"))
         assertTrue(readerViewModelSource.contains("aiTranslatedBook = repository.readBookState(loaded.id)"))
         assertTrue(readerViewModelSource.contains("val pageUpdated = result.ok && updatedPage?.status == AiTranslationPageStatus.DONE"))
-        assertTrue(readerViewModelSource.contains("if (!pageUpdated) updateCurrentAiTranslationPageStatus(AiTranslationPageStatus.FAILED)"))
+        assertTrue(readerViewModelSource.contains("if (!pageUpdated) updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.FAILED)"))
         assertTrue(readerViewModelSource.contains("val failureSummary = updatedPage?.errorSummary?.takeIf { it.isNotBlank() } ?: result.summary.takeIf { it.isNotBlank() }"))
         assertTrue(readerViewModelSource.contains("buildAiRetryFallbackSummary("))
         assertTrue(readerViewModelSource.contains("R.string.reader_ai_retry_failed,"))

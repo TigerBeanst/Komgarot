@@ -195,7 +195,7 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("currentAiTranslationDisplayMode != AiTranslationDisplayMode.ON"))
         assertTrue(viewModelSource.contains("isAiTranslationWorkRunning()"))
         assertTrue(viewModelSource.contains("currentAiTranslatedPage(currentPage)?.status"))
-        assertTrue(viewModelSource.contains("AiTranslationPageStatus.DONE, AiTranslationPageStatus.RUNNING -> return"))
+        assertTrue(viewModelSource.contains("AiTranslationPageStatus.DONE, AiTranslationPageStatus.RUNNING, AiTranslationPageStatus.FAILED -> return"))
         assertTrue(viewModelSource.contains("startCurrentAndPreloadedAiTranslation(preloadPages)"))
         assertTrue(screenSource.contains("vm.translateCurrentAiPageIfDisplayEnabled(memoryAwarePreloadPages)"))
     }
@@ -203,9 +203,11 @@ class ReaderAiTranslationStateTest {
     @Test
     fun aiButtonStopsRunningTranslationAndHidesOverlayResult() {
         assertTrue(viewModelSource.contains("private var aiTranslationJob: Job? = null"))
+        assertTrue(viewModelSource.contains("private var aiTranslationPageIndexes: List<Int> = emptyList()"))
         assertTrue(viewModelSource.contains("private fun isAiTranslationWorkRunning(): Boolean"))
         assertTrue(viewModelSource.contains("stopAiTranslationWork()"))
-        assertTrue(viewModelSource.contains("aiTranslationJob?.cancel()"))
+        assertTrue(viewModelSource.contains("aiTranslationJob?.cancel(userPausedAiTranslationCancellation())"))
+        assertTrue(viewModelSource.contains("resetRunningAiTranslationStoreState(aiTranslationPageIndexes)"))
         assertTrue(viewModelSource.contains("currentAiTranslationDisplayMode = AiTranslationDisplayMode.OFF"))
         assertTrue(viewModelSource.contains("prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.OFF.storedValue)"))
         assertTrue(viewModelSource.contains("clearRunningAiTranslationState()"))
@@ -214,11 +216,60 @@ class ReaderAiTranslationStateTest {
     }
 
     @Test
+    fun cachedCurrentPageStillSchedulesUnfinishedPreloadedPages() {
+        val handlerStart = viewModelSource.indexOf("fun handleAiTranslationButtonClick(preloadPages: Int)")
+        val handlerEnd = viewModelSource.indexOf("private fun showCachedCurrentAiTranslationIfAvailable()", handlerStart)
+        assertTrue(handlerStart >= 0)
+        assertTrue(handlerEnd > handlerStart)
+        val handlerSource = viewModelSource.substring(handlerStart, handlerEnd)
+
+        assertTrue(handlerSource.contains("val showedCachedCurrentPage = showCachedCurrentAiTranslationIfAvailable()"))
+        assertTrue(handlerSource.contains("hasPendingAiTranslationPages(preloadPages)"))
+        assertTrue(handlerSource.contains("startCurrentAndPreloadedAiTranslation(preloadPages)"))
+        assertTrue(viewModelSource.contains("private fun hasPendingAiTranslationPages(preloadPages: Int): Boolean"))
+        assertTrue(viewModelSource.contains("readerAiTranslationPageRange(currentPage, pageUrls.size, preloadPages)"))
+        assertTrue(viewModelSource.contains("page?.status != AiTranslationPageStatus.DONE"))
+    }
+
+    @Test
     fun automaticTranslationFailuresPublishRetryFeedback() {
         assertTrue(viewModelSource.contains("publishAiTranslationFailureMessage(loaded, pageIndex, updatedPage, result)"))
         assertTrue(viewModelSource.contains("private fun publishAiTranslationFailureMessage("))
         assertTrue(viewModelSource.contains("R.string.reader_ai_retry_failed,"))
         assertTrue(viewModelSource.contains("pageIndex: Int = currentPage"))
+    }
+
+    @Test
+    fun aiTranslationFailureToastPointsToLongPressFailureReason() {
+        val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+        val defaultStrings = File("src/main/res/values/strings.xml").readText()
+        val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
+        val errorMessageStart = screenSource.indexOf("private fun isAiTranslationErrorMessage(")
+        val errorMessageEnd = screenSource.indexOf("private fun readerAiTimingStepLabel(", errorMessageStart)
+        assertTrue(errorMessageStart >= 0)
+        assertTrue(errorMessageEnd > errorMessageStart)
+        val errorMessageSource = screenSource.substring(errorMessageStart, errorMessageEnd)
+
+        assertTrue(defaultStrings.contains("AI translation failed. Long-press the translate button to view the failure reason."))
+        assertTrue(zhStrings.contains("AI 翻译失败，可在长按翻译菜单查看失败原因。"))
+        assertTrue(!errorMessageSource.contains("R.string.reader_ai_retry_failed"))
+    }
+
+    @Test
+    fun longPressAiTranslationMenuShowsCurrentPageFailureReason() {
+        val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+        val defaultStrings = File("src/main/res/values/strings.xml").readText()
+        val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
+
+        assertTrue(screenSource.contains("var readerAiFailureDialog by remember { mutableStateOf<String?>(null) }"))
+        assertTrue(screenSource.contains("val currentAiFailureSummary = vm.currentAiTranslatedPage(vm.currentPage)?.errorSummary?.takeIf { it.isNotBlank() }"))
+        assertTrue(screenSource.contains("readerAiFailureDialog = currentAiFailureSummary ?: context.getString(R.string.reader_ai_failure_reason_empty)"))
+        assertTrue(screenSource.contains("Text(stringResource(R.string.reader_ai_failure_reason))"))
+        assertTrue(screenSource.contains("title = { Text(stringResource(R.string.reader_ai_failure_reason_title)) }"))
+        assertTrue(defaultStrings.contains("<string name=\"reader_ai_failure_reason\">Failure reason</string>"))
+        assertTrue(defaultStrings.contains("<string name=\"reader_ai_failure_reason_empty\">No saved failure reason for this page.</string>"))
+        assertTrue(zhStrings.contains("<string name=\"reader_ai_failure_reason\">失败原因</string>"))
+        assertTrue(zhStrings.contains("<string name=\"reader_ai_failure_reason_empty\">本页暂无已保存的失败原因。</string>"))
     }
 
     @Test
@@ -236,7 +287,8 @@ class ReaderAiTranslationStateTest {
         assertTrue(screenSource.contains("if (aiTranslationAvailable && aiTranslationEnabled)"))
         assertTrue(screenSource.contains("AiTranslationFloatingButton"))
         assertTrue(screenSource.contains("readerAiStatusLabel"))
-        assertTrue(screenSource.contains("aiTestModeEnabled = aiTranslationAvailable && aiTestModeEnabled"))
+        assertTrue(!screenSource.contains("aiTestModeEnabled ="))
+        assertTrue(!screenSource.contains("R.string.reader_ai_test_current_page"))
         assertTrue(screenSource.contains("onClick = { vm.handleAiTranslationButtonClick(memoryAwarePreloadPages) }"))
     }
 
@@ -250,6 +302,9 @@ class ReaderAiTranslationStateTest {
         assertTrue(menuSource.contains("readerAiDeleteFirstConfirmation"))
         assertTrue(menuSource.contains("readerAiDeleteFinalConfirmation"))
         assertTrue(menuSource.contains("R.string.reader_ai_retry_current_page"))
+        assertTrue(menuSource.contains("R.string.reader_ai_page_timing"))
+        assertTrue(menuSource.contains("vm.currentAiTranslationTiming()"))
+        assertTrue(menuSource.contains("readerAiTimingDialog"))
         assertTrue(menuSource.contains("R.string.ai_translate_delete_book_translation"))
         assertTrue(menuSource.contains("R.string.ai_translate_delete_title"))
         assertTrue(menuSource.contains("R.string.ai_translate_delete_message_first"))
@@ -279,5 +334,26 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("ensureAiTranslationPageShell(currentPage)"))
         assertTrue(viewModelSource.contains("currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON"))
         assertTrue(viewModelSource.contains("AiTranslatedPage(pageIndex = pageIndex, mode = currentAiTranslationMode.storedValue)"))
+    }
+
+    @Test
+    fun aiTranslationRequiresInstalledLocalModelBeforeStartingWork() {
+        val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+        val handlerStart = viewModelSource.indexOf("fun handleAiTranslationButtonClick(preloadPages: Int)")
+        val handlerEnd = viewModelSource.indexOf("private fun showCachedCurrentAiTranslationIfAvailable()", handlerStart)
+        assertTrue(handlerStart >= 0)
+        assertTrue(handlerEnd > handlerStart)
+        val handlerSource = viewModelSource.substring(handlerStart, handlerEnd)
+
+        assertTrue(viewModelSource.contains("var showAiLocalModelRequiredDialog by mutableStateOf(false)"))
+        assertTrue(viewModelSource.contains("var aiLocalModelDownloading by mutableStateOf(false)"))
+        assertTrue(viewModelSource.contains("private suspend fun canStartAiTranslationWithLocalModel(): Boolean"))
+        assertTrue(handlerSource.contains("canStartAiTranslationWithLocalModel()"))
+        assertTrue(handlerSource.contains("showAiLocalModelRequiredDialog = true"))
+        assertTrue(handlerSource.contains("return@launch"))
+        assertTrue(viewModelSource.contains("fun downloadRequiredAiLocalModel()"))
+        assertTrue(screenSource.contains("if (aiTranslationAvailable && aiTranslationEnabled && vm.showAiLocalModelRequiredDialog)"))
+        assertTrue(screenSource.contains("R.string.reader_ai_local_model_required_title"))
+        assertTrue(screenSource.contains("R.string.reader_ai_local_model_download"))
     }
 }
