@@ -55,6 +55,18 @@ class ReaderPageCacheTest {
     }
 
     @Test
+    fun clearRemovesReaderPageCacheDirectoryFromCacheDir() {
+        val cacheDir = temporaryFolder.newFolder("cache")
+        val page = ReaderPageCache.cacheFile(cacheDir, "series-1", "book-1", "https://example.test/books/book-1/pages/1")
+        page.writeTextCreatingParents("page")
+
+        ReaderPageCache.clear(cacheDir)
+
+        assertFalse(page.exists())
+        assertEquals(0, ReaderPageCache.size(cacheDir))
+    }
+
+    @Test
     fun pruneKeepsReaderPagesWithinTargetSize() {
         val cacheDir = temporaryFolder.newFolder("cache")
         val oldestPage = ReaderPageCache.cacheFile(cacheDir, "series-1", "book-1", "https://example.test/books/book-1/pages/1")

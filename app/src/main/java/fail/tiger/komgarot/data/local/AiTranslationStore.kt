@@ -76,9 +76,30 @@ class AiTranslationStore(private val filesDir: File) {
     }
 
     @Synchronized
+    fun resetRunningPages(bookId: String, pageIndexes: List<Int>) {
+        if (bookId.isBlank() || pageIndexes.isEmpty()) return
+        val existing = readBook(bookId) ?: return
+        val indexes = pageIndexes.toSet()
+        val updatedPages = existing.pages.map { page ->
+            if (page.pageIndex in indexes && page.status == AiTranslationPageStatus.RUNNING) {
+                page.copy(
+                    status = AiTranslationPageStatus.PENDING,
+                    blocks = emptyList(),
+                    errorSummary = "",
+                    errorCategory = ""
+                )
+            } else {
+                page
+            }
+        }
+        saveBookNow(existing.copy(pages = updatedPages))
+    }
+
+    @Synchronized
     fun deletePage(bookId: String, pageIndex: Int) {
         val existing = readBook(bookId) ?: return
         saveBookNow(existing.copy(pages = existing.pages.filterNot { it.pageIndex == pageIndex }))
+        deletePageCacheFiles(bookId, pageIndex)
     }
 
     @Synchronized
@@ -86,6 +107,11 @@ class AiTranslationStore(private val filesDir: File) {
         bookFile(bookId).delete()
         localContextDir.listFiles { file -> file.name.startsWith("${sanitizeBookId(bookId)}-") }.orEmpty().forEach { it.delete() }
         regionCropDir.listFiles { file -> file.name.startsWith("${sanitizeBookId(bookId)}-") }.orEmpty().forEach { it.delete() }
+    }
+
+    @Synchronized
+    fun clearAll() {
+        rootDir.deleteRecursively()
     }
 
     @Synchronized
@@ -130,19 +156,29 @@ class AiTranslationStore(private val filesDir: File) {
         if (!booksDir.isDirectory) return emptyList()
         return booksDir.listFiles { file -> file.isFile && file.extension == "json" }
             ?.mapNotNull { file -> parseAiTranslatedBookJson(file.readText()) }
+            ?.filter { book -> book.pages.any { it.status == AiTranslationPageStatus.DONE } }
+            .orEmpty()
+    }
+
+    @Synchronized
+    fun listBookIds(): List<String> {
+        if (!booksDir.isDirectory) return emptyList()
+        return booksDir.listFiles { file -> file.isFile && file.extension == "json" }
+            ?.mapNotNull { file -> parseAiTranslatedBookJson(file.readText())?.bookId?.takeIf { it.isNotBlank() } }
             .orEmpty()
     }
 
     @Synchronized
     fun readTaskState(): AiTranslationTaskState {
         if (!tasksFile.isFile) return AiTranslationTaskState()
-        return parseAiTranslationTaskStateJson(tasksFile.readText())
+        return taskStateWithTranslatedBooks(parseAiTranslationTaskStateJson(tasksFile.readText()))
     }
 
     @Synchronized
     fun saveTaskState(state: AiTranslationTaskState) {
         tasksFile.parentFile?.mkdirs()
-        writeAtomically(tasksFile, storeGson.toJson(state))
+        val persisted = taskStateWithTranslatedBooks(state)
+        writeAtomically(tasksFile, storeGson.toJson(persisted))
     }
 
     private fun writeAtomically(file: File, text: String) {
@@ -166,12 +202,21 @@ class AiTranslationStore(private val filesDir: File) {
     private fun sanitizeBookId(bookId: String): String =
         bookId.replace(Regex("[^A-Za-z0-9._-]"), "_")
 
+    private fun deletePageCacheFiles(bookId: String, pageIndex: Int) {
+        val prefix = "${sanitizeBookId(bookId)}-$pageIndex-"
+        localContextDir.listFiles { file -> file.name.startsWith(prefix) }.orEmpty().forEach { it.delete() }
+        regionCropDir.listFiles { file -> file.name.startsWith(prefix) }.orEmpty().forEach { it.delete() }
+    }
+
     private fun cacheFile(dir: File, bookId: String, pageIndex: Int, id: String, cacheKey: String, extension: String): File {
         val name = listOf(sanitizeBookId(bookId), pageIndex.toString(), sanitizeBookId(id), sha256(cacheKey))
             .joinToString("-")
         return File(dir, "$name.$extension")
     }
 }
+
+private fun taskStateWithTranslatedBooks(state: AiTranslationTaskState): AiTranslationTaskState =
+    state.copy(tasks = state.tasks.filter { it.completedPages > 0 })
 
 private fun sha256(value: String): String {
     val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))

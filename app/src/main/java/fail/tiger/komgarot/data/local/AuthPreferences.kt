@@ -42,6 +42,7 @@ class AuthPreferences(private val context: Context) {
     private val AI_DOWNLOAD_LATEST_MODEL = booleanPreferencesKey("ai_download_latest_model")
     private val AI_AUTO_SELECT_DEVICE_TIER = booleanPreferencesKey("ai_auto_select_device_tier")
     private val AI_IMAGE_TRANSPORT = stringPreferencesKey("ai_image_transport")
+    private val AI_TRANSLATION_REQUEST_MODE = stringPreferencesKey("ai_translation_request_mode")
     private val AI_PAGES_PER_REQUEST = intPreferencesKey("ai_pages_per_request")
     private val AI_CONCURRENT_REQUESTS = intPreferencesKey("ai_concurrent_requests")
     private val AI_MAX_IMAGES_PER_REQUEST = intPreferencesKey("ai_max_images_per_request")
@@ -92,11 +93,14 @@ class AuthPreferences(private val context: Context) {
     val aiImageTransport: Flow<AiImageTransport> = context.dataStore.data.map {
         AiImageTransport.fromStoredValue(it[AI_IMAGE_TRANSPORT].orEmpty())
     }
+    val aiTranslationRequestMode: Flow<AiTranslationRequestMode> = context.dataStore.data.map {
+        AiTranslationRequestMode.fromStoredValue(it[AI_TRANSLATION_REQUEST_MODE].orEmpty())
+    }
     val aiPagesPerRequest: Flow<Int> = context.dataStore.data.map {
         AiSettings.normalizePagesPerRequest(it[AI_PAGES_PER_REQUEST] ?: 10)
     }
     val aiConcurrentRequests: Flow<Int> = context.dataStore.data.map {
-        AiSettings.normalizeConcurrentRequests(it[AI_CONCURRENT_REQUESTS] ?: 3)
+        AiSettings.normalizeConcurrentRequests(it[AI_CONCURRENT_REQUESTS] ?: AiSettings.defaults().concurrentRequests)
     }
     val aiMaxImagesPerRequest: Flow<Int> = context.dataStore.data.map {
         AiSettings.normalizeMaxImagesPerRequest(it[AI_MAX_IMAGES_PER_REQUEST] ?: 20)
@@ -112,7 +116,7 @@ class AuthPreferences(private val context: Context) {
     val aiConfigurationTestPassed: Flow<Boolean> = context.dataStore.data.map { it[AI_CONFIGURATION_TEST_PASSED] ?: false }
     val aiTranslationDisplayMode: Flow<String> = context.dataStore.data.map { it[AI_TRANSLATION_DISPLAY_MODE] ?: "off" }
     val aiVerticalGlyphSpacingPercent: Flow<Int> = context.dataStore.data.map {
-        (it[AI_VERTICAL_GLYPH_SPACING_PERCENT] ?: 92).coerceIn(70, 130)
+        (it[AI_VERTICAL_GLYPH_SPACING_PERCENT] ?: 86).coerceIn(70, 130)
     }
 
     init {
@@ -235,6 +239,10 @@ class AuthPreferences(private val context: Context) {
 
     suspend fun setAiImageTransport(value: AiImageTransport) {
         context.dataStore.edit { it[AI_IMAGE_TRANSPORT] = value.storedValue }
+    }
+
+    suspend fun setAiTranslationRequestMode(value: AiTranslationRequestMode) {
+        context.dataStore.edit { it[AI_TRANSLATION_REQUEST_MODE] = value.storedValue }
     }
 
     suspend fun setAiPagesPerRequest(value: Int) {

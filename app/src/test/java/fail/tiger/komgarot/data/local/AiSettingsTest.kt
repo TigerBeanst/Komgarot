@@ -14,8 +14,9 @@ class AiSettingsTest {
         assertEquals("", settings.baseUrl)
         assertEquals("", settings.modelName)
         assertEquals(AiImageTransport.BASE64, settings.imageTransport)
+        assertEquals(AiTranslationRequestMode.SERIAL, settings.requestMode)
         assertEquals(10, settings.pagesPerRequest)
-        assertEquals(3, settings.concurrentRequests)
+        assertEquals(8, settings.concurrentRequests)
         assertEquals(20, settings.maxImagesPerRequest)
         assertEquals(30, settings.timeoutSeconds)
         assertEquals(AiImageMaxEdge.PX_1600, settings.imageMaxEdge)
@@ -40,11 +41,19 @@ class AiSettingsTest {
     }
 
     @Test
-    fun concurrentRequestsAcceptsPositiveManualValues() {
+    fun concurrentRequestsUseSafeUpperBound() {
         assertEquals(1, AiSettings.normalizeConcurrentRequests(-3))
         assertEquals(1, AiSettings.normalizeConcurrentRequests(0))
         assertEquals(3, AiSettings.normalizeConcurrentRequests(3))
-        assertEquals(80, AiSettings.normalizeConcurrentRequests(80))
+        assertEquals(8, AiSettings.normalizeConcurrentRequests(9))
+        assertEquals(8, AiSettings.normalizeConcurrentRequests(80))
+    }
+
+    @Test
+    fun requestModeFallsBackToSerial() {
+        assertEquals(AiTranslationRequestMode.SERIAL, AiTranslationRequestMode.fromStoredValue(""))
+        assertEquals(AiTranslationRequestMode.SERIAL, AiTranslationRequestMode.fromStoredValue("unknown"))
+        assertEquals(AiTranslationRequestMode.PARALLEL, AiTranslationRequestMode.fromStoredValue("parallel"))
     }
 
     @Test
@@ -103,6 +112,14 @@ class AiSettingsTest {
         assertEquals("url", SecureWebDavSettingsStore.URL)
         assertEquals("username", SecureWebDavSettingsStore.USERNAME)
         assertEquals("password", SecureWebDavSettingsStore.PASSWORD)
+    }
+
+    @Test
+    fun secureWebDavUrlKeepsTrailingSlash() {
+        assertEquals("", normalizeWebDavUrl(""))
+        assertEquals("https://dav.example.test/", normalizeWebDavUrl(" https://dav.example.test "))
+        assertEquals("https://dav.example.test/base/", normalizeWebDavUrl("https://dav.example.test/base/"))
+        assertEquals("https://dav.example.test/base/", normalizeWebDavUrl("https://dav.example.test/base///"))
     }
 
     @Test
