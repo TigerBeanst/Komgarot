@@ -14,6 +14,7 @@ data class AiSettings(
     val downloadLatestModel: Boolean,
     val autoSelectDeviceTier: Boolean,
     val imageTransport: AiImageTransport,
+    val requestMode: AiTranslationRequestMode,
     val pagesPerRequest: Int,
     val concurrentRequests: Int,
     val maxImagesPerRequest: Int,
@@ -44,8 +45,9 @@ data class AiSettings(
             downloadLatestModel = true,
             autoSelectDeviceTier = true,
             imageTransport = AiImageTransport.BASE64,
+            requestMode = AiTranslationRequestMode.SERIAL,
             pagesPerRequest = 10,
-            concurrentRequests = 3,
+            concurrentRequests = 8,
             maxImagesPerRequest = 20,
             timeoutSeconds = 30,
             imageMaxEdge = AiImageMaxEdge.PX_1600,
@@ -55,7 +57,7 @@ data class AiSettings(
         )
 
         fun normalizePagesPerRequest(value: Int): Int = value.coerceAtLeast(1)
-        fun normalizeConcurrentRequests(value: Int): Int = value.coerceAtLeast(1)
+        fun normalizeConcurrentRequests(value: Int): Int = value.coerceIn(1, 8)
         fun normalizeMaxImagesPerRequest(value: Int): Int = value.coerceAtLeast(2)
         fun normalizeTimeoutSeconds(value: Int): Int = value.coerceAtLeast(0)
     }
@@ -97,6 +99,16 @@ enum class AiImageTransport(val storedValue: String) {
     companion object {
         fun fromStoredValue(value: String): AiImageTransport =
             entries.firstOrNull { it.storedValue == value } ?: BASE64
+    }
+}
+
+enum class AiTranslationRequestMode(val storedValue: String) {
+    SERIAL("serial"),
+    PARALLEL("parallel");
+
+    companion object {
+        fun fromStoredValue(value: String): AiTranslationRequestMode =
+            entries.firstOrNull { it.storedValue == value } ?: SERIAL
     }
 }
 

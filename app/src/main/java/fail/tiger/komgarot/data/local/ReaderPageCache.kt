@@ -108,6 +108,10 @@ object ReaderPageCache {
         cacheDir(context).deleteRecursively()
     }
 
+    fun clear(cacheDir: File) {
+        readerPageCacheDir(cacheDir).deleteRecursively()
+    }
+
     fun clearBook(context: Context, bookId: String) {
         clearBook(context.cacheDir, bookId)
     }
