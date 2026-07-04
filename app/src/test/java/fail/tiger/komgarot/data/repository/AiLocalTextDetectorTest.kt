@@ -46,7 +46,49 @@ class AiLocalTextDetectorTest {
         assertTrue(!detectorSource.contains("mergePaddleRegionsWithOcrText"))
         assertTrue(paddleSource.contains("OrtEnvironment.getEnvironment()"))
         assertTrue(paddleSource.contains("paddleProbabilityMapToRects("))
+        assertTrue(paddleSource.contains("bitmap.toPaddleDetectorInput(maxSide = paddleDetectorInputMaxSide("))
+        assertTrue(paddleSource.contains("coerceIn(0.74f, 1.28f)"))
         assertTrue(!paddleSource.contains("runRecognitionModel"))
+    }
+
+    @Test
+    fun detectorReportsPaddleAndHeuristicTimingSeparately() {
+        assertTrue(detectorSource.contains("onTimingStep: (String, Long) -> Unit = { _, _ -> }"))
+        assertTrue(detectorSource.contains("AI_TIMING_PADDLE_OCR"))
+        assertTrue(detectorSource.contains("AI_TIMING_HEURISTIC_FALLBACK"))
+        assertTrue(detectorSource.contains("timedLocalDetectionStep("))
+    }
+
+    @Test
+    fun paddleRegionsUseTextBoxMergingWithoutHeuristicFallback() {
+        val rightColumn = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.70f, 0.18f, 0.030f, 0.22f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.68f
+        )
+        val leftColumn = rightColumn.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.65f, 0.18f, 0.030f, 0.22f)
+        )
+
+        val selected = selectLocalTextDetectionRegions(
+            paddleRegions = listOf(leftColumn, rightColumn),
+            heuristicRegions = { error("heuristic fallback executed with Paddle regions") },
+            sourceTextProfile = AiSourceTextProfile.JAPANESE_MANGA,
+            maxRegions = 64
+        )
+
+        assertEquals(1, selected.size)
+        assertEquals("p0-r1", selected.single().id)
+        val rect = selected.single().rect
+        assertEquals(0.65f, rect.x, 0.0001f)
+        assertEquals(0.18f, rect.y, 0.0001f)
+        assertEquals(0.08f, rect.width, 0.0001f)
+        assertEquals(0.22f, rect.height, 0.0001f)
     }
 
     @Test
@@ -169,6 +211,57 @@ class AiLocalTextDetectorTest {
     }
 
     @Test
+    fun japaneseMangaKeepsNearbyLargeSoundEffectSeparateFromDialogueColumn() {
+        val dialogueColumn = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.70f, 0.18f, 0.030f, 0.24f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.82f
+        )
+        val largeSoundEffect = dialogueColumn.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.64f, 0.18f, 0.070f, 0.24f),
+            estimatedFontScale = 1.36f
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(largeSoundEffect, dialogueColumn),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(2, merged.size)
+        assertEquals(listOf("p0-r1", "p0-r2"), merged.map { it.id })
+    }
+
+    @Test
+    fun japaneseMangaKeepsVerticallySeparatedSameColumnRegionsSeparate() {
+        val upper = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.30f, 0.22f, 0.030f, 0.16f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.92f,
+            estimatedFontScale = 0.86f
+        )
+        val lower = upper.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.30f, 0.44f, 0.030f, 0.16f)
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(lower, upper),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(2, merged.size)
+        assertEquals(listOf("p0-r1", "p0-r2"), merged.map { it.id })
+    }
+
+    @Test
     fun koreanHorizontalWebtoonProfilePrefersHorizontalDetectedBoxes() {
         val rect = AiTranslationRect(x = 0.12f, y = 0.20f, width = 0.16f, height = 0.19f)
 
@@ -179,6 +272,28 @@ class AiLocalTextDetectorTest {
         assertEquals(
             AiTranslationTextDirection.VERTICAL,
             detectedTextDirectionForRect(rect, AiSourceTextProfile.JAPANESE_MANGA)
+        )
+    }
+
+    @Test
+    fun japaneseWideHorizontalSignKeepsHorizontalDirectionAndSlantedMetadata() {
+        val signRect = AiTranslationRect(x = 0.12f, y = 0.16f, width = 0.28f, height = 0.08f)
+        val direction = detectedTextDirectionForRect(signRect, AiSourceTextProfile.JAPANESE_MANGA)
+
+        assertEquals(AiTranslationTextDirection.HORIZONTAL, direction)
+        assertTrue(
+            estimatedRegionRotationDegreesForRect(
+                rect = signRect,
+                direction = direction,
+                sourceTextProfile = AiSourceTextProfile.JAPANESE_MANGA
+            ) < -8f
+        )
+        assertTrue(
+            estimatedRegionRotationDegreesForRect(
+                rect = signRect,
+                direction = direction,
+                sourceTextProfile = AiSourceTextProfile.AUTO
+            ) < -8f
         )
     }
 
@@ -380,6 +495,36 @@ class AiLocalTextDetectorTest {
         assertEquals(region.rect, corrected.rect)
         assertEquals(region.rect, corrected.translationRect)
         assertEquals(1.05f, corrected.fontScale)
+    }
+
+    @Test
+    fun localRegionEffectiveGeometrySeparatesSourceMaskAndRenderPlacement() {
+        val textBounds = AiTranslationRect(x = 0.12f, y = 0.22f, width = 0.07f, height = 0.22f)
+        val renderBounds = AiTranslationRect(x = 0.10f, y = 0.20f, width = 0.11f, height = 0.27f)
+        val cropBounds = AiTranslationRect(x = 0.115f, y = 0.215f, width = 0.08f, height = 0.23f)
+        val region = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(x = 0.09f, y = 0.18f, width = 0.16f, height = 0.34f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.76f,
+            estimatedFontScale = 1.05f,
+            textBounds = textBounds,
+            renderBounds = renderBounds,
+            aiCropBounds = cropBounds
+        )
+
+        val corrected = AiTranslationBlock(
+            translatedLines = listOf("示例"),
+            rect = AiTranslationRect(x = 0.70f, y = 0.70f, width = 0.10f, height = 0.10f),
+            translationRect = AiTranslationRect(x = 0.70f, y = 0.70f, width = 0.10f, height = 0.10f)
+        ).correctWithLocalRegion(region)
+
+        assertEquals(textBounds, region.effectiveTextBounds())
+        assertEquals(cropBounds, region.effectiveAiCropBounds())
+        assertEquals(textBounds, corrected.rect)
+        assertEquals(renderBounds, corrected.translationRect)
     }
 
     @Test

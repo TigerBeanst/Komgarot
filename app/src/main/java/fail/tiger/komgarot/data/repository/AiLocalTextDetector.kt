@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationBlock
+import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiSettings
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
@@ -21,7 +22,12 @@ class AiLocalTextDetector(
     private val maxEdge: Int = 2048,
     private val maxRegions: Int = 64
 ) {
-    fun detect(file: File, pageIndex: Int, settings: AiSettings? = null): AiTranslationLocalPageContext {
+    fun detect(
+        file: File,
+        pageIndex: Int,
+        settings: AiSettings? = null,
+        onTimingStep: (String, Long) -> Unit = { _, _ -> }
+    ): AiTranslationLocalPageContext {
         val decoded = decodeForDetection(file)
         val bitmap = decoded.bitmap
         return try {
@@ -29,42 +35,49 @@ class AiLocalTextDetector(
             bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
             val sourceTextProfile = settings?.sourceTextProfile ?: AiSourceTextProfile.AUTO
             val paddleRegions = if (settings != null) {
-                paddleTextDetector?.detect(
-                    bitmap = bitmap,
-                    pixels = pixels,
-                    pageIndex = pageIndex,
-                    sourceWidth = decoded.sourceWidth,
-                    sourceHeight = decoded.sourceHeight,
-                    settings = settings,
-                    maxRegions = maxRegions
-                ).orEmpty()
+                timedLocalDetectionStep(AI_TIMING_PADDLE_OCR, onTimingStep) {
+                    paddleTextDetector?.detect(
+                        bitmap = bitmap,
+                        pixels = pixels,
+                        pageIndex = pageIndex,
+                        sourceWidth = decoded.sourceWidth,
+                        sourceHeight = decoded.sourceHeight,
+                        settings = settings,
+                        maxRegions = maxRegions
+                    ).orEmpty()
+                }
             } else {
                 emptyList()
             }
-            val rawRegions = if (paddleRegions.isNotEmpty()) {
-                paddleRegions
-            } else {
-                val components = findInkComponents(
-                    pixels = pixels,
-                    width = bitmap.width,
-                    height = bitmap.height
-                )
-                detectWithHeuristic(
-                    clusters = mergeTextComponents(components, bitmap.width, bitmap.height),
-                    pixels = pixels,
-                    pageIndex = pageIndex,
-                    detectionImageWidth = bitmap.width,
-                    detectionImageHeight = bitmap.height,
-                    sourceImageWidth = decoded.sourceWidth,
-                    sourceImageHeight = decoded.sourceHeight,
-                    sourceTextProfile = sourceTextProfile
-                )
-            }
+            val regions = selectLocalTextDetectionRegions(
+                paddleRegions = paddleRegions,
+                heuristicRegions = {
+                    timedLocalDetectionStep(AI_TIMING_HEURISTIC_FALLBACK, onTimingStep) {
+                        val components = findInkComponents(
+                            pixels = pixels,
+                            width = bitmap.width,
+                            height = bitmap.height
+                        )
+                        detectWithHeuristic(
+                            clusters = mergeTextComponents(components, bitmap.width, bitmap.height),
+                            pixels = pixels,
+                            pageIndex = pageIndex,
+                            detectionImageWidth = bitmap.width,
+                            detectionImageHeight = bitmap.height,
+                            sourceImageWidth = decoded.sourceWidth,
+                            sourceImageHeight = decoded.sourceHeight,
+                            sourceTextProfile = sourceTextProfile
+                        )
+                    }
+                },
+                sourceTextProfile = sourceTextProfile,
+                maxRegions = maxRegions
+            )
             AiTranslationLocalPageContext(
                 pageIndex = pageIndex,
                 imageWidth = decoded.sourceWidth,
                 imageHeight = decoded.sourceHeight,
-                regions = mergeLocalTextRegionsIntoTextBoxes(rawRegions, sourceTextProfile).take(maxRegions)
+                regions = regions
             )
         } finally {
             bitmap.recycle()
@@ -116,11 +129,41 @@ class AiLocalTextDetector(
     }
 }
 
+internal fun <T> timedLocalDetectionStep(
+    label: String,
+    onTimingStep: (String, Long) -> Unit,
+    block: () -> T
+): T {
+    val startedAt = System.currentTimeMillis()
+    return try {
+        block()
+    } finally {
+        onTimingStep(label, (System.currentTimeMillis() - startedAt).coerceAtLeast(0L))
+    }
+}
+
+internal fun selectLocalTextDetectionRegions(
+    paddleRegions: List<AiTranslationLocalTextRegion>,
+    heuristicRegions: () -> List<AiTranslationLocalTextRegion>,
+    sourceTextProfile: AiSourceTextProfile,
+    maxRegions: Int
+): List<AiTranslationLocalTextRegion> {
+    if (paddleRegions.isNotEmpty()) {
+        return mergeLocalTextRegionsIntoTextBoxes(paddleRegions, sourceTextProfile)
+            .take(maxRegions)
+    }
+    return mergeLocalTextRegionsIntoTextBoxes(heuristicRegions(), sourceTextProfile)
+        .take(maxRegions)
+}
+
 private data class AiDetectionBitmap(
     val bitmap: Bitmap,
     val sourceWidth: Int,
     val sourceHeight: Int
 )
+
+private const val AI_TIMING_PADDLE_OCR = "paddle_ocr"
+private const val AI_TIMING_HEURISTIC_FALLBACK = "heuristic_fallback"
 
 internal fun mergeLocalTextRegionsIntoTextBoxes(
     regions: List<AiTranslationLocalTextRegion>,
@@ -201,11 +244,19 @@ private fun verticalTextBoxClustersCanMerge(
 ): Boolean {
     val columnWidth = medianRegionThickness(left + right, AiTranslationTextDirection.VERTICAL)
     val gap = horizontalGap(leftRect, rightRect)
-    if (sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA && !sameBalloonBackground(left, right)) return false
+    if (sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA) {
+        if (!sameBalloonBackground(left, right)) return false
+        if (!verticalFontSizeCompatible(left, right)) return false
+    }
     val alignedY = axisOverlapRatio(leftRect.y, leftRect.bottom, rightRect.y, rightRect.bottom) >= 0.22f ||
         abs(leftRect.centerY - rightRect.centerY) <= max(max(leftRect.height, rightRect.height) * 0.34f, 0.055f)
+    val sameColumnGapLimit = if (sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA) {
+        max(columnWidth * 1.25f, 0.024f)
+    } else {
+        max(columnWidth * 2.4f, 0.020f)
+    }
     val adjacentSameColumn = axisOverlapRatio(leftRect.x, leftRect.right, rightRect.x, rightRect.right) >= 0.42f &&
-        verticalGap(leftRect, rightRect) <= max(columnWidth * 2.4f, 0.020f)
+        verticalGap(leftRect, rightRect) <= sameColumnGapLimit
     val topAligned = abs(leftRect.y - rightRect.y) <= max(columnWidth * 1.25f, 0.035f)
     val columnGapLimit = if (sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA) {
         max(columnWidth * 1.25f, 0.028f)
@@ -220,6 +271,25 @@ private fun sameBalloonBackground(
     left: List<AiTranslationLocalTextRegion>,
     right: List<AiTranslationLocalTextRegion>
 ): Boolean = dominantColor(left.map { it.backgroundColor }) == dominantColor(right.map { it.backgroundColor })
+
+private fun verticalFontSizeCompatible(
+    left: List<AiTranslationLocalTextRegion>,
+    right: List<AiTranslationLocalTextRegion>
+): Boolean {
+    val leftThickness = medianRegionThickness(left, AiTranslationTextDirection.VERTICAL)
+    val rightThickness = medianRegionThickness(right, AiTranslationTextDirection.VERTICAL)
+    val thicknessRatio = min(leftThickness, rightThickness) / max(max(leftThickness, rightThickness), 0.001f)
+    val leftScale = medianEstimatedFontScale(left)
+    val rightScale = medianEstimatedFontScale(right)
+    val scaleRatio = min(leftScale, rightScale) / max(max(leftScale, rightScale), 0.001f)
+    return thicknessRatio >= 0.68f && scaleRatio >= 0.70f
+}
+
+private fun medianEstimatedFontScale(regions: List<AiTranslationLocalTextRegion>): Float {
+    val values = regions.map { it.estimatedFontScale }.sorted()
+    if (values.isEmpty()) return 1f
+    return values[values.size / 2]
+}
 
 private fun splitMergedLocalTextBoxCluster(
     regions: List<AiTranslationLocalTextRegion>,
@@ -688,7 +758,8 @@ internal fun AiTextCluster.toLocalTextRegion(
         textColor = textColor,
         backgroundColor = background,
         confidence = confidenceScore(detectionImageWidth, detectionImageHeight),
-        estimatedFontScale = fontScale
+        estimatedFontScale = fontScale,
+        rotationDegrees = estimatedRegionRotationDegreesForRect(rect, direction, sourceTextProfile)
     )
 }
 
@@ -706,6 +777,21 @@ internal fun detectedTextDirectionForRect(
     } else {
         AiTranslationTextDirection.HORIZONTAL
     }
+
+internal fun estimatedRegionRotationDegreesForRect(
+    rect: AiTranslationRect,
+    direction: AiTranslationTextDirection,
+    sourceTextProfile: AiSourceTextProfile
+): Float {
+    val canUseJapaneseSignHeuristic = sourceTextProfile != AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON
+    val looksLikeJapaneseHorizontalSign =
+        canUseJapaneseSignHeuristic &&
+            direction == AiTranslationTextDirection.HORIZONTAL &&
+            rect.width >= rect.height * 1.55f &&
+            rect.width in 0.10f..0.46f &&
+            rect.y <= 0.38f
+    return if (looksLikeJapaneseHorizontalSign) -10f else 0f
+}
 
 internal fun normalizedSourceRectFromDetectionPixels(
     left: Int,
@@ -810,15 +896,74 @@ private fun gray(color: Int): Int =
 internal fun normalizedRectDistance(a: AiTranslationRect, b: AiTranslationRect): Float =
     abs(a.x - b.x) + abs(a.y - b.y) + abs(a.width - b.width) + abs(a.height - b.height)
 
+internal fun AiTranslationLocalTextRegion.effectiveTextBounds(): AiTranslationRect =
+    textBounds.effectiveRegionGeometryOrNull() ?: rect
+
+internal fun AiTranslationLocalTextRegion.effectiveSourceMaskBounds(): AiTranslationRect =
+    effectiveTextBounds()
+
+internal fun AiTranslationLocalTextRegion.effectiveRenderBounds(): AiTranslationRect =
+    renderBounds.effectiveRegionGeometryOrNull() ?: rect
+
+internal fun AiTranslationLocalTextRegion.effectiveRenderBoundsForKind(kind: AiTranslationBlockKind): AiTranslationRect =
+    renderBounds.effectiveRegionGeometryOrNull() ?: inferredRenderBoundsForKind(kind)
+
+internal fun AiTranslationLocalTextRegion.effectiveAiCropBounds(): AiTranslationRect =
+    aiCropBounds.effectiveRegionGeometryOrNull()
+        ?: textBounds.effectiveRegionGeometryOrNull()
+        ?: rect
+
+private fun AiTranslationRect.effectiveRegionGeometryOrNull(): AiTranslationRect? =
+    takeIf { width > 0f && height > 0f }
+
+private fun AiTranslationLocalTextRegion.inferredRenderBoundsForKind(kind: AiTranslationBlockKind): AiTranslationRect {
+    if (kind == AiTranslationBlockKind.SIGN && textDirection == AiTranslationTextDirection.HORIZONTAL) {
+        return rect.expandNormalized(
+            extraWidth = max(rect.width * 0.32f, 0.020f),
+            extraHeight = max(rect.height * 0.18f, 0.008f)
+        )
+    }
+    val usesDialogueLayout = kind == AiTranslationBlockKind.DIALOGUE || kind == AiTranslationBlockKind.NARRATION
+    if (!usesDialogueLayout) return rect
+    return when (textDirection) {
+        AiTranslationTextDirection.VERTICAL -> rect.expandNormalized(
+            extraWidth = max(rect.width * 0.95f, 0.030f),
+            extraHeight = max(rect.height * 0.10f, 0.012f)
+        )
+        AiTranslationTextDirection.HORIZONTAL -> rect.expandNormalized(
+            extraWidth = max(rect.width * 0.18f, 0.014f),
+            extraHeight = max(rect.height * 0.45f, 0.018f)
+        )
+        AiTranslationTextDirection.AUTO -> rect.expandNormalized(
+            extraWidth = max(rect.width * 0.35f, 0.018f),
+            extraHeight = max(rect.height * 0.25f, 0.014f)
+        )
+    }
+}
+
+private fun AiTranslationRect.expandNormalized(extraWidth: Float, extraHeight: Float): AiTranslationRect {
+    val left = (x - extraWidth / 2f).coerceAtLeast(0f)
+    val top = (y - extraHeight / 2f).coerceAtLeast(0f)
+    val right = (x + width + extraWidth / 2f).coerceAtMost(1f)
+    val bottom = (y + height + extraHeight / 2f).coerceAtMost(1f)
+    return AiTranslationRect(
+        x = left,
+        y = top,
+        width = (right - left).coerceIn(0f, 1f - left),
+        height = (bottom - top).coerceIn(0f, 1f - top)
+    )
+}
+
 internal fun AiTranslationBlock.correctWithLocalRegion(region: AiTranslationLocalTextRegion): AiTranslationBlock {
     val safeTextColor = ensureReadableAiTextColor(region.textColor, region.backgroundColor)
     return copy(
         localRegionId = region.id,
-        rect = region.rect,
-        translationRect = region.rect,
+        rect = region.effectiveSourceMaskBounds(),
+        translationRect = region.effectiveRenderBoundsForKind(kind),
         textColor = safeTextColor,
         maskColor = region.backgroundColor,
         textDirection = region.textDirection,
+        rotationDegrees = if (region.rotationDegrees != 0f) region.rotationDegrees else rotationDegrees,
         fontScale = region.estimatedFontScale
     )
 }

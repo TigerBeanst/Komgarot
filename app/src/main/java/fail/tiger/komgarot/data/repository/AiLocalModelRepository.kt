@@ -3,6 +3,7 @@ package fail.tiger.komgarot.data.repository
 import android.content.Context
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import java.io.File
 import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
@@ -163,6 +164,23 @@ fun defaultAiLocalModelPlan(
         tier = tier,
         detRepoId = "$namespace/PP-OCRv6_${detSize}_det_onnx"
     )
+}
+
+internal fun paddleDetectorInputMaxSide(
+    tier: AiLocalModelTier,
+    sourceTextProfile: AiSourceTextProfile
+): Int = when (sourceTextProfile) {
+    AiSourceTextProfile.JAPANESE_MANGA -> 1600
+    AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON -> when (tier) {
+        AiLocalModelTier.LOW -> 1280
+        AiLocalModelTier.BALANCED,
+        AiLocalModelTier.HIGH -> 1536
+    }
+    AiSourceTextProfile.AUTO -> when (tier) {
+        AiLocalModelTier.LOW -> 1280
+        AiLocalModelTier.BALANCED -> 1536
+        AiLocalModelTier.HIGH -> 1600
+    }
 }
 
 fun huggingFaceCollectionApiUrl(collectionId: String): String =

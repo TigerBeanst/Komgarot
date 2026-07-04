@@ -52,7 +52,7 @@ class AiPaddleTextDetector(
         val detectionModel = modelRepository.installedFiles(plan.detRepoId, settings.modelRevision)
             .firstOrNull { it.name.endsWith(".onnx", ignoreCase = true) }
             ?: return null
-        return PaddleModelAssets(detectionModelFile = detectionModel)
+        return PaddleModelAssets(detectionModelFile = detectionModel, tier = tier)
     }
 
     private fun runDetectionModel(
@@ -65,7 +65,7 @@ class AiPaddleTextDetector(
         maxRegions: Int,
         sourceTextProfile: AiSourceTextProfile
     ): List<AiTranslationLocalTextRegion> {
-        val input = bitmap.toPaddleDetectorInput()
+        val input = bitmap.toPaddleDetectorInput(maxSide = paddleDetectorInputMaxSide(assets.tier, sourceTextProfile))
         val env = OrtEnvironment.getEnvironment()
         env.createSession(assets.detectionModelFile.absolutePath, OrtSession.SessionOptions()).use { session ->
             val inputName = session.inputNames.firstOrNull() ?: return emptyList()
@@ -97,7 +97,8 @@ class AiPaddleTextDetector(
 }
 
 private data class PaddleModelAssets(
-    val detectionModelFile: File
+    val detectionModelFile: File,
+    val tier: AiLocalModelTier
 )
 
 internal data class PaddleDetectorInput(
@@ -190,13 +191,44 @@ internal fun paddleProbabilityMapToRects(
             rects += PaddleTextRect(sourceRect, area)
         }
     }
-    return rects.sortedByDescending { it.area }
+    return filterBroadPaddleTextRects(rects).sortedByDescending { it.area }
 }
 
 internal data class PaddleTextRect(
     val rect: AiTranslationRect,
     val area: Int
 )
+
+internal fun filterBroadPaddleTextRects(rects: List<PaddleTextRect>): List<PaddleTextRect> {
+    if (rects.size < 3) return rects
+    return rects.filterNot { candidate ->
+        candidate.isBroadPaddleTextRect() &&
+            rects.count { other ->
+                other !== candidate &&
+                    other.area < candidate.area * 0.55f &&
+                    paddleRectInsideRatio(inner = other.rect, outer = candidate.rect) >= 0.82f
+            } >= 2
+    }
+}
+
+private fun PaddleTextRect.isBroadPaddleTextRect(): Boolean =
+    rect.width >= 0.18f &&
+        rect.height >= 0.18f &&
+        rect.width * rect.height >= 0.045f
+
+private fun paddleRectInsideRatio(inner: AiTranslationRect, outer: AiTranslationRect): Float {
+    val innerArea = inner.width * inner.height
+    if (innerArea <= 0f) return 0f
+    return rectIntersectionArea(inner, outer) / innerArea
+}
+
+private fun rectIntersectionArea(left: AiTranslationRect, right: AiTranslationRect): Float {
+    val x1 = max(left.x, right.x)
+    val y1 = max(left.y, right.y)
+    val x2 = min(left.x + left.width, right.x + right.width)
+    val y2 = min(left.y + left.height, right.y + right.height)
+    return max(0f, x2 - x1) * max(0f, y2 - y1)
+}
 
 private fun PaddleTextRect.toLocalRegion(
     id: String,
@@ -215,7 +247,7 @@ private fun PaddleTextRect.toLocalRegion(
         AiTranslationTextDirection.VERTICAL -> rect.width / 0.045f
         AiTranslationTextDirection.HORIZONTAL -> rect.height / 0.055f
         AiTranslationTextDirection.AUTO -> 1f
-    }.coerceIn(0.55f, 1.20f)
+    }.coerceIn(0.74f, 1.28f)
     return AiTranslationLocalTextRegion(
         id = id,
         rect = rect,
@@ -223,7 +255,8 @@ private fun PaddleTextRect.toLocalRegion(
         textColor = textColor,
         backgroundColor = background,
         confidence = 0.90f,
-        estimatedFontScale = fontScale
+        estimatedFontScale = fontScale,
+        rotationDegrees = estimatedRegionRotationDegreesForRect(rect, direction, sourceTextProfile)
     )
 }
 
