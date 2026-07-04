@@ -18,6 +18,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -58,6 +60,14 @@ fun SeriesScreen(
     onBottomBarVisibleChange: (Boolean) -> Unit = {}
 ) {
     LaunchedEffect(libraryId, initialSearch, initialTag) { vm.init(libraryId, initialSearch, initialTag) }
+    var hasSeenInitialResume by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (hasSeenInitialResume) {
+            vm.refreshVisibleOneShotTitles()
+        } else {
+            hasSeenInitialResume = true
+        }
+    }
     var searchExpanded by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
     var searchByAuthor by remember { mutableStateOf(false) }
@@ -291,58 +301,59 @@ fun SeriesScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(vm.series, key = { it.id }) { series ->
-                        val thumbnailVersion = ThumbnailVersion.get(series.id)
-                        val thumbnailUrl = remember(serverUrl, series.id, thumbnailVersion) {
-                            KomgaUrls.seriesThumbnail(serverUrl, series.id, thumbnailVersion)
-                        }
-                        Card(
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.fillMaxWidth().clickable { onSeriesClick(series.id, series.booksCount) }
-                        ) {
-                            Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
-                                ThumbnailImage(
-                                    url = thumbnailUrl,
-                                    cacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(series.id)),
-                                    contentDescription = series.name,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Box(
-                                    Modifier.fillMaxWidth().align(Alignment.BottomStart)
-                                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.7f))))
-                                        .padding(horizontal = 6.dp, vertical = 8.dp)
-                                ) {
-                                    Text(
-                                        series.metadata.title.ifEmpty { series.name },
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            shadow = Shadow(
-                                                color = Color.Black,
-                                                blurRadius = 4f
-                                            )
-                                        ),
-                                        color = Color.White,
-                                        maxLines = 2
+                            val displayTitle = vm.displayTitle(series)
+                            val thumbnailVersion = ThumbnailVersion.get(series.id)
+                            val thumbnailUrl = remember(serverUrl, series.id, thumbnailVersion) {
+                                KomgaUrls.seriesThumbnail(serverUrl, series.id, thumbnailVersion)
+                            }
+                            Card(
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.fillMaxWidth().clickable { onSeriesClick(series.id, series.booksCount) }
+                            ) {
+                                Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
+                                    ThumbnailImage(
+                                        url = thumbnailUrl,
+                                        cacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(series.id)),
+                                        contentDescription = displayTitle,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
                                     )
-                                }
-                                if (series.booksCount > 1) {
                                     Box(
-                                        Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(4.dp)
-                                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        Modifier.fillMaxWidth().align(Alignment.BottomStart)
+                                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.7f))))
+                                            .padding(horizontal = 6.dp, vertical = 8.dp)
                                     ) {
                                         Text(
-                                            "${series.booksCount}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White
+                                            displayTitle,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                shadow = Shadow(
+                                                    color = Color.Black,
+                                                    blurRadius = 4f
+                                                )
+                                            ),
+                                            color = Color.White,
+                                            maxLines = 2
                                         )
+                                    }
+                                    if (series.booksCount > 1) {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(4.dp)
+                                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                "${series.booksCount}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.White
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
                 LazyGridScrollbar(
                     state = listState,

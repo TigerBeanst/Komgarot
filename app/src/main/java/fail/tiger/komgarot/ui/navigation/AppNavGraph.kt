@@ -241,6 +241,7 @@ fun AppNavGraph(app: KomgarotApp) {
             val vm: SeriesViewModel = viewModel(
                 factory = SeriesViewModel.Factory(
                     app.seriesRepository,
+                    app.bookRepository,
                     SharedPreferencesSeriesSortStore(app.applicationContext),
                     textProvider
                 )
@@ -341,6 +342,7 @@ fun AppNavGraph(app: KomgarotApp) {
             val vm: SeriesViewModel = viewModel(
                 factory = SeriesViewModel.Factory(
                     app.seriesRepository,
+                    app.bookRepository,
                     SharedPreferencesSeriesSortStore(app.applicationContext),
                     textProvider
                 )

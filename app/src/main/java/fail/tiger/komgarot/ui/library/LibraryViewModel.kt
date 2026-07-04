@@ -25,8 +25,8 @@ class LibraryViewModel(
 ) : ViewModel() {
     private val _libraries = MutableStateFlow<List<LibraryDto>>(emptyList())
     val libraries = _libraries.asStateFlow()
-    private val _onDeckBooks = MutableStateFlow<List<BookDto>>(emptyList())
-    val onDeckBooks = _onDeckBooks.asStateFlow()
+    private val _continueReadingBooks = MutableStateFlow<List<BookDto>>(emptyList())
+    val continueReadingBooks = _continueReadingBooks.asStateFlow()
     private val _latestBooks = MutableStateFlow<List<BookDto>>(emptyList())
     val latestBooks = _latestBooks.asStateFlow()
     private val _updatedSeries = MutableStateFlow<List<SeriesDto>>(emptyList())
@@ -44,7 +44,7 @@ class LibraryViewModel(
             _error.value = null
             val result = loadLibraryHome(repo, connectFailedMessage)
             _libraries.value = result.libraries
-            _onDeckBooks.value = result.onDeckBooks
+            _continueReadingBooks.value = result.continueReadingBooks
             _latestBooks.value = result.latestBooks
             _updatedSeries.value = result.updatedSeries
             _newSeries.value = result.newSeries
@@ -68,7 +68,7 @@ class LibraryViewModel(
 
 internal data class LibraryHomeLoadResult(
     val libraries: List<LibraryDto> = emptyList(),
-    val onDeckBooks: List<BookDto> = emptyList(),
+    val continueReadingBooks: List<BookDto> = emptyList(),
     val latestBooks: List<BookDto> = emptyList(),
     val updatedSeries: List<SeriesDto> = emptyList(),
     val newSeries: List<SeriesDto> = emptyList(),
@@ -80,7 +80,7 @@ internal suspend fun loadLibraryHome(
     fallbackMessage: String = "Komga connection failed"
 ): LibraryHomeLoadResult = supervisorScope {
     val libraries = async { runCatching { repo.getLibraries() } }
-    val onDeckBooks = async { runCatching { repo.getBooksOnDeck() } }
+    val continueReadingBooks = async { runCatching { repo.getContinueReadingBooks() } }
     val latestBooks = async { runCatching { repo.getLatestBooks() } }
     val updatedSeries = async { runCatching { repo.getUpdatedSeries() } }
     val newSeries = async { runCatching { repo.getNewSeries() } }
@@ -91,7 +91,7 @@ internal suspend fun loadLibraryHome(
 
     LibraryHomeLoadResult(
         libraries = libraries.await().valueOrDefault(emptyList()),
-        onDeckBooks = onDeckBooks.await().valueOrDefault(emptyList()),
+        continueReadingBooks = continueReadingBooks.await().valueOrDefault(emptyList()),
         latestBooks = latestBooks.await().valueOrDefault(emptyList()),
         updatedSeries = updatedSeries.await().valueOrDefault(emptyList()),
         newSeries = newSeries.await().valueOrDefault(emptyList()),

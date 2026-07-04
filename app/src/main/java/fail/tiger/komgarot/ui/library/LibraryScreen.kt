@@ -43,13 +43,13 @@ fun LibraryScreen(
     onBottomBarVisibleChange: (Boolean) -> Unit = {}
 ) {
     val libraries by vm.libraries.collectAsStateWithLifecycle()
-    val onDeckBooks by vm.onDeckBooks.collectAsStateWithLifecycle()
+    val continueReadingBooks by vm.continueReadingBooks.collectAsStateWithLifecycle()
     val latestBooks by vm.latestBooks.collectAsStateWithLifecycle()
     val updatedSeries by vm.updatedSeries.collectAsStateWithLifecycle()
     val newSeries by vm.newSeries.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
-    val hasAnyContent = libraries.isNotEmpty() || onDeckBooks.isNotEmpty() ||
+    val hasAnyContent = libraries.isNotEmpty() || continueReadingBooks.isNotEmpty() ||
         latestBooks.isNotEmpty() || updatedSeries.isNotEmpty() || newSeries.isNotEmpty()
     val listState = rememberLazyListState()
     AutoHideBottomBarOnLazyListScroll(listState, onBottomBarVisibleChange)
@@ -90,11 +90,11 @@ fun LibraryScreen(
                         }
                     }
 
-                    if (onDeckBooks.isNotEmpty()) {
+                    if (continueReadingBooks.isNotEmpty()) {
                         item {
                             BookSection(
                                 title = stringResource(R.string.continue_reading_section),
-                                books = onDeckBooks,
+                                books = continueReadingBooks,
                                 serverUrl = serverUrl,
                                 onBookClick = onBookClick
                             )
