@@ -1,5 +1,6 @@
 package fail.tiger.komgarot.data.repository
 
+import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
@@ -39,6 +40,22 @@ class AiLocalModelRepositoryTest {
 
         assertTrue(lowPlan.detRepoId.contains("tiny_det_onnx"))
         assertTrue(highPlan.detRepoId.contains("small_det_onnx"))
+    }
+
+    @Test
+    fun paddleDetectionInputUsesFineResolutionForMangaAndHighTier() {
+        assertEquals(
+            1600,
+            paddleDetectorInputMaxSide(AiLocalModelTier.LOW, AiSourceTextProfile.JAPANESE_MANGA)
+        )
+        assertEquals(
+            1600,
+            paddleDetectorInputMaxSide(AiLocalModelTier.HIGH, AiSourceTextProfile.AUTO)
+        )
+        assertEquals(
+            1280,
+            paddleDetectorInputMaxSide(AiLocalModelTier.LOW, AiSourceTextProfile.AUTO)
+        )
     }
 
     @Test
