@@ -67,6 +67,15 @@ class ReaderImageQualityStructureTest {
     }
 
     @Test
+    fun readerQuickSettingsChipsUseExplicitHighContrastColors() {
+        assertTrue(source.contains("ReaderQuickChipLabel("))
+        assertTrue(source.contains("readerQuickAssistChipColors()"))
+        assertTrue(source.contains("readerQuickFilterChipColors()"))
+        assertTrue(source.contains("ReaderQuickChipContainerColor"))
+        assertTrue(source.contains("ReaderQuickChipTextColor"))
+    }
+
+    @Test
     fun readerUsesTiledRendererForHugePages() {
         val tiledSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderTiledImage.kt").readText()
 
