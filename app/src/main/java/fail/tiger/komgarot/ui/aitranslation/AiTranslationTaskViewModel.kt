@@ -68,6 +68,11 @@ class AiTranslationTaskViewModel(
         }
     }
 
+    fun clearAllTranslations() {
+        repository?.clearAllTranslations() ?: store.clearAll()
+        refresh()
+    }
+
     class Factory(
         store: AiTranslationStore,
         repository: AiTranslationRepository? = null,

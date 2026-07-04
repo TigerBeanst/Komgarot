@@ -27,10 +27,19 @@ class WebDavBackupRepository(
         runCatching {
             val webDav = secureWebDavSettingsStore.read()
             require(webDav.url.isNotBlank()) { "WebDAV URL is required" }
+            val backupDirectoryUrl = webDav.url.trimEnd('/') + "/Komgarot/"
+            val directoryRequest = Request.Builder()
+                .url(backupDirectoryUrl)
+                .header("Authorization", Credentials.basic(webDav.username, webDav.password))
+                .method("MKCOL", null)
+                .build()
+            httpClient.newCall(directoryRequest).execute().use { response ->
+                require(response.isSuccessful || response.code == 405) { response.message }
+            }
             val body = buildBackupPayload()
                 .toRequestBody("application/json; charset=utf-8".toMediaType())
             val request = Request.Builder()
-                .url(webDav.url.trimEnd('/') + "/komgarot-ai-translation-backup.json")
+                .url(backupDirectoryUrl + "komgarot-ai-translation-backup.json")
                 .header("Authorization", Credentials.basic(webDav.username, webDav.password))
                 .put(body)
                 .build()
@@ -88,7 +97,7 @@ data class WebDavBackupSettings(
     val aiAutoSelectDeviceTier: Boolean = true,
     val aiImageTransport: String = "",
     val aiPagesPerRequest: Int = 10,
-    val aiConcurrentRequests: Int = 3,
+    val aiConcurrentRequests: Int = 8,
     val aiMaxImagesPerRequest: Int = 20,
     val aiTimeoutSeconds: Int = 30,
     val aiImageMaxEdge: String = "",

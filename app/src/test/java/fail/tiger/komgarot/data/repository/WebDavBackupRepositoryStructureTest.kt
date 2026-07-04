@@ -11,10 +11,15 @@ class WebDavBackupRepositoryStructureTest {
     fun repositorySupportsBackupWithoutCredentialFields() {
         assertTrue(source.contains("suspend fun backupNow()"))
         assertTrue(source.contains("secureWebDavSettingsStore.read()"))
+        assertTrue(source.contains("val backupDirectoryUrl = webDav.url.trimEnd('/') + \"/Komgarot/\""))
+        assertTrue(source.contains(".method(\"MKCOL\", null)"))
+        assertTrue(source.contains("response.isSuccessful || response.code == 405"))
         assertTrue(source.contains("buildBackupPayload()"))
         assertTrue(source.contains("aiTranslationStore.exportBooks()"))
         assertTrue(source.contains("aiBaseUrl = prefs.aiBaseUrl.first()"))
         assertTrue(source.contains("aiMaxImagesPerRequest = prefs.aiMaxImagesPerRequest.first()"))
         assertTrue(source.contains("val aiMaxImagesPerRequest: Int = 20"))
+        assertTrue(source.contains("aiConcurrentRequests = prefs.aiConcurrentRequests.first()"))
+        assertTrue(source.contains("val aiConcurrentRequests: Int = 8"))
     }
 }

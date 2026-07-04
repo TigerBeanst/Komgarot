@@ -1,11 +1,13 @@
 package fail.tiger.komgarot.ui.settings
 
 import java.io.File
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MeScreenStructureTest {
     private val source = File("src/main/java/fail/tiger/komgarot/ui/settings/SettingsScreen.kt").readText()
+    private val navSource = File("src/main/java/fail/tiger/komgarot/ui/navigation/AppNavGraph.kt").readText()
 
     @Test
     fun meScreenIncludesAboutSectionWithAppInfoAndUpdateCheck() {
@@ -24,5 +26,15 @@ class MeScreenStructureTest {
         assertTrue(source.contains("R.string.update_available"))
         assertTrue(source.contains("openExternalUrl(context, update.htmlUrl)"))
         assertTrue(source.contains("SelectionContainer"))
+    }
+
+    @Test
+    fun meScreenUsesBottomBarInsetFromNavigationShell() {
+        val overlayStart = navSource.indexOf("private fun usesOverlayBottomBar(")
+        val overlayEnd = navSource.indexOf("@Composable", overlayStart)
+        val overlaySource = navSource.substring(overlayStart, overlayEnd)
+
+        assertTrue(overlaySource.contains("route == Screen.Library.route"))
+        assertFalse(overlaySource.contains("route == Screen.Me.route"))
     }
 }

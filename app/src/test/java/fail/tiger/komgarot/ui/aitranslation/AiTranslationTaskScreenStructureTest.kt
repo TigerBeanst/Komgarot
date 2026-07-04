@@ -47,6 +47,20 @@ class AiTranslationTaskScreenStructureTest {
     fun taskViewModelSupportsRetryIncompleteAndClearBook() {
         assertTrue(viewModelSource.contains("retryIncompletePages"))
         assertTrue(viewModelSource.contains("clearBookTranslation"))
+        assertTrue(viewModelSource.contains("clearAllTranslations"))
         assertTrue(viewModelSource.contains("AiTranslationRepository"))
+    }
+
+    @Test
+    fun taskScreenHasClearAllTopBarActionWithTwoConfirmations() {
+        assertTrue(source.contains("clearAllFirstConfirmation"))
+        assertTrue(source.contains("clearAllFinalConfirmation"))
+        assertTrue(source.contains("actions = {"))
+        assertTrue(source.contains("Icon(Icons.Default.Delete"))
+        assertTrue(source.contains("R.string.ai_translate_clear_all_title"))
+        assertTrue(source.contains("R.string.ai_translate_clear_all_message_first"))
+        assertTrue(source.contains("R.string.ai_translate_clear_all_title_final"))
+        assertTrue(source.contains("R.string.ai_translate_clear_all_message_final"))
+        assertTrue(source.contains("vm.clearAllTranslations()"))
     }
 }
