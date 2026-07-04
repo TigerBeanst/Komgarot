@@ -588,8 +588,7 @@ private fun usesOverlayBottomBar(route: String?): Boolean =
     route == Screen.Library.route ||
         route == Screen.Browse.route ||
         route == Screen.Collections.route ||
-        route == Screen.ReadLists.route ||
-        route == Screen.Me.route
+        route == Screen.ReadLists.route
 
 @Composable
 private fun AdaptiveShell(

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,6 +46,8 @@ fun AiTranslationTaskScreen(
     var showTaskActionMenu by remember { mutableStateOf<AiTranslationTaskSummary?>(null) }
     var deleteFirstConfirmation by remember { mutableStateOf<AiTranslationTaskSummary?>(null) }
     var deleteFinalConfirmation by remember { mutableStateOf<AiTranslationTaskSummary?>(null) }
+    var clearAllFirstConfirmation by remember { mutableStateOf(false) }
+    var clearAllFinalConfirmation by remember { mutableStateOf(false) }
 
     LaunchedEffect(vm.state.tasks) {
         while (vm.state.tasks.any { it.isActiveAiTranslationTask() }) {
@@ -63,6 +66,14 @@ fun AiTranslationTaskScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { clearAllFirstConfirmation = true },
+                        enabled = vm.state.tasks.isNotEmpty()
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.ai_translate_clear_all))
                     }
                 }
             )
@@ -115,6 +126,48 @@ fun AiTranslationTaskScreen(
             onDelete = {
                 showTaskActionMenu = null
                 deleteFirstConfirmation = task
+            }
+        )
+    }
+
+    if (clearAllFirstConfirmation) {
+        AlertDialog(
+            onDismissRequest = { clearAllFirstConfirmation = false },
+            title = { Text(stringResource(R.string.ai_translate_clear_all_title)) },
+            text = { Text(stringResource(R.string.ai_translate_clear_all_message_first)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clearAllFirstConfirmation = false
+                    clearAllFinalConfirmation = true
+                }) {
+                    Text(stringResource(R.string.ai_translate_clear_all_continue))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { clearAllFirstConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    if (clearAllFinalConfirmation) {
+        AlertDialog(
+            onDismissRequest = { clearAllFinalConfirmation = false },
+            title = { Text(stringResource(R.string.ai_translate_clear_all_title_final)) },
+            text = { Text(stringResource(R.string.ai_translate_clear_all_message_final)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.clearAllTranslations()
+                    clearAllFinalConfirmation = false
+                }) {
+                    Text(stringResource(R.string.ai_translate_clear_all_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { clearAllFinalConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
             }
         )
     }
