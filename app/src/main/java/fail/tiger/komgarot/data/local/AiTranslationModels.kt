@@ -96,6 +96,7 @@ data class AiTranslationBlock(
     val translatedLines: List<String> = emptyList(),
     val rect: AiTranslationRect = AiTranslationRect(),
     val translationRect: AiTranslationRect = AiTranslationRect(),
+    val sourceColumns: List<AiTranslationRect> = emptyList(),
     val textColor: String = "#111111",
     val maskColor: String = "#FFFFFF",
     val maskAlpha: Float = 0.72f,
@@ -108,6 +109,7 @@ data class AiTranslationBlock(
     fun renderSafe(): AiTranslationBlock = copy(
         rect = rect.renderSafe(),
         translationRect = translationRect.takeIf { it != AiTranslationRect() }?.clampSafe() ?: AiTranslationRect(),
+        sourceColumns = sourceColumns.mapNotNull { it.sourceColumnSafeOrNull() }.take(24),
         maskAlpha = maskAlpha.coerceIn(0.78f, 0.88f),
         cornerRadius = cornerRadius.coerceIn(0f, 0.12f),
         rotationDegrees = rotationDegrees.coerceIn(-12f, 12f),
@@ -147,6 +149,21 @@ private fun AiTranslationRect.clampSafe(): AiTranslationRect {
         y = safeY,
         width = width.coerceIn(MIN_RENDER_RECT_SIZE, MAX_RENDER_RECT_SIZE).coerceAtMost(1f - safeX),
         height = height.coerceIn(MIN_RENDER_RECT_SIZE, MAX_RENDER_RECT_SIZE).coerceAtMost(1f - safeY)
+    )
+}
+
+private fun AiTranslationRect.sourceColumnSafeOrNull(): AiTranslationRect? {
+    if (width <= 0f || height <= 0f) return null
+    val safeX = x.coerceIn(0f, 0.99f)
+    val safeY = y.coerceIn(0f, 0.99f)
+    val safeWidth = width.coerceAtMost(1f - safeX)
+    val safeHeight = height.coerceAtMost(1f - safeY)
+    if (safeWidth <= 0f || safeHeight <= 0f) return null
+    return copy(
+        x = safeX,
+        y = safeY,
+        width = safeWidth,
+        height = safeHeight
     )
 }
 

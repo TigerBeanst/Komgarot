@@ -211,7 +211,8 @@ private fun localTextBoxClustersCanMerge(
     val rightRect = right.boundingRect()
     val combined = unionRects(leftRect, rightRect)
     if (!combined.fitsMergedTextBoxLimits(direction)) return false
-    if (normalizedIntersectionOverUnion(leftRect, rightRect) >= 0.18f) return true
+    val overlapEnough = normalizedIntersectionOverUnion(leftRect, rightRect) >= 0.18f
+    if (overlapEnough && !usesJapaneseVerticalTextBoxRules(sourceTextProfile, direction)) return true
     return when (direction) {
         AiTranslationTextDirection.VERTICAL -> verticalTextBoxClustersCanMerge(left, right, leftRect, rightRect, sourceTextProfile)
         AiTranslationTextDirection.HORIZONTAL -> horizontalTextBoxClustersCanMerge(left, right, leftRect, rightRect)
@@ -242,53 +243,51 @@ private fun verticalTextBoxClustersCanMerge(
     rightRect: AiTranslationRect,
     sourceTextProfile: AiSourceTextProfile
 ): Boolean {
+    if (sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA) {
+        return japaneseMangaVerticalTextColumnClustersCanMerge(left, right)
+    }
     val columnWidth = medianRegionThickness(left + right, AiTranslationTextDirection.VERTICAL)
     val gap = horizontalGap(leftRect, rightRect)
-    if (sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA) {
-        if (!sameBalloonBackground(left, right)) return false
-        if (!verticalFontSizeCompatible(left, right)) return false
-    }
     val alignedY = axisOverlapRatio(leftRect.y, leftRect.bottom, rightRect.y, rightRect.bottom) >= 0.22f ||
         abs(leftRect.centerY - rightRect.centerY) <= max(max(leftRect.height, rightRect.height) * 0.34f, 0.055f)
-    val sameColumnGapLimit = if (sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA) {
-        max(columnWidth * 1.25f, 0.024f)
-    } else {
-        max(columnWidth * 2.4f, 0.020f)
-    }
+    val sameColumnGapLimit = max(columnWidth * 2.4f, 0.020f)
     val adjacentSameColumn = axisOverlapRatio(leftRect.x, leftRect.right, rightRect.x, rightRect.right) >= 0.42f &&
         verticalGap(leftRect, rightRect) <= sameColumnGapLimit
     val topAligned = abs(leftRect.y - rightRect.y) <= max(columnWidth * 1.25f, 0.035f)
-    val columnGapLimit = if (sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA) {
-        max(columnWidth * 1.25f, 0.028f)
-    } else {
-        max(columnWidth * 1.9f, 0.028f)
-    }
+    val columnGapLimit = max(columnWidth * 1.9f, 0.028f)
     val adjacentColumns = alignedY && topAligned && gap <= columnGapLimit
     return adjacentSameColumn || adjacentColumns
 }
 
-private fun sameBalloonBackground(
-    left: List<AiTranslationLocalTextRegion>,
-    right: List<AiTranslationLocalTextRegion>
-): Boolean = dominantColor(left.map { it.backgroundColor }) == dominantColor(right.map { it.backgroundColor })
+private fun usesJapaneseVerticalTextBoxRules(
+    sourceTextProfile: AiSourceTextProfile,
+    direction: AiTranslationTextDirection
+): Boolean = sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA &&
+    direction == AiTranslationTextDirection.VERTICAL
 
-private fun verticalFontSizeCompatible(
+private fun japaneseMangaVerticalTextColumnClustersCanMerge(
     left: List<AiTranslationLocalTextRegion>,
     right: List<AiTranslationLocalTextRegion>
-): Boolean {
-    val leftThickness = medianRegionThickness(left, AiTranslationTextDirection.VERTICAL)
-    val rightThickness = medianRegionThickness(right, AiTranslationTextDirection.VERTICAL)
-    val thicknessRatio = min(leftThickness, rightThickness) / max(max(leftThickness, rightThickness), 0.001f)
-    val leftScale = medianEstimatedFontScale(left)
-    val rightScale = medianEstimatedFontScale(right)
-    val scaleRatio = min(leftScale, rightScale) / max(max(leftScale, rightScale), 0.001f)
-    return thicknessRatio >= 0.68f && scaleRatio >= 0.70f
+): Boolean = left.any { leftRegion ->
+    right.any { rightRegion ->
+        japaneseMangaVerticalTextColumnsCanMerge(leftRegion.rect, rightRegion.rect)
+    }
 }
 
-private fun medianEstimatedFontScale(regions: List<AiTranslationLocalTextRegion>): Float {
-    val values = regions.map { it.estimatedFontScale }.sorted()
-    if (values.isEmpty()) return 1f
-    return values[values.size / 2]
+private fun japaneseMangaVerticalTextColumnsCanMerge(
+    leftRect: AiTranslationRect,
+    rightRect: AiTranslationRect
+): Boolean {
+    val sameColumnOverlap = axisOverlapRatio(leftRect.x, leftRect.right, rightRect.x, rightRect.right) >= 0.35f
+    if (sameColumnOverlap) return false
+    val minWidth = min(leftRect.width, rightRect.width)
+    val maxWidth = max(leftRect.width, rightRect.width)
+    val averageWidth = (leftRect.width + rightRect.width) / 2f
+    val widthRatio = minWidth / max(maxWidth, 0.001f)
+    val closeGap = horizontalGap(leftRect, rightRect) <= max(averageWidth * 0.45f, 0.012f)
+    val topTolerance = max(averageWidth * 0.30f, 0.008f)
+    val topAligned = abs(leftRect.y - rightRect.y) <= topTolerance
+    return widthRatio >= 0.94f && closeGap && topAligned
 }
 
 private fun splitMergedLocalTextBoxCluster(
@@ -306,7 +305,11 @@ private fun splitMergedLocalTextBoxCluster(
     val splitGap = max(columnWidth * 1.05f, medianGap * 1.45f)
     val groups = mutableListOf<MutableList<AiTranslationLocalTextRegion>>(mutableListOf(ordered.first()))
     gaps.forEachIndexed { index, gap ->
-        if (gap > splitGap) {
+        val left = ordered[index]
+        val right = ordered[index + 1]
+        val shouldSplit = gap > splitGap ||
+            !japaneseMangaVerticalTextColumnsCanMerge(left.rect, right.rect)
+        if (shouldSplit) {
             groups += mutableListOf(ordered[index + 1])
         } else {
             groups.last() += ordered[index + 1]
@@ -326,7 +329,8 @@ private fun AiTranslationRect.fitsMergedTextBoxLimits(direction: AiTranslationTe
 
 private fun List<AiTranslationLocalTextRegion>.toMergedLocalTextBoxRegion(): AiTranslationLocalTextRegion {
     if (size == 1) return first().copy(
-        estimatedFontScale = estimateMergedTextBoxFontScale(first().textDirection, this)
+        estimatedFontScale = estimateMergedTextBoxFontScale(first().textDirection, this),
+        sourceColumns = first().effectiveSourceColumns()
     )
     val direction = clusterDirection()
     val ordered = sortedWith(aiLocalRegionReadingOrder(direction))
@@ -338,7 +342,8 @@ private fun List<AiTranslationLocalTextRegion>.toMergedLocalTextBoxRegion(): AiT
         textColor = dominantColor(ordered.map { it.textColor }),
         backgroundColor = dominantColor(ordered.map { it.backgroundColor }),
         confidence = ordered.map { it.confidence }.average().toFloat().coerceIn(0f, 1f),
-        estimatedFontScale = estimateMergedTextBoxFontScale(direction, ordered)
+        estimatedFontScale = estimateMergedTextBoxFontScale(direction, ordered),
+        sourceColumns = ordered.flatMap { it.effectiveSourceColumns() }
     )
 }
 
@@ -900,7 +905,7 @@ internal fun AiTranslationLocalTextRegion.effectiveTextBounds(): AiTranslationRe
     textBounds.effectiveRegionGeometryOrNull() ?: rect
 
 internal fun AiTranslationLocalTextRegion.effectiveSourceMaskBounds(): AiTranslationRect =
-    effectiveTextBounds()
+    textBounds.effectiveRegionGeometryOrNull() ?: inferredSourceMaskBounds()
 
 internal fun AiTranslationLocalTextRegion.effectiveRenderBounds(): AiTranslationRect =
     renderBounds.effectiveRegionGeometryOrNull() ?: rect
@@ -909,9 +914,7 @@ internal fun AiTranslationLocalTextRegion.effectiveRenderBoundsForKind(kind: AiT
     renderBounds.effectiveRegionGeometryOrNull() ?: inferredRenderBoundsForKind(kind)
 
 internal fun AiTranslationLocalTextRegion.effectiveAiCropBounds(): AiTranslationRect =
-    aiCropBounds.effectiveRegionGeometryOrNull()
-        ?: textBounds.effectiveRegionGeometryOrNull()
-        ?: rect
+    aiCropBounds.effectiveRegionGeometryOrNull() ?: inferredAiCropBounds()
 
 private fun AiTranslationRect.effectiveRegionGeometryOrNull(): AiTranslationRect? =
     takeIf { width > 0f && height > 0f }
@@ -927,8 +930,8 @@ private fun AiTranslationLocalTextRegion.inferredRenderBoundsForKind(kind: AiTra
     if (!usesDialogueLayout) return rect
     return when (textDirection) {
         AiTranslationTextDirection.VERTICAL -> rect.expandNormalized(
-            extraWidth = max(rect.width * 0.95f, 0.030f),
-            extraHeight = max(rect.height * 0.10f, 0.012f)
+            extraWidth = max(max(rect.width * 1.20f, rect.height * 0.15f), 0.060f),
+            extraHeight = max(rect.height * 0.12f, 0.016f)
         )
         AiTranslationTextDirection.HORIZONTAL -> rect.expandNormalized(
             extraWidth = max(rect.width * 0.18f, 0.014f),
@@ -939,6 +942,45 @@ private fun AiTranslationLocalTextRegion.inferredRenderBoundsForKind(kind: AiTra
             extraHeight = max(rect.height * 0.25f, 0.014f)
         )
     }
+}
+
+private fun AiTranslationLocalTextRegion.inferredSourceMaskBounds(): AiTranslationRect {
+    val extraWidth = when (textDirection) {
+        AiTranslationTextDirection.VERTICAL -> max(rect.width * 0.42f, 0.010f)
+        AiTranslationTextDirection.HORIZONTAL -> max(rect.width * 0.16f, 0.014f)
+        AiTranslationTextDirection.AUTO -> max(rect.width * 0.24f, 0.012f)
+    }
+    val extraHeight = when (textDirection) {
+        AiTranslationTextDirection.VERTICAL -> max(rect.height * 0.08f, 0.014f)
+        AiTranslationTextDirection.HORIZONTAL -> max(rect.height * 0.32f, 0.010f)
+        AiTranslationTextDirection.AUTO -> max(rect.height * 0.18f, 0.012f)
+    }
+    return rect.expandNormalized(extraWidth = extraWidth, extraHeight = extraHeight)
+}
+
+private fun AiTranslationLocalTextRegion.inferredAiCropBounds(): AiTranslationRect {
+    val base = sourceColumns
+        .filter { it.width > 0f && it.height > 0f }
+        .takeIf { it.isNotEmpty() }
+        ?.let { columns -> columns.map { it.toRegion() }.boundingRect() }
+        ?: effectiveTextBounds()
+    val extraWidth = when (textDirection) {
+        AiTranslationTextDirection.VERTICAL -> max(base.width * 0.22f, 0.006f)
+        AiTranslationTextDirection.HORIZONTAL -> max(base.width * 0.10f, 0.008f)
+        AiTranslationTextDirection.AUTO -> max(base.width * 0.14f, 0.007f)
+    }
+    val extraHeight = when (textDirection) {
+        AiTranslationTextDirection.VERTICAL -> max(base.height * 0.05f, 0.008f)
+        AiTranslationTextDirection.HORIZONTAL -> max(base.height * 0.18f, 0.006f)
+        AiTranslationTextDirection.AUTO -> max(base.height * 0.10f, 0.007f)
+    }
+    return base.expandNormalized(extraWidth = extraWidth, extraHeight = extraHeight)
+}
+
+internal fun AiTranslationLocalTextRegion.effectiveSourceColumns(): List<AiTranslationRect> {
+    val explicitColumns = sourceColumns.filter { it.width > 0f && it.height > 0f }
+    if (explicitColumns.isNotEmpty()) return explicitColumns
+    return listOf(effectiveTextBounds())
 }
 
 private fun AiTranslationRect.expandNormalized(extraWidth: Float, extraHeight: Float): AiTranslationRect {
@@ -964,7 +1006,8 @@ internal fun AiTranslationBlock.correctWithLocalRegion(region: AiTranslationLoca
         maskColor = region.backgroundColor,
         textDirection = region.textDirection,
         rotationDegrees = if (region.rotationDegrees != 0f) region.rotationDegrees else rotationDegrees,
-        fontScale = region.estimatedFontScale
+        fontScale = region.estimatedFontScale,
+        sourceColumns = region.effectiveSourceColumns()
     )
 }
 
