@@ -24,6 +24,7 @@ data class AiBookTranslationMetadata(
     val provider: String = "openai-compatible",
     val model: String = "",
     val mode: String = AiTranslationMode.LOCAL_DETECTION.storedValue,
+    val sourceTextProfile: String = AiSourceTextProfile.AUTO.storedValue,
     val modePinned: Boolean = false
 )
 
@@ -42,6 +43,7 @@ data class AiTranslatedPage(
     val imageHeight: Int = 0,
     val blocks: List<AiTranslationBlock> = emptyList(),
     val errorSummary: String = "",
+    val errorCategory: String = "",
     val mode: String = AiTranslationMode.LOCAL_DETECTION.storedValue
 )
 
@@ -50,6 +52,27 @@ enum class AiTranslationPageStatus {
     RUNNING,
     DONE,
     FAILED
+}
+
+enum class AiTranslationFailureCategory(val storedValue: String) {
+    SETTINGS("settings"),
+    MODEL_CONFIGURATION("model_configuration"),
+    PAGE_LIST("page_list"),
+    IMAGE_INPUT("image_input"),
+    LOCAL_TEXT_EMPTY("local_text_empty"),
+    REGION_CROP("region_crop"),
+    NETWORK_OR_API("network_or_api"),
+    VISION_UNSUPPORTED("vision_unsupported"),
+    NON_JSON_RESPONSE("non_json_response"),
+    JSON_VALIDATION_FAILED("json_validation_failed"),
+    EMPTY_AI_RESULT("empty_ai_result"),
+    SAVE_VERIFICATION("save_verification"),
+    UNKNOWN("unknown");
+
+    companion object {
+        fun fromStoredValue(value: String): AiTranslationFailureCategory =
+            entries.firstOrNull { it.storedValue == value } ?: UNKNOWN
+    }
 }
 
 enum class AiTranslationBlockKind {
@@ -73,6 +96,7 @@ data class AiTranslationBlock(
     val translatedLines: List<String> = emptyList(),
     val rect: AiTranslationRect = AiTranslationRect(),
     val translationRect: AiTranslationRect = AiTranslationRect(),
+    val sourceColumns: List<AiTranslationRect> = emptyList(),
     val textColor: String = "#111111",
     val maskColor: String = "#FFFFFF",
     val maskAlpha: Float = 0.72f,
@@ -85,6 +109,7 @@ data class AiTranslationBlock(
     fun renderSafe(): AiTranslationBlock = copy(
         rect = rect.renderSafe(),
         translationRect = translationRect.takeIf { it != AiTranslationRect() }?.clampSafe() ?: AiTranslationRect(),
+        sourceColumns = sourceColumns.mapNotNull { it.sourceColumnSafeOrNull() }.take(24),
         maskAlpha = maskAlpha.coerceIn(0.78f, 0.88f),
         cornerRadius = cornerRadius.coerceIn(0f, 0.12f),
         rotationDegrees = rotationDegrees.coerceIn(-12f, 12f),
@@ -124,6 +149,21 @@ private fun AiTranslationRect.clampSafe(): AiTranslationRect {
         y = safeY,
         width = width.coerceIn(MIN_RENDER_RECT_SIZE, MAX_RENDER_RECT_SIZE).coerceAtMost(1f - safeX),
         height = height.coerceIn(MIN_RENDER_RECT_SIZE, MAX_RENDER_RECT_SIZE).coerceAtMost(1f - safeY)
+    )
+}
+
+private fun AiTranslationRect.sourceColumnSafeOrNull(): AiTranslationRect? {
+    if (width <= 0f || height <= 0f) return null
+    val safeX = x.coerceIn(0f, 0.99f)
+    val safeY = y.coerceIn(0f, 0.99f)
+    val safeWidth = width.coerceAtMost(1f - safeX)
+    val safeHeight = height.coerceAtMost(1f - safeY)
+    if (safeWidth <= 0f || safeHeight <= 0f) return null
+    return copy(
+        x = safeX,
+        y = safeY,
+        width = safeWidth,
+        height = safeHeight
     )
 }
 

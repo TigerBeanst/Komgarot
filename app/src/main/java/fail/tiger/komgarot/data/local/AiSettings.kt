@@ -7,12 +7,14 @@ data class AiSettings(
     val targetLocale: String,
     val targetLanguageName: String,
     val preferredMode: AiTranslationMode,
+    val sourceTextProfile: AiSourceTextProfile,
     val localModelSource: AiLocalModelSource,
     val modelCollectionId: String,
     val modelRevision: String,
     val downloadLatestModel: Boolean,
     val autoSelectDeviceTier: Boolean,
     val imageTransport: AiImageTransport,
+    val requestMode: AiTranslationRequestMode,
     val pagesPerRequest: Int,
     val concurrentRequests: Int,
     val maxImagesPerRequest: Int,
@@ -36,14 +38,16 @@ data class AiSettings(
             targetLocale = targetLocale,
             targetLanguageName = targetLanguageName,
             preferredMode = AiTranslationMode.LOCAL_DETECTION,
+            sourceTextProfile = AiSourceTextProfile.AUTO,
             localModelSource = AiLocalModelSource.HUGGING_FACE,
             modelCollectionId = "PaddlePaddle/pp-ocrv6",
             modelRevision = "main",
             downloadLatestModel = true,
             autoSelectDeviceTier = true,
             imageTransport = AiImageTransport.BASE64,
+            requestMode = AiTranslationRequestMode.SERIAL,
             pagesPerRequest = 10,
-            concurrentRequests = 3,
+            concurrentRequests = 8,
             maxImagesPerRequest = 20,
             timeoutSeconds = 30,
             imageMaxEdge = AiImageMaxEdge.PX_1600,
@@ -53,7 +57,7 @@ data class AiSettings(
         )
 
         fun normalizePagesPerRequest(value: Int): Int = value.coerceAtLeast(1)
-        fun normalizeConcurrentRequests(value: Int): Int = value.coerceAtLeast(1)
+        fun normalizeConcurrentRequests(value: Int): Int = value.coerceIn(1, 8)
         fun normalizeMaxImagesPerRequest(value: Int): Int = value.coerceAtLeast(2)
         fun normalizeTimeoutSeconds(value: Int): Int = value.coerceAtLeast(0)
     }
@@ -65,6 +69,17 @@ enum class AiTranslationMode(val storedValue: String) {
     companion object {
         fun fromStoredValue(value: String): AiTranslationMode =
             entries.firstOrNull { it.storedValue == value } ?: LOCAL_DETECTION
+    }
+}
+
+enum class AiSourceTextProfile(val storedValue: String) {
+    AUTO("auto"),
+    JAPANESE_MANGA("japanese_manga"),
+    KOREAN_HORIZONTAL_WEBTOON("korean_horizontal_webtoon");
+
+    companion object {
+        fun fromStoredValue(value: String): AiSourceTextProfile =
+            entries.firstOrNull { it.storedValue == value } ?: AUTO
     }
 }
 
@@ -84,6 +99,16 @@ enum class AiImageTransport(val storedValue: String) {
     companion object {
         fun fromStoredValue(value: String): AiImageTransport =
             entries.firstOrNull { it.storedValue == value } ?: BASE64
+    }
+}
+
+enum class AiTranslationRequestMode(val storedValue: String) {
+    SERIAL("serial"),
+    PARALLEL("parallel");
+
+    companion object {
+        fun fromStoredValue(value: String): AiTranslationRequestMode =
+            entries.firstOrNull { it.storedValue == value } ?: SERIAL
     }
 }
 

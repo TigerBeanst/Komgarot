@@ -11,13 +11,12 @@ class SettingsScreenStructureTest {
     fun settingsContentUsesSectionHeadersAndDividers() {
         assertTrue(source.contains("SettingsCategoryList("))
         assertTrue(source.contains("SettingsCategoryItem("))
-        assertTrue(source.contains("SettingsPageContent("))
+        assertTrue(!source.contains("SettingsPageContent("))
         assertTrue(source.contains("enum class SettingsPage"))
         assertTrue(source.contains("var selectedSettingsPage by remember { mutableStateOf<SettingsPage?>(null) }"))
         assertTrue(source.contains("when (page)"))
         assertTrue(source.contains("SettingsSectionHeader(stringResource(R.string.settings_section_cache))"))
         assertTrue(source.contains("SettingsSectionHeader(stringResource(R.string.settings_section_reading))"))
-        assertTrue(source.contains("SettingsSectionHeader(stringResource(R.string.settings_section_ai_models))"))
         assertTrue(source.contains("SettingsSectionHeader(stringResource(R.string.settings_section_security))"))
         assertTrue(!source.contains("SettingsPageTabs("))
         assertTrue(!source.contains("ScrollableTabRow("))
@@ -30,7 +29,7 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("SettingsCategoryList(aiTranslationAvailable = aiTranslationAvailable"))
         assertTrue(source.contains("SettingsPage.entries.filter { page ->"))
         assertTrue(source.contains("aiTranslationAvailable || page !in aiOnlySettingsPages"))
-        assertTrue(source.contains("private val aiOnlySettingsPages"))
+        assertTrue(source.contains("private val aiOnlySettingsPages = setOf(SettingsPage.AI)"))
     }
 
     @Test
@@ -61,6 +60,10 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("R.string.settings_ai_target_language"))
         assertTrue(source.contains("AiTargetLanguageOption"))
         assertTrue(source.contains("showAiTargetLanguageMenu"))
+        assertTrue(source.contains("R.string.settings_ai_source_text_profile"))
+        assertTrue(source.contains("AiSourceTextProfileOption"))
+        assertTrue(source.contains("showAiSourceTextProfileDialog"))
+        assertTrue(source.contains("prefs.setAiSourceTextProfile"))
         assertTrue(source.contains("R.string.settings_ai_image_transport"))
         assertTrue(source.contains("R.string.settings_ai_s3_endpoint"))
         assertTrue(source.contains("R.string.settings_ai_s3_bucket"))
@@ -76,6 +79,11 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("R.string.settings_ai_base_url_placeholder"))
         assertTrue(source.contains("R.string.settings_ai_pages_per_request"))
         assertTrue(source.contains("R.string.settings_ai_max_images_per_request"))
+        assertTrue(source.contains("R.string.settings_ai_request_mode"))
+        assertTrue(source.contains("R.string.settings_ai_request_mode_serial"))
+        assertTrue(source.contains("R.string.settings_ai_request_mode_parallel"))
+        assertTrue(source.contains("prefs.setAiTranslationRequestMode"))
+        assertTrue(source.contains("if (aiTranslationRequestMode == AiTranslationRequestMode.PARALLEL)"))
         assertTrue(source.contains("R.string.settings_ai_concurrent_requests"))
         assertTrue(source.contains("R.string.settings_ai_timeout"))
         assertTrue(source.contains("R.string.settings_ai_vertical_glyph_spacing"))
@@ -85,8 +93,17 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("prefs.setAiTimeoutSeconds"))
         assertTrue(source.contains("prefs.setAiVerticalGlyphSpacingPercent"))
         assertTrue(source.contains("prefs.setAiMaxImagesPerRequest"))
-        assertTrue(source.contains("R.string.settings_ai_test_mode"))
-        assertTrue(source.contains("R.string.ai_translation_mode_local_detection"))
+        assertTrue(!source.contains("R.string.settings_ai_test_mode"))
+        assertTrue(!source.contains("setAiTestModeEnabled"))
+        assertTrue(source.contains("R.string.settings_ai_section_basic"))
+        assertTrue(source.contains("R.string.settings_ai_section_request"))
+        assertTrue(source.contains("R.string.settings_ai_section_image_transport"))
+        assertTrue(source.contains("R.string.settings_ai_section_local_model"))
+        assertTrue(source.contains("R.string.settings_ai_section_data"))
+        assertTrue(source.contains("R.string.settings_ai_purge_translation_data"))
+        assertTrue(source.contains("purgeMissingBookTranslations()"))
+        assertTrue(!source.contains("R.string.ai_translation_mode_local_detection"))
+        assertTrue(!source.contains("settings_ai_local_detection_pipeline_desc"))
         assertTrue(!source.contains("R.string.settings_ai_default_mode"))
         assertTrue(!source.contains("showAiModeDialog"))
         assertTrue(!source.contains("AiTranslationMode.entries"))
@@ -94,19 +111,43 @@ class SettingsScreenStructureTest {
 
     @Test
     fun settingsContentIncludesAiModelManagementOptions() {
-        assertTrue(source.contains("R.string.settings_section_ai_models"))
-        assertTrue(source.contains("R.string.settings_ai_model_source"))
-        assertTrue(source.contains("R.string.settings_ai_model_collection"))
-        assertTrue(source.contains("R.string.settings_ai_model_revision"))
-        assertTrue(source.contains("R.string.settings_ai_model_download_policy"))
+        assertTrue(!source.contains("SettingsPage.MODELS"))
+        assertTrue(!source.contains("R.string.settings_section_ai_models"))
+        assertTrue(!source.contains("R.string.settings_ai_model_source"))
+        assertTrue(!source.contains("R.string.settings_ai_model_collection"))
+        assertTrue(!source.contains("R.string.settings_ai_model_revision"))
+        assertTrue(!source.contains("R.string.settings_ai_model_download_policy"))
         assertTrue(source.contains("R.string.settings_ai_model_download_now"))
         assertTrue(source.contains("R.string.settings_ai_model_delete_now"))
         assertTrue(source.contains("showDeleteLocalModelsDialog"))
         assertTrue(source.contains("aiLocalModelRepository?.deletePlan"))
         assertTrue(source.contains("R.string.settings_ai_model_device_tier"))
-        assertTrue(source.contains("R.string.settings_ai_model_auto_select"))
-        assertTrue(source.contains("R.string.settings_ai_model_download_latest"))
-        assertTrue(source.contains("R.string.settings_ai_model_huggingface_collection_placeholder"))
+        assertTrue(!source.contains("R.string.settings_ai_model_auto_select"))
+        assertTrue(!source.contains("R.string.settings_ai_model_download_latest"))
+        assertTrue(!source.contains("R.string.settings_ai_model_huggingface_collection_placeholder"))
+    }
+
+    @Test
+    fun settingsSubpagesUseTopBarBackHandler() {
+        assertTrue(source.contains("BackHandler(enabled = selectedSettingsPage != null)"))
+        assertTrue(source.contains("TopAppBar("))
+        assertTrue(source.contains("selectedSettingsPage?.titleRes ?: R.string.settings"))
+        assertTrue(source.contains("AnimatedContent("))
+        assertTrue(source.contains("slideInHorizontally"))
+        assertTrue(source.contains("slideOutHorizontally"))
+        assertTrue(!source.contains("SettingsPageContent("))
+    }
+
+    @Test
+    fun settingsAnimatedContentUsesSingleRootColumn() {
+        val animatedContentStart = source.indexOf("AnimatedContent(")
+        val contentLambdaStart = source.indexOf(") { page ->", animatedContentStart)
+        val rootColumnStart = source.indexOf("Column(Modifier.fillMaxWidth())", contentLambdaStart)
+        val categoryListStart = source.indexOf("SettingsCategoryList(aiTranslationAvailable = aiTranslationAvailable", contentLambdaStart)
+
+        assertTrue(animatedContentStart >= 0)
+        assertTrue(contentLambdaStart >= 0)
+        assertTrue(rootColumnStart in contentLambdaStart until categoryListStart)
     }
 
     @Test
@@ -123,7 +164,11 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("R.string.settings_webdav_url"))
         assertTrue(source.contains("R.string.settings_webdav_username"))
         assertTrue(source.contains("R.string.settings_webdav_password"))
-        assertTrue(source.contains("R.string.settings_webdav_backup_excludes_credentials"))
+        assertTrue(source.contains("R.string.settings_webdav_backup_hint"))
+        assertTrue(source.contains("webDavPasswordDisplayText(secureWebDavSettings.password)"))
+        assertTrue(source.contains("secureWebDavSettings.username.ifBlank { stringResource(R.string.settings_not_configured) }"))
+        assertTrue(source.contains("passwordInput = true"))
+        assertTrue(!source.contains("R.string.settings_webdav_backup_scope"))
         assertTrue(source.contains("R.string.settings_webdav_backup_now"))
         assertTrue(source.contains("webDavBackupRepository?.backupNow()"))
     }

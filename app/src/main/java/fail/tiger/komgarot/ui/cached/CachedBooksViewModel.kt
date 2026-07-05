@@ -19,7 +19,12 @@ class CachedBooksViewModel(private val source: CachedBooksSource) : ViewModel() 
         books = source.load()
     }
 
+    fun clearAll() {
+        source.clearAll()
+        load()
+    }
+
     class Factory(cacheDir: File) : ViewModelProvider.Factory by viewModelFactory({
-        initializer { CachedBooksViewModel(CachedBooksSource(BookDownloadIndex(cacheDir))) }
+        initializer { CachedBooksViewModel(CachedBooksSource(BookDownloadIndex(cacheDir), cacheDir)) }
     })
 }

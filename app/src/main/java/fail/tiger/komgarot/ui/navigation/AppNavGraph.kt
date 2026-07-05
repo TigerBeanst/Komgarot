@@ -55,6 +55,8 @@ import fail.tiger.komgarot.BuildConfig
 import fail.tiger.komgarot.R
 import fail.tiger.komgarot.data.local.ImageCacheInvalidator
 import fail.tiger.komgarot.data.remote.dto.BookDto
+import fail.tiger.komgarot.data.repository.deviceProfile
+import fail.tiger.komgarot.data.repository.recommendAiLocalModelTier
 import fail.tiger.komgarot.ui.aitranslation.AiTranslationTaskScreen
 import fail.tiger.komgarot.ui.aitranslation.AiTranslationTaskViewModel
 import fail.tiger.komgarot.ui.admin.AdminScreen
@@ -241,6 +243,7 @@ fun AppNavGraph(app: KomgarotApp) {
             val vm: SeriesViewModel = viewModel(
                 factory = SeriesViewModel.Factory(
                     app.seriesRepository,
+                    app.bookRepository,
                     SharedPreferencesSeriesSortStore(app.applicationContext),
                     textProvider
                 )
@@ -341,6 +344,7 @@ fun AppNavGraph(app: KomgarotApp) {
             val vm: SeriesViewModel = viewModel(
                 factory = SeriesViewModel.Factory(
                     app.seriesRepository,
+                    app.bookRepository,
                     SharedPreferencesSeriesSortStore(app.applicationContext),
                     textProvider
                 )
@@ -451,7 +455,9 @@ fun AppNavGraph(app: KomgarotApp) {
                     app.bookRepository,
                     app.authPreferences,
                     textProvider,
-                    if (aiTranslationAvailable) app.aiTranslationRepositoryOrNull else null
+                    if (aiTranslationAvailable) app.aiTranslationRepositoryOrNull else null,
+                    if (aiTranslationAvailable) app.aiLocalModelRepository else null,
+                    { recommendAiLocalModelTier(deviceProfile(app.applicationContext)) }
                 )
             )
             ReaderScreen(
@@ -582,8 +588,7 @@ private fun usesOverlayBottomBar(route: String?): Boolean =
     route == Screen.Library.route ||
         route == Screen.Browse.route ||
         route == Screen.Collections.route ||
-        route == Screen.ReadLists.route ||
-        route == Screen.Me.route
+        route == Screen.ReadLists.route
 
 @Composable
 private fun AdaptiveShell(
