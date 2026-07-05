@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.ui.library
 
 import fail.tiger.komgarot.data.remote.dto.BookDto
+import fail.tiger.komgarot.data.remote.dto.ReadProgressDto
 import fail.tiger.komgarot.data.remote.dto.LibraryDto
 import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.LibraryHomeSource
@@ -15,21 +16,28 @@ class LibraryHomeLoaderTest {
         val result = loadLibraryHome(FakeLibraryHomeSource(failLatestBooks = true))
 
         assertEquals(listOf(LibraryDto(id = "library-1", name = "Library")), result.libraries)
-        assertEquals(listOf(BookDto(id = "deck-1")), result.onDeckBooks)
+        assertEquals(listOf("continue-1"), result.continueReadingBooks.map { it.id })
         assertTrue(result.latestBooks.isEmpty())
         assertEquals(listOf(SeriesDto(id = "updated-1")), result.updatedSeries)
         assertEquals(listOf(SeriesDto(id = "new-1")), result.newSeries)
         assertEquals(listOf("latest failed"), result.failures)
     }
 
+    @Test
+    fun loadLibraryHomeUsesContinueReadingSource() = runBlocking {
+        val result = loadLibraryHome(FakeLibraryHomeSource())
+
+        assertEquals(listOf("continue-1"), result.continueReadingBooks.map { it.id })
+    }
+
     private class FakeLibraryHomeSource(
-        private val failLatestBooks: Boolean
+        private val failLatestBooks: Boolean = false
     ) : LibraryHomeSource {
         override suspend fun getLibraries(): List<LibraryDto> =
             listOf(LibraryDto(id = "library-1", name = "Library"))
 
-        override suspend fun getBooksOnDeck(size: Int): List<BookDto> =
-            listOf(BookDto(id = "deck-1"))
+        override suspend fun getContinueReadingBooks(size: Int): List<BookDto> =
+            listOf(BookDto(id = "continue-1", readProgress = ReadProgressDto(page = 4, completed = false)))
 
         override suspend fun getLatestBooks(size: Int): List<BookDto> {
             if (failLatestBooks) error("latest failed")

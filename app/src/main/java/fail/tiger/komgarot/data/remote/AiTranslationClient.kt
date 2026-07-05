@@ -24,7 +24,8 @@ data class AiTranslationImageInput(
     val mimeType: String,
     val base64: String,
     val imageUrl: String,
-    val localRegionId: String = ""
+    val localRegionId: String = "",
+    val fallbackBase64: String = base64
 ) {
     fun toOpenAiImageUrl(): String =
         when (transport) {
@@ -35,13 +36,14 @@ data class AiTranslationImageInput(
     fun asBase64Fallback(): AiTranslationImageInput =
         copy(
             transport = AiImageTransport.BASE64,
+            base64 = base64.ifBlank { fallbackBase64 },
             imageUrl = ""
         )
 
     fun metadataText(): String = if (localRegionId.isBlank()) {
-        "imageRole=page_context; pageIndex=$pageIndex"
+        "imageRole=page_context; pageIndex=$pageIndex; sceneContextOnly=true"
     } else {
-        "imageRole=text_region; pageIndex=$pageIndex; localRegionId=$localRegionId"
+        "imageRole=text_region; pageIndex=$pageIndex; currentTextRegion=true; textSourceOnlyForCurrentRegion=true"
     }
 }
 

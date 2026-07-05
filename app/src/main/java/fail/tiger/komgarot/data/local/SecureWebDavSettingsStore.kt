@@ -27,7 +27,7 @@ class SecureWebDavSettingsStore(context: Context) {
 
     fun save(settings: SecureWebDavSettings) {
         prefs.edit {
-            putString(URL, settings.url.trimEnd('/'))
+            putString(URL, normalizeWebDavUrl(settings.url))
             putString(USERNAME, settings.username)
             putString(PASSWORD, settings.password)
         }
@@ -50,3 +50,8 @@ data class SecureWebDavSettings(
     val username: String = "",
     val password: String = ""
 )
+
+fun normalizeWebDavUrl(value: String): String {
+    val trimmed = value.trim()
+    return if (trimmed.isBlank()) "" else trimmed.trimEnd('/') + "/"
+}

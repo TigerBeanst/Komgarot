@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import fail.tiger.komgarot.R
+import fail.tiger.komgarot.data.local.AiTranslationFailureCategory
 import fail.tiger.komgarot.data.local.AiTranslationTaskSummary
 import fail.tiger.komgarot.data.local.AiTranslationTaskStatus
 import kotlinx.coroutines.delay
@@ -44,6 +46,8 @@ fun AiTranslationTaskScreen(
     var showTaskActionMenu by remember { mutableStateOf<AiTranslationTaskSummary?>(null) }
     var deleteFirstConfirmation by remember { mutableStateOf<AiTranslationTaskSummary?>(null) }
     var deleteFinalConfirmation by remember { mutableStateOf<AiTranslationTaskSummary?>(null) }
+    var clearAllFirstConfirmation by remember { mutableStateOf(false) }
+    var clearAllFinalConfirmation by remember { mutableStateOf(false) }
 
     LaunchedEffect(vm.state.tasks) {
         while (vm.state.tasks.any { it.isActiveAiTranslationTask() }) {
@@ -62,6 +66,14 @@ fun AiTranslationTaskScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { clearAllFirstConfirmation = true },
+                        enabled = vm.state.tasks.isNotEmpty()
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.ai_translate_clear_all))
                     }
                 }
             )
@@ -88,6 +100,9 @@ fun AiTranslationTaskScreen(
                             Column {
                                 Text(stringResource(taskStatusLabelRes(task.status)))
                                 Text(stringResource(R.string.ai_translate_progress, task.completedPages, task.pageCount, task.failedPages))
+                                aiTranslationFailureCategorySummary(task).takeIf { it.isNotBlank() }?.let { categories ->
+                                    Text(stringResource(R.string.ai_translation_failure_categories, categories))
+                                }
                                 LinearProgressIndicator(
                                     progress = { aiTranslationTaskProgress(task) },
                                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
@@ -111,6 +126,48 @@ fun AiTranslationTaskScreen(
             onDelete = {
                 showTaskActionMenu = null
                 deleteFirstConfirmation = task
+            }
+        )
+    }
+
+    if (clearAllFirstConfirmation) {
+        AlertDialog(
+            onDismissRequest = { clearAllFirstConfirmation = false },
+            title = { Text(stringResource(R.string.ai_translate_clear_all_title)) },
+            text = { Text(stringResource(R.string.ai_translate_clear_all_message_first)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clearAllFirstConfirmation = false
+                    clearAllFinalConfirmation = true
+                }) {
+                    Text(stringResource(R.string.ai_translate_clear_all_continue))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { clearAllFirstConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    if (clearAllFinalConfirmation) {
+        AlertDialog(
+            onDismissRequest = { clearAllFinalConfirmation = false },
+            title = { Text(stringResource(R.string.ai_translate_clear_all_title_final)) },
+            text = { Text(stringResource(R.string.ai_translate_clear_all_message_final)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.clearAllTranslations()
+                    clearAllFinalConfirmation = false
+                }) {
+                    Text(stringResource(R.string.ai_translate_clear_all_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { clearAllFinalConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
             }
         )
     }
@@ -201,6 +258,37 @@ private fun aiTranslationTaskProgress(task: AiTranslationTaskSummary): Float {
     val pageCount = task.pageCount.coerceAtLeast(1)
     return ((task.completedPages + task.failedPages).toFloat() / pageCount.toFloat()).coerceIn(0f, 1f)
 }
+
+@Composable
+private fun aiTranslationFailureCategorySummary(task: AiTranslationTaskSummary): String {
+    val entries = task.failureCategories
+        .filterValues { it > 0 }
+        .entries
+        .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+        .take(3)
+    val parts = mutableListOf<String>()
+    for (entry in entries) {
+        parts += "${stringResource(aiTranslationFailureCategoryLabelRes(entry.key))} ${entry.value}"
+    }
+    return parts.joinToString(" · ")
+}
+
+private fun aiTranslationFailureCategoryLabelRes(storedValue: String): Int =
+    when (AiTranslationFailureCategory.fromStoredValue(storedValue)) {
+        AiTranslationFailureCategory.SETTINGS -> R.string.ai_translation_failure_category_settings
+        AiTranslationFailureCategory.MODEL_CONFIGURATION -> R.string.ai_translation_failure_category_model_configuration
+        AiTranslationFailureCategory.PAGE_LIST -> R.string.ai_translation_failure_category_page_list
+        AiTranslationFailureCategory.IMAGE_INPUT -> R.string.ai_translation_failure_category_image_input
+        AiTranslationFailureCategory.LOCAL_TEXT_EMPTY -> R.string.ai_translation_failure_category_local_text_empty
+        AiTranslationFailureCategory.REGION_CROP -> R.string.ai_translation_failure_category_region_crop
+        AiTranslationFailureCategory.NETWORK_OR_API -> R.string.ai_translation_failure_category_network_or_api
+        AiTranslationFailureCategory.VISION_UNSUPPORTED -> R.string.ai_translation_failure_category_vision_unsupported
+        AiTranslationFailureCategory.NON_JSON_RESPONSE -> R.string.ai_translation_failure_category_non_json_response
+        AiTranslationFailureCategory.JSON_VALIDATION_FAILED -> R.string.ai_translation_failure_category_json_validation_failed
+        AiTranslationFailureCategory.EMPTY_AI_RESULT -> R.string.ai_translation_failure_category_empty_ai_result
+        AiTranslationFailureCategory.SAVE_VERIFICATION -> R.string.ai_translation_failure_category_save_verification
+        AiTranslationFailureCategory.UNKNOWN -> R.string.ai_translation_failure_category_unknown
+    }
 
 private fun taskStatusLabelRes(status: AiTranslationTaskStatus): Int = when (status) {
     AiTranslationTaskStatus.QUEUED -> R.string.ai_translation_task_status_queued

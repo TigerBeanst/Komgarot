@@ -100,6 +100,35 @@ class AiTranslationStoreTest {
     }
 
     @Test
+    fun exportBooksSkipsBooksWithoutCompletedTranslations() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        store.saveBookNow(sampleBook())
+        store.saveBookNow(
+            sampleBook().copy(
+                bookId = "pending-book",
+                pages = listOf(AiTranslatedPage(pageIndex = 0, status = AiTranslationPageStatus.PENDING))
+            )
+        )
+        store.saveBookNow(
+            sampleBook().copy(
+                bookId = "failed-book",
+                pages = listOf(AiTranslatedPage(pageIndex = 0, status = AiTranslationPageStatus.FAILED))
+            )
+        )
+
+        assertEquals(listOf("book-1"), store.exportBooks().map { it.bookId })
+    }
+
+    @Test
+    fun storeCanListCachedTranslationBookIdsForMaintenance() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        store.saveBookNow(sampleBook())
+        store.saveBookNow(sampleBook().copy(bookId = "book-2"))
+
+        assertEquals(listOf("book-1", "book-2"), store.listBookIds().sorted())
+    }
+
+    @Test
     fun readBookUsesExplicitPageParsingForReleaseBuilds() {
         val source = java.io.File("src/main/java/fail/tiger/komgarot/data/local/AiTranslationStore.kt").readText()
 
@@ -196,6 +225,10 @@ class AiTranslationStoreTest {
                       "translatedLines": ["你好"],
                       "rect": { "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4 },
                       "translationRect": { "x": 0.12, "y": 0.24, "width": 0.12, "height": 0.22 },
+                      "sourceColumns": [
+                        { "x": 0.18, "y": 0.22, "width": 0.03, "height": 0.18 },
+                        { "x": 0.14, "y": 0.22, "width": 0.03, "height": 0.18 }
+                      ],
                       "textColor": "#111111",
                       "maskColor": "#FFFFFF",
                       "textDirection": "vertical",
@@ -223,6 +256,8 @@ class AiTranslationStoreTest {
         assertEquals(AiTranslationTextDirection.VERTICAL, block.textDirection)
         assertEquals(0.12f, block.translationRect.x)
         assertEquals(0.22f, block.translationRect.height)
+        assertEquals(2, block.sourceColumns.size)
+        assertEquals(0.18f, block.sourceColumns.first().x, 0.0001f)
     }
 
     @Test
@@ -400,6 +435,76 @@ class AiTranslationStoreTest {
     }
 
     @Test
+    fun parseAiTranslatedBookReadsSourceTextProfileAndDefaultsLegacyBooksToAuto() {
+        val withProfile = parseAiTranslatedBookJson(
+            """
+            {
+              "schemaVersion": 1,
+              "bookId": "book-1",
+              "pageCount": 1,
+              "translation": {
+                "targetLocale": "zh-CN",
+                "targetLanguageName": "简体中文",
+                "sourceTextProfile": "korean_horizontal_webtoon"
+              },
+              "pages": []
+            }
+            """.trimIndent()
+        )!!
+        val legacy = parseAiTranslatedBookJson(
+            """
+            {
+              "schemaVersion": 1,
+              "bookId": "book-2",
+              "pageCount": 1,
+              "translation": {
+                "targetLocale": "zh-CN",
+                "targetLanguageName": "简体中文"
+              },
+              "pages": []
+            }
+            """.trimIndent()
+        )!!
+
+        assertEquals(AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON.storedValue, withProfile.translation.sourceTextProfile)
+        assertEquals(AiSourceTextProfile.AUTO.storedValue, legacy.translation.sourceTextProfile)
+    }
+
+    @Test
+    fun failedPageErrorCategoryRoundTripsAndLegacyFailuresDefaultToUnknown() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        val failedPage = AiTranslatedPage(
+            pageIndex = 3,
+            status = AiTranslationPageStatus.FAILED,
+            errorSummary = "AI request timed out after 30s.",
+            errorCategory = AiTranslationFailureCategory.NETWORK_OR_API.storedValue
+        )
+
+        store.saveBookNow(sampleBook().copy(pages = listOf(failedPage)))
+
+        val savedPage = store.readBook("book-1")!!.pages.single()
+        assertEquals(AiTranslationFailureCategory.NETWORK_OR_API.storedValue, savedPage.errorCategory)
+
+        val legacyPage = parseAiTranslatedBookJson(
+            """
+            {
+              "bookId": "legacy-book",
+              "pageCount": 1,
+              "pages": [
+                {
+                  "pageIndex": 0,
+                  "status": "FAILED",
+                  "errorSummary": "timeout"
+                }
+              ]
+            }
+            """.trimIndent()
+        )!!.pages.single()
+
+        assertEquals(AiTranslationFailureCategory.UNKNOWN.storedValue, legacyPage.errorCategory)
+    }
+
+    @Test
     fun taskSummaryRoundTrips() {
         val store = AiTranslationStore(temporaryFolder.newFolder("files"))
         val summary = AiTranslationTaskSummary(
@@ -408,6 +513,7 @@ class AiTranslationStoreTest {
             pageCount = 10,
             completedPages = 4,
             failedPages = 1,
+            failureCategories = mapOf(AiTranslationFailureCategory.NETWORK_OR_API.storedValue to 1),
             status = AiTranslationTaskStatus.RUNNING,
             updatedAt = 123
         )
@@ -418,6 +524,24 @@ class AiTranslationStoreTest {
         assertFalse(state.paused)
         assertEquals("book-1", state.tasks.single().bookId)
         assertEquals(4, state.tasks.single().completedPages)
+        assertEquals(mapOf(AiTranslationFailureCategory.NETWORK_OR_API.storedValue to 1), state.tasks.single().failureCategories)
+    }
+
+    @Test
+    fun saveTaskStateSkipsTasksWithoutCompletedPages() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+
+        store.saveTaskState(
+            AiTranslationTaskState(
+                tasks = listOf(
+                    AiTranslationTaskSummary(bookId = "empty", pageCount = 10),
+                    AiTranslationTaskSummary(bookId = "done", pageCount = 10, completedPages = 1),
+                    AiTranslationTaskSummary(bookId = "failed", pageCount = 10, failedPages = 1)
+                )
+            )
+        )
+
+        assertEquals(listOf("done"), store.readTaskState().tasks.map { it.bookId })
     }
 
     @Test
@@ -431,7 +555,25 @@ class AiTranslationStoreTest {
             {
               "schemaVersion": 1,
               "paused": false,
-              "tasks": [
+                  "tasks": [
+                {
+                  "bookId": "empty",
+                  "title": "Empty",
+                  "pageCount": 10,
+                  "completedPages": 0,
+                  "failedPages": 0,
+                  "status": "RUNNING",
+                  "updatedAt": 1
+                },
+                {
+                  "bookId": "failed-only",
+                  "title": "Failed",
+                  "pageCount": 10,
+                  "completedPages": 0,
+                  "failedPages": 1,
+                  "status": "FAILED",
+                  "updatedAt": 2
+                },
                 {
                   "bookId": "book-1",
                   "title": "Book",
@@ -490,6 +632,47 @@ class AiTranslationStoreTest {
     }
 
     @Test
+    fun resetRunningPagesKeepsDonePagesAndTurnsRunningPagesPending() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        store.saveBookNow(
+            sampleBook().copy(
+                pages = listOf(
+                    AiTranslatedPage(
+                        pageIndex = 0,
+                        status = AiTranslationPageStatus.DONE,
+                        blocks = listOf(AiTranslationBlock(localRegionId = "done"))
+                    ),
+                    AiTranslatedPage(
+                        pageIndex = 1,
+                        status = AiTranslationPageStatus.RUNNING,
+                        blocks = listOf(AiTranslationBlock(localRegionId = "running")),
+                        errorSummary = "running",
+                        errorCategory = AiTranslationFailureCategory.UNKNOWN.storedValue
+                    ),
+                    AiTranslatedPage(
+                        pageIndex = 2,
+                        status = AiTranslationPageStatus.FAILED,
+                        errorSummary = "failed",
+                        errorCategory = AiTranslationFailureCategory.NETWORK_OR_API.storedValue
+                    )
+                )
+            )
+        )
+
+        store.resetRunningPages(bookId = "book-1", pageIndexes = listOf(0, 1, 2))
+
+        val pages = store.readBook("book-1")!!.pages.sortedBy { it.pageIndex }
+        assertEquals(AiTranslationPageStatus.DONE, pages[0].status)
+        assertEquals(listOf("done"), pages[0].blocks.map { it.localRegionId })
+        assertEquals(AiTranslationPageStatus.PENDING, pages[1].status)
+        assertEquals(emptyList<AiTranslationBlock>(), pages[1].blocks)
+        assertEquals("", pages[1].errorSummary)
+        assertEquals("", pages[1].errorCategory)
+        assertEquals(AiTranslationPageStatus.FAILED, pages[2].status)
+        assertEquals("failed", pages[2].errorSummary)
+    }
+
+    @Test
     fun deletePageKeepsBookFileAndRemovesOnlyOnePage() {
         val store = AiTranslationStore(temporaryFolder.newFolder("files"))
         store.saveBookNow(
@@ -504,6 +687,98 @@ class AiTranslationStoreTest {
         store.deletePage(bookId = "book-1", pageIndex = 0)
 
         assertEquals(listOf(1), store.readBook("book-1")!!.pages.map { it.pageIndex })
+    }
+
+    @Test
+    fun deletePageClearsLocalDetectionCachesForThatPage() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        val pageFourContext = AiTranslationLocalPageContext(
+            pageIndex = 4,
+            imageWidth = 1000,
+            imageHeight = 1600,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p4-r1",
+                    rect = AiTranslationRect(x = 0.1f, y = 0.2f, width = 0.2f, height = 0.3f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.9f,
+                    estimatedFontScale = 1f
+                )
+            )
+        )
+        val pageFiveContext = pageFourContext.copy(
+            pageIndex = 5,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p5-r1",
+                    rect = AiTranslationRect(x = 0.4f, y = 0.2f, width = 0.2f, height = 0.3f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.9f,
+                    estimatedFontScale = 1f
+                )
+            )
+        )
+        val pageFourCrop = byteArrayOf(4, 4, 4)
+        val pageFiveCrop = byteArrayOf(5, 5, 5)
+        store.saveBookNow(
+            sampleBook().copy(
+                pages = listOf(
+                    AiTranslatedPage(pageIndex = 4, status = AiTranslationPageStatus.DONE),
+                    AiTranslatedPage(pageIndex = 5, status = AiTranslationPageStatus.DONE)
+                )
+            )
+        )
+        store.saveLocalPageContext("book-1", pageIndex = 4, cacheKey = "context-key", context = pageFourContext)
+        store.saveLocalPageContext("book-1", pageIndex = 5, cacheKey = "context-key", context = pageFiveContext)
+        store.saveRegionCrop("book-1", pageIndex = 4, regionId = "p4-r1", cacheKey = "crop-key", bytes = pageFourCrop)
+        store.saveRegionCrop("book-1", pageIndex = 5, regionId = "p5-r1", cacheKey = "crop-key", bytes = pageFiveCrop)
+
+        store.deletePage(bookId = "book-1", pageIndex = 4)
+
+        assertEquals(null, store.readLocalPageContext("book-1", pageIndex = 4, cacheKey = "context-key"))
+        assertEquals(pageFiveContext, store.readLocalPageContext("book-1", pageIndex = 5, cacheKey = "context-key"))
+        assertEquals(null, store.readRegionCrop("book-1", pageIndex = 4, regionId = "p4-r1", cacheKey = "crop-key"))
+        assertArrayEquals(pageFiveCrop, store.readRegionCrop("book-1", pageIndex = 5, regionId = "p5-r1", cacheKey = "crop-key"))
+    }
+
+    @Test
+    fun clearAllDeletesBooksTasksAndLocalCaches() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 4,
+            imageWidth = 1000,
+            imageHeight = 1600,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p4-r1",
+                    rect = AiTranslationRect(x = 0.1f, y = 0.2f, width = 0.2f, height = 0.3f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.9f,
+                    estimatedFontScale = 1f
+                )
+            )
+        )
+        store.saveBookNow(sampleBook())
+        store.saveTaskState(
+            AiTranslationTaskState(
+                tasks = listOf(AiTranslationTaskSummary(bookId = "book-1", pageCount = 10, completedPages = 1))
+            )
+        )
+        store.saveLocalPageContext("book-1", pageIndex = 4, cacheKey = "context-key", context = context)
+        store.saveRegionCrop("book-1", pageIndex = 4, regionId = "p4-r1", cacheKey = "crop-key", bytes = byteArrayOf(4))
+
+        store.clearAll()
+
+        assertEquals(null, store.readBook("book-1"))
+        assertEquals(emptyList<AiTranslationTaskSummary>(), store.readTaskState().tasks)
+        assertEquals(null, store.readLocalPageContext("book-1", pageIndex = 4, cacheKey = "context-key"))
+        assertEquals(null, store.readRegionCrop("book-1", pageIndex = 4, regionId = "p4-r1", cacheKey = "crop-key"))
     }
 
     private fun sampleBook() = AiTranslatedBook(

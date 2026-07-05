@@ -10,20 +10,16 @@
 
 Komgarot is an Android comic reader client for Komga servers, built with Kotlin and Jetpack Compose.
 
-> This project is fully written by AI. The only human-written part is this README.
-
 > Feel free to suggest features in the issues. I don't use every part of Komga, so I probably won't have considered adding them yet.
 
 ## Features
 
-- Sign in to a self-hosted Komga server
+- Sign in to a Komga server
 - Browse libraries, series, collections, and read lists
-- Home screen with on-deck books, recently added books, recently updated series, and new series
 - Series search, author search, sorting, and filters
 - Book detail pages with metadata viewing and editing
 - Paged reading, vertical scroll reading, reading direction, page fit, and progress seeking
-- Boundary pages for opening the previous or next book
-- Reader page cache, cover cache, and image retry handling
+- AI translation
 - Long-press page actions: save, share, set as book cover, or set as series cover
 - Incognito reading, app lock, and keep-screen-on mode
 - Admin entry for libraries, users, server settings, maintenance, and activity
@@ -36,6 +32,29 @@ Komgarot is an Android comic reader client for Komga servers, built with Kotlin 
   <img src="assets/screenshot/Screenshot_03.jpg" alt="Komgarot screenshot 3" width="180">
   <img src="assets/screenshot/Screenshot_04.jpg" alt="Komgarot screenshot 4" width="180">
   <img src="assets/screenshot/Screenshot_05.jpg" alt="Komgarot screenshot 5" width="180">
+  <img src="assets/screenshot/Screenshot_06.jpg" alt="Komgarot screenshot 6" width="180">
+  <img src="assets/screenshot/Screenshot_07.jpg" alt="Komgarot screenshot 7" width="180">
+</p>
+
+## AI Translation
+> This feature requires your own OpenAI-compatible AI service and a vision-capable model.
+>
+> Generation speed and quality vary by model. Some model providers may apply stricter policies to sensitive content and fail to return translations, so choose a provider that fits your needs.
+>
+> For speed and quality, AI translation sends one request per text segment with the dialogue text and the full image. Translating one image may consume a large number of tokens. My personal average is 2000+ tokens per request.
+
+### Translation Preview
+<p>
+  <img src="assets/screenshot/Screenshot_AI_01_origin.jpg" alt="Komgarot AI translation 1 original" width="180">
+  <img src="assets/screenshot/Screenshot_AI_01_translated.jpg" alt="Komgarot AI translation 1 result" width="180">
+  <img src="assets/screenshot/Screenshot_AI_02_origin.jpg" alt="Komgarot AI translation 2 original" width="180">
+  <img src="assets/screenshot/Screenshot_AI_02_translated.jpg" alt="Komgarot AI translation 2 result" width="180">
+</p>
+<p>
+  <img src="assets/screenshot/Screenshot_AI_03_origin.jpg" alt="Komgarot AI translation 3 original" width="180">
+  <img src="assets/screenshot/Screenshot_AI_03_translated.jpg" alt="Komgarot AI translation 3 result" width="180">
+  <img src="assets/screenshot/Screenshot_AI_04_origin.jpg" alt="Komgarot AI translation 4 original" width="180">
+  <img src="assets/screenshot/Screenshot_AI_04_translated.jpg" alt="Komgarot AI translation 4 result" width="180">
 </p>
 
 ## Requirements
@@ -77,15 +96,6 @@ Debug output:
 app/build/outputs/apk/debug/
 ```
 
-## Usage
-
-1. Launch the app.
-2. Enter your Komga server URL, for example `https://komga.example.com`.
-3. Enter your username and password.
-4. Choose a library, series, or book to start reading.
-
-The server URL and credentials are stored locally on the device. Credentials use Android encrypted storage. Image and reader-page caches are stored in the app cache directory and can be cleared from Settings.
-
 ## Stack
 
 - Kotlin
@@ -99,11 +109,5 @@ The server URL and credentials are stored locally on the device. Credentials use
 - AndroidX Security Crypto
 - AndroidX Biometric
 
-## Layout
-
-```text
-app/src/main/java/fail/tiger/komgarot
-├── data        # local storage, API, repositories
-├── ui          # screens, components, navigation, reader
-└── KomgarotApp.kt
-```
+## Links
+[LINUX DO](https://linux.do)

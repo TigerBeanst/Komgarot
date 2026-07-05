@@ -14,12 +14,14 @@ class AiSettingsTest {
         assertEquals("", settings.baseUrl)
         assertEquals("", settings.modelName)
         assertEquals(AiImageTransport.BASE64, settings.imageTransport)
+        assertEquals(AiTranslationRequestMode.SERIAL, settings.requestMode)
         assertEquals(10, settings.pagesPerRequest)
-        assertEquals(3, settings.concurrentRequests)
+        assertEquals(8, settings.concurrentRequests)
         assertEquals(20, settings.maxImagesPerRequest)
         assertEquals(30, settings.timeoutSeconds)
         assertEquals(AiImageMaxEdge.PX_1600, settings.imageMaxEdge)
         assertEquals(AiTranslationMode.LOCAL_DETECTION, settings.preferredMode)
+        assertEquals(AiSourceTextProfile.AUTO, settings.sourceTextProfile)
         assertEquals(AiLocalModelSource.HUGGING_FACE, settings.localModelSource)
         assertEquals("PaddlePaddle/pp-ocrv6", settings.modelCollectionId)
         assertEquals("main", settings.modelRevision)
@@ -39,11 +41,19 @@ class AiSettingsTest {
     }
 
     @Test
-    fun concurrentRequestsAcceptsPositiveManualValues() {
+    fun concurrentRequestsUseSafeUpperBound() {
         assertEquals(1, AiSettings.normalizeConcurrentRequests(-3))
         assertEquals(1, AiSettings.normalizeConcurrentRequests(0))
         assertEquals(3, AiSettings.normalizeConcurrentRequests(3))
-        assertEquals(80, AiSettings.normalizeConcurrentRequests(80))
+        assertEquals(8, AiSettings.normalizeConcurrentRequests(9))
+        assertEquals(8, AiSettings.normalizeConcurrentRequests(80))
+    }
+
+    @Test
+    fun requestModeFallsBackToSerial() {
+        assertEquals(AiTranslationRequestMode.SERIAL, AiTranslationRequestMode.fromStoredValue(""))
+        assertEquals(AiTranslationRequestMode.SERIAL, AiTranslationRequestMode.fromStoredValue("unknown"))
+        assertEquals(AiTranslationRequestMode.PARALLEL, AiTranslationRequestMode.fromStoredValue("parallel"))
     }
 
     @Test
@@ -105,6 +115,14 @@ class AiSettingsTest {
     }
 
     @Test
+    fun secureWebDavUrlKeepsTrailingSlash() {
+        assertEquals("", normalizeWebDavUrl(""))
+        assertEquals("https://dav.example.test/", normalizeWebDavUrl(" https://dav.example.test "))
+        assertEquals("https://dav.example.test/base/", normalizeWebDavUrl("https://dav.example.test/base/"))
+        assertEquals("https://dav.example.test/base/", normalizeWebDavUrl("https://dav.example.test/base///"))
+    }
+
+    @Test
     fun modelCollectionDefaultsCanBeOverridden() {
         val settings = AiSettings.defaults().copy(
             modelCollectionId = "Custom/collection",
@@ -115,5 +133,13 @@ class AiSettingsTest {
         assertEquals("Custom/collection", settings.modelCollectionId)
         assertEquals("refs/tags/v1.0.0", settings.modelRevision)
         assertFalse(settings.downloadLatestModel)
+    }
+
+    @Test
+    fun sourceTextProfileStoredValuesRoundTrip() {
+        assertEquals(AiSourceTextProfile.AUTO, AiSourceTextProfile.fromStoredValue(""))
+        assertEquals(AiSourceTextProfile.JAPANESE_MANGA, AiSourceTextProfile.fromStoredValue("japanese_manga"))
+        assertEquals(AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON, AiSourceTextProfile.fromStoredValue("korean_horizontal_webtoon"))
+        assertEquals("korean_horizontal_webtoon", AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON.storedValue)
     }
 }

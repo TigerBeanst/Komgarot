@@ -2,12 +2,16 @@ package fail.tiger.komgarot.data.repository
 
 import java.io.File
 import fail.tiger.komgarot.data.local.AiImageTransport
+import fail.tiger.komgarot.data.local.AiSettings
+import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.AiTranslatedPage
+import fail.tiger.komgarot.data.local.AiTranslationFailureCategory
 import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
+import fail.tiger.komgarot.data.remote.AiTranslationErrorCategory
 import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
 import org.junit.Assert.assertTrue
@@ -39,6 +43,20 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(retrySource.contains("ok = result.ok"))
         assertTrue(retrySource.contains("summary = result.summary.ifBlank"))
         assertTrue(!retrySource.contains("scope.launch"))
+    }
+
+    @Test
+    fun retryPagesClearPageCacheBeforeTranslationStarts() {
+        val retryStart = source.indexOf("suspend fun retryPagesTranslation(")
+        val retryEnd = source.indexOf("fun deletePageTranslation(", retryStart)
+        assertTrue(retryStart >= 0)
+        assertTrue(retryEnd > retryStart)
+        val retrySource = source.substring(retryStart, retryEnd)
+
+        val clearIndex = retrySource.indexOf("deletePageTranslation(book.id, pageIndex)")
+        val translateIndex = retrySource.indexOf("translatePages(")
+        assertTrue(clearIndex >= 0)
+        assertTrue(translateIndex > clearIndex)
     }
 
     @Test
@@ -90,6 +108,28 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
+    fun taskStateSkipsBooksWithoutTranslatedPages() {
+        val updateStart = source.indexOf("private fun updateTask(")
+        val updateEnd = source.indexOf("private suspend fun awaitAiTranslationTaskResumed", updateStart)
+        assertTrue(updateStart >= 0)
+        assertTrue(updateEnd > updateStart)
+        val updateSource = source.substring(updateStart, updateEnd)
+
+        assertTrue(updateSource.contains("val completedPages = pages.count { it.status == AiTranslationPageStatus.DONE }"))
+        assertTrue(updateSource.contains("if (completedPages == 0)"))
+        assertTrue(updateSource.contains("store.saveTaskState(state.copy(tasks = state.tasks.filterNot { it.bookId == book.id }))"))
+        assertTrue(updateSource.contains("completedPages = completedPages"))
+    }
+
+    @Test
+    fun repositoryCanPurgeMissingCachedTranslationBooks() {
+        assertTrue(source.contains("suspend fun purgeMissingBookTranslations()"))
+        assertTrue(source.contains("store.listBookIds()"))
+        assertTrue(source.contains("bookRepository.getBookById(bookId).isFailure"))
+        assertTrue(source.contains("clearBook(bookId)"))
+    }
+
+    @Test
     fun fullBookTranslationStartsPagesInPageIndexOrderAcrossConcurrentWorkers() {
         assertTrue(source.contains("AtomicInteger"))
         assertTrue(source.contains("translatePendingPagesInPageOrder("))
@@ -104,13 +144,24 @@ class AiTranslationRepositoryStructureTest {
 
     @Test
     fun repositoryUsesS3ForImageUrlTransportWithoutSharingKomgaUrls() {
+        val imageInputStart = source.indexOf("private fun imageInputFromBytes(")
+        val imageInputEnd = source.indexOf("private fun fallbackBase64Input(", imageInputStart)
+        assertTrue(imageInputStart >= 0)
+        assertTrue(imageInputEnd > imageInputStart)
+        val imageInputSource = source.substring(imageInputStart, imageInputEnd)
+
         assertTrue(source.contains("AiS3ImageUploader"))
         assertTrue(source.contains("secure.s3ImageUrlConfigOrNull()"))
         assertTrue(source.contains("private val imageUploadHttpClient: OkHttpClient = OkHttpClient()"))
         assertTrue(source.contains("AiS3ImageUploader(imageUploadHttpClient, it)"))
-        assertTrue(source.contains("s3Uploader?.uploadImage("))
-        assertTrue(source.contains("transport = AiImageTransport.IMAGE_URL"))
-        assertTrue(source.contains("fallbackBase64Input("))
+        assertTrue(imageInputSource.contains("val uploader = s3Uploader ?: error(\"Image URL transport requires complete S3 image URL settings.\")"))
+        assertTrue(imageInputSource.contains("uploader.uploadImage(bytes, mimeType, key)"))
+        assertTrue(imageInputSource.contains("transport = AiImageTransport.IMAGE_URL"))
+        assertTrue(imageInputSource.contains("base64 = \"\""))
+        assertTrue(imageInputSource.contains("fallbackBase64 = Base64.getEncoder().encodeToString(bytes)"))
+        assertTrue(imageInputSource.contains("fallbackBase64Input("))
+        assertTrue(!imageInputSource.contains("s3Uploader?.uploadImage("))
+        assertTrue(!imageInputSource.contains(".getOrNull()"))
         assertTrue(!source.contains("appendImageUrlExtraQuery(url, imageUrlExtraQuery)"))
     }
 
@@ -119,16 +170,38 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("readLocalPageContext("))
         assertTrue(source.contains("saveLocalPageContext("))
         assertTrue(source.contains("aiLocalContextCacheKey("))
+        assertTrue(source.contains("\"local-v4\""))
         assertTrue(source.contains("readRegionCrop("))
         assertTrue(source.contains("saveRegionCrop("))
         assertTrue(source.contains("aiRegionCropCacheKey("))
+        assertTrue(source.contains("\"region-v2\""))
+    }
+
+    @Test
+    fun repositoryKeepsRuntimePageTimingStatsOutsideTranslationJson() {
+        assertTrue(source.contains("data class AiTranslationPageTiming("))
+        assertTrue(source.contains("data class AiTranslationTimingStep("))
+        assertTrue(source.contains("private val pageTimingStats = ConcurrentHashMap<String, AiTranslationPageTiming>()"))
+        assertTrue(source.contains("fun readPageTiming(bookId: String, pageIndex: Int): AiTranslationPageTiming?"))
+        assertTrue(source.contains("recordAiTranslationTiming("))
+        assertTrue(source.contains("timedAiTranslationStep("))
+        assertTrue(source.contains("AI_TIMING_PAGE_IMAGE_CACHE"))
+        assertTrue(source.contains("AI_TIMING_LOCAL_DETECTION_CACHE"))
+        assertTrue(source.contains("AI_TIMING_PAGE_IMAGE_INPUT"))
+        assertTrue(source.contains("AI_TIMING_REGION_CROP_IMAGES"))
+        assertTrue(source.contains("AI_TIMING_AI_REQUEST"))
+        assertTrue(source.contains("AI_TIMING_AI_RESPONSE_PARSE"))
+        assertTrue(source.contains("AI_TIMING_SAVE_AND_VERIFY"))
+        assertTrue(!source.contains("timingStats"))
     }
 
     @Test
     fun base64ImageInputIsCompressedBeforeSendingToAi() {
         assertTrue(source.contains("preparePageInput("))
-        assertTrue(source.contains("compressPageImageForAi(cachedPageFile, settings.imageMaxEdge)"))
+        assertTrue(source.contains("compressPageContextImageForAi(cachedPageFile, localContext.regions)"))
         assertTrue(source.contains("compressPageImageForAi("))
+        assertTrue(source.contains("AI_PAGE_CONTEXT_MAX_EDGE"))
+        assertTrue(source.contains("AI_PAGE_CONTEXT_JPEG_QUALITY"))
         assertTrue(source.contains("BitmapFactory.Options().apply { inJustDecodeBounds = true }"))
         assertTrue(source.contains("Bitmap.CompressFormat.JPEG"))
         assertTrue(source.contains("AI_IMAGE_JPEG_QUALITY"))
@@ -140,11 +213,36 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
+    fun pageContextMaskRectsUseOcrSourceMaskBounds() {
+        val regions = listOf(
+            AiTranslationLocalTextRegion(
+                id = "p0-r1",
+                rect = AiTranslationRect(x = 0.20f, y = 0.30f, width = 0.10f, height = 0.20f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.9f,
+                estimatedFontScale = 1.0f,
+                textBounds = AiTranslationRect(x = 0.18f, y = 0.28f, width = 0.14f, height = 0.24f)
+            )
+        )
+
+        val rects = pageContextTextMaskRectsForAi(
+            imageWidth = 100,
+            imageHeight = 200,
+            regions = regions
+        )
+
+        assertEquals(1, rects.size)
+        assertEquals(AiPageContextMaskRect(left = 18, top = 56, right = 32, bottom = 104), rects.single())
+    }
+
+    @Test
     fun repositoryBuildsRegionCropImagesAndBatchesByImageLimit() {
         assertTrue(source.contains("buildTextRegionImageInputs("))
         assertTrue(source.contains("BitmapRegionDecoder"))
-        assertTrue(source.contains("toAiCropRect("))
-        assertTrue(source.contains("regionImagesPerRequest(settings.maxImagesPerRequest)"))
+        assertTrue(source.contains("region.effectiveAiCropBounds().toAiCropRect("))
+        assertTrue(source.contains("regionImagesPerRequest(settings)"))
         assertTrue(source.contains("val chunkImages = listOf(preparedPage.pageImageInput) + regionImages"))
         assertTrue(source.contains("val chunkContext = preparedPage.localContext.copy(regions = regionChunk)"))
         assertTrue(source.contains("localRegionId = region.id"))
@@ -158,14 +256,86 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(translateEnd > translateStart)
         val translateSource = source.substring(translateStart, translateEnd)
 
-        assertTrue(translateSource.contains("val regionChunks = regionsWithImages.chunked(regionImagesPerRequest(settings.maxImagesPerRequest))"))
-        assertTrue(translateSource.contains("val chunkWorkerCount = effectiveAiTranslationChunkWorkerCount(settings, regionChunks.size)"))
-        assertTrue(translateSource.contains("val chunkSemaphore = Semaphore(chunkWorkerCount)"))
-        assertTrue(translateSource.contains("chunkSemaphore.withPermit"))
-        assertTrue(translateSource.contains("async {"))
+        assertTrue(translateSource.contains("val regionChunks = regionsWithImages.chunked(regionImagesPerRequest(settings))"))
+        assertTrue(translateSource.contains("translatePreparedRegionChunks("))
+        assertTrue(source.contains("val chunkWorkerCount = effectiveAiTranslationChunkWorkerCount(settings, regionChunks.size)"))
+        assertTrue(source.contains("val chunkSemaphore = Semaphore(chunkWorkerCount)"))
+        assertTrue(source.contains("chunkSemaphore.withPermit"))
+        assertTrue(source.contains("async {"))
         assertTrue(translateSource.contains("savePartialTranslatedPageFragment("))
         assertTrue(source.contains("blocks = localContext.regions.map(::localDetectionPlaceholderBlock)"))
         assertTrue(source.contains("blocksByRegion[region.id] ?: if (status == AiTranslationPageStatus.RUNNING)"))
+    }
+
+    @Test
+    fun regionChunksUseConfiguredSerialOrParallelMode() {
+        val translateStart = source.indexOf("private suspend fun translatePreparedPage(")
+        val translateEnd = source.indexOf("private suspend fun translatePreparedRegionChunk(", translateStart)
+        assertTrue(translateStart >= 0)
+        assertTrue(translateEnd > translateStart)
+        val translateSource = source.substring(translateStart, translateEnd)
+
+        assertTrue(source.contains("import fail.tiger.komgarot.data.local.AiTranslationRequestMode"))
+        assertTrue(source.contains("requestMode = prefs.aiTranslationRequestMode.first()"))
+        assertTrue(translateSource.contains("translatePreparedRegionChunks("))
+        assertTrue(source.contains("private suspend fun translatePreparedRegionChunks("))
+        assertTrue(source.contains("AiTranslationRequestMode.SERIAL -> regionChunks.map { regionChunk ->"))
+        assertTrue(source.contains("AiTranslationRequestMode.PARALLEL -> coroutineScope"))
+        assertTrue(source.contains("effectiveAiTranslationChunkWorkerCount(settings, regionChunks.size)"))
+    }
+
+    @Test
+    fun cancellationPropagatesWithoutMarkingPagesFailed() {
+        assertTrue(source.contains("import kotlinx.coroutines.CancellationException"))
+        assertTrue(source.contains("fun resetRunningPages(bookId: String, pageIndexes: List<Int>)"))
+        assertTrue(source.contains("store.resetRunningPages(bookId, pageIndexes)"))
+
+        val prepareCatchStart = source.indexOf("} catch (throwable: Throwable) {")
+        val prepareCatchEnd = source.indexOf("PreparedAiPageResult.Failed", prepareCatchStart)
+        assertTrue(prepareCatchStart >= 0)
+        assertTrue(prepareCatchEnd > prepareCatchStart)
+        val prepareCatchSource = source.substring(prepareCatchStart, prepareCatchEnd)
+        assertTrue(prepareCatchSource.contains("if (throwable is CancellationException) throw throwable"))
+
+        val batchStart = source.indexOf("private suspend fun translateBatch(")
+        val batchEnd = source.indexOf("return translatePreparedPage(book, settings, apiKey, prepared)", batchStart)
+        assertTrue(batchStart >= 0)
+        assertTrue(batchEnd > batchStart)
+        val batchSource = source.substring(batchStart, batchEnd)
+        assertTrue(batchSource.contains("if (throwable is CancellationException) throw throwable"))
+    }
+
+    @Test
+    fun emptyChunkTranslationsAreSkippedInsteadOfFailingWholePage() {
+        val chunkStart = source.indexOf("private suspend fun translatePreparedRegionChunk(")
+        val chunkEnd = source.indexOf("private suspend fun translateRegionChunkImages(", chunkStart)
+        assertTrue(chunkStart >= 0)
+        assertTrue(chunkEnd > chunkStart)
+        val chunkSource = source.substring(chunkStart, chunkEnd)
+
+        assertTrue(source.contains("data object Empty : PreparedRegionChunkResult"))
+        assertTrue(chunkSource.contains("PreparedRegionChunkResult.Empty"))
+        assertTrue(source.contains("?: emptyTranslatedPage(preparedPage.localContext, runMode)"))
+        assertTrue(source.contains("if (chunkResult is PreparedRegionChunkResult.Success)"))
+        assertTrue(source.contains("chunkResults.filterIsInstance<PreparedRegionChunkResult.Failed>()"))
+    }
+
+    @Test
+    fun failedRegionChunkPreservesPartialPageFragments() {
+        val translateStart = source.indexOf("private suspend fun translatePreparedPage(")
+        val translateEnd = source.indexOf("private fun localDetectionEmptyTextMessage(", translateStart)
+        assertTrue(translateStart >= 0)
+        assertTrue(translateEnd > translateStart)
+        val translateSource = source.substring(translateStart, translateEnd)
+
+        assertTrue(translateSource.contains("val failedPartialPage = saveFailedPartialTranslatedPage("))
+        assertTrue(translateSource.contains("if (failedPartialPage != null) onPageUpdated(failedPartialPage)"))
+        assertTrue(translateSource.contains("return AiTranslationRunResult(ok = false, summary = failedChunk.summary.take(1200))"))
+        assertTrue(source.contains("private fun saveFailedPartialTranslatedPage("))
+        assertTrue(source.contains("status = AiTranslationPageStatus.FAILED"))
+        assertTrue(source.contains("errorSummary = summary.take(1200)"))
+        assertTrue(source.contains("errorCategory = category.storedValue"))
+        assertTrue(source.contains("store.upsertPages(bookId, listOf(failedPage))"))
     }
 
     @Test
@@ -215,6 +385,59 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
+    fun repositoryWaitsForTaskResumeBeforePreparationAndRemoteRequests() {
+        assertTrue(source.contains("private suspend fun awaitAiTranslationTaskResumed("))
+        assertTrue(source.contains("while (store.readTaskState().paused)"))
+        assertTrue(source.contains("delay(AI_TRANSLATION_TASK_PAUSE_POLL_MS)"))
+
+        val pendingStart = source.indexOf("private suspend fun translatePendingPagesInPageOrder(")
+        val pendingEnd = source.indexOf("private fun ensureBookFile(", pendingStart)
+        val pendingSource = source.substring(pendingStart, pendingEnd)
+        assertTrue(pendingSource.contains("awaitAiTranslationTaskResumed()"))
+        assertTrue(pendingSource.indexOf("awaitAiTranslationTaskResumed()") < pendingSource.indexOf("preparePageInput("))
+        assertTrue(pendingSource.indexOf("awaitAiTranslationTaskResumed()", pendingSource.indexOf("remoteSemaphore.withPermit")) > 0)
+
+        val chunkStart = source.indexOf("private suspend fun translatePreparedRegionChunk(")
+        val chunkEnd = source.indexOf("private suspend fun translateRegionChunkImages(", chunkStart)
+        val chunkSource = source.substring(chunkStart, chunkEnd)
+        assertTrue(chunkSource.contains("awaitAiTranslationTaskResumed()"))
+        assertTrue(chunkSource.indexOf("awaitAiTranslationTaskResumed()") < chunkSource.indexOf("translateRegionChunkImages("))
+    }
+
+    @Test
+    fun repositoryStoresFailureCategoriesForTaskDiagnostics() {
+        assertTrue(source.contains("AiTranslationFailureCategory"))
+        assertTrue(source.contains("aiTranslationFailureCategory("))
+        assertTrue(source.contains("errorCategory = category.storedValue"))
+        assertTrue(source.contains("failureCategories = failedPages"))
+        assertTrue(source.contains("filterKeys { it.isNotBlank() }"))
+    }
+
+    @Test
+    fun failureCategoryClassifierMapsCommonFailures() {
+        assertEquals(
+            AiTranslationFailureCategory.MODEL_CONFIGURATION,
+            aiTranslationFailureCategory("AI model configuration is incomplete.")
+        )
+        assertEquals(
+            AiTranslationFailureCategory.LOCAL_TEXT_EMPTY,
+            aiTranslationFailureCategory("Local text detection found zero text boxes for pages=1.")
+        )
+        assertEquals(
+            AiTranslationFailureCategory.NETWORK_OR_API,
+            aiTranslationFailureCategory("AI request timed out after 30s.", AiTranslationErrorCategory.NETWORK_OR_API)
+        )
+        assertEquals(
+            AiTranslationFailureCategory.NON_JSON_RESPONSE,
+            aiTranslationFailureCategory("page=2: model returned plain text", AiTranslationErrorCategory.NON_JSON_RESPONSE)
+        )
+        assertEquals(
+            AiTranslationFailureCategory.JSON_VALIDATION_FAILED,
+            aiTranslationFailureCategory("AI response did not contain parsable page translation JSON.")
+        )
+    }
+
+    @Test
     fun repositoryStoresFailureSummariesForRetryDiagnostics() {
         assertTrue(source.contains("markPagesFailed("))
         assertTrue(source.contains("AI model configuration is incomplete."))
@@ -258,17 +481,33 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
-    fun chunkWorkerCountsUseConservativeCaps() {
+    fun chunkWorkerCountsUseTransportCaps() {
         val base64Settings = fail.tiger.komgarot.data.local.AiSettings.defaults().copy(
-            concurrentRequests = 4,
+            concurrentRequests = 8,
             imageTransport = AiImageTransport.BASE64
         )
         val imageUrlSettings = base64Settings.copy(imageTransport = AiImageTransport.IMAGE_URL)
 
-        assertEquals(1, effectiveAiTranslationChunkWorkerCount(base64Settings, chunkCount = 4, maxMemoryBytes = 256L * 1024L * 1024L))
-        assertEquals(2, effectiveAiTranslationChunkWorkerCount(base64Settings, chunkCount = 4, maxMemoryBytes = 768L * 1024L * 1024L))
-        assertEquals(3, effectiveAiTranslationChunkWorkerCount(imageUrlSettings, chunkCount = 4, maxMemoryBytes = 768L * 1024L * 1024L))
+        assertEquals(4, effectiveAiTranslationChunkWorkerCount(base64Settings, chunkCount = 8, maxMemoryBytes = 256L * 1024L * 1024L))
+        assertEquals(4, effectiveAiTranslationChunkWorkerCount(base64Settings, chunkCount = 8, maxMemoryBytes = 768L * 1024L * 1024L))
+        assertEquals(8, effectiveAiTranslationChunkWorkerCount(imageUrlSettings, chunkCount = 8, maxMemoryBytes = 256L * 1024L * 1024L))
+        assertEquals(8, effectiveAiTranslationChunkWorkerCount(imageUrlSettings, chunkCount = 8, maxMemoryBytes = 768L * 1024L * 1024L))
+        assertEquals(3, effectiveAiTranslationChunkWorkerCount(imageUrlSettings.copy(concurrentRequests = 3), chunkCount = 8, maxMemoryBytes = 768L * 1024L * 1024L))
         assertEquals(1, effectiveAiTranslationChunkWorkerCount(imageUrlSettings, chunkCount = 1, maxMemoryBytes = 768L * 1024L * 1024L))
+    }
+
+    @Test
+    fun localRegionChunksUseOneRegionImagePerAiRequestForAllProfiles() {
+        val japaneseSettings = AiSettings.defaults().copy(
+            sourceTextProfile = AiSourceTextProfile.JAPANESE_MANGA,
+            maxImagesPerRequest = 20
+        )
+        val koreanSettings = japaneseSettings.copy(sourceTextProfile = AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON)
+        val autoSettings = japaneseSettings.copy(sourceTextProfile = AiSourceTextProfile.AUTO)
+
+        assertEquals(1, regionImagesPerRequest(japaneseSettings))
+        assertEquals(1, regionImagesPerRequest(koreanSettings))
+        assertEquals(1, regionImagesPerRequest(autoSettings))
     }
 
     @Test
@@ -342,10 +581,39 @@ class AiTranslationRepositoryStructureTest {
         assertEquals(AiTranslationMode.LOCAL_DETECTION.storedValue, page.mode)
         assertEquals(1, page.blocks.size)
         assertEquals("p7-r1", page.blocks.single().localRegionId)
-        assertEquals(context.regions.single().rect, page.blocks.single().rect)
+        assertEquals(context.regions.single().effectiveSourceMaskBounds(), page.blocks.single().rect)
         assertEquals(context.regions.single().rect, page.blocks.single().translationRect)
         assertEquals(AiTranslationTextDirection.VERTICAL, page.blocks.single().textDirection)
         assertEquals(emptyList<String>(), page.blocks.single().translatedLines)
+    }
+
+    @Test
+    fun localDetectionPlaceholderPageUsesEffectiveMaskAndRenderBounds() {
+        val textBounds = AiTranslationRect(x = 0.22f, y = 0.32f, width = 0.05f, height = 0.12f)
+        val renderBounds = AiTranslationRect(x = 0.20f, y = 0.30f, width = 0.08f, height = 0.16f)
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 7,
+            imageWidth = 1200,
+            imageHeight = 1800,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p7-r1",
+                    rect = AiTranslationRect(x = 0.18f, y = 0.28f, width = 0.14f, height = 0.22f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.84f,
+                    estimatedFontScale = 0.92f,
+                    textBounds = textBounds,
+                    renderBounds = renderBounds
+                )
+            )
+        )
+
+        val block = localDetectionPlaceholderPage(context, AiTranslationMode.LOCAL_DETECTION).blocks.single()
+
+        assertEquals(textBounds, block.rect)
+        assertEquals(renderBounds, block.translationRect)
     }
 
     @Test
@@ -377,8 +645,9 @@ class AiTranslationRepositoryStructureTest {
         val inputStart = source.indexOf("private suspend fun preparePageInput(")
         val inputEnd = source.indexOf("private fun updateTask(", inputStart)
         val inputSource = source.substring(inputStart, inputEnd)
-        assertTrue(inputSource.contains("val cachedPageFile = ensureCachedPageFile("))
-        assertTrue(inputSource.contains("localTextDetector.detect(cachedPageFile, pageIndex, settings)"))
+        assertTrue(inputSource.contains("ensureCachedPageFile(book.seriesId, bookId, url)"))
+        assertTrue(inputSource.contains("localTextDetector.detect("))
+        assertTrue(inputSource.contains("onTimingStep = timingRecorder::add"))
         assertTrue(inputSource.contains("store.upsertPages(bookId, listOf(localDetectionPlaceholderPage(localContext, mode)))"))
     }
 
@@ -393,7 +662,7 @@ class AiTranslationRepositoryStructureTest {
         val inputEnd = source.indexOf("private fun ensureCachedPageFile(", inputStart)
         val inputSource = source.substring(inputStart, inputEnd)
         assertTrue(inputSource.contains("file = cachedPageFile"))
-        assertTrue(inputSource.contains("compressPageImageForAi(cachedPageFile, settings.imageMaxEdge)"))
+        assertTrue(inputSource.contains("compressPageContextImageForAi(cachedPageFile, localContext.regions)"))
         assertTrue(!source.contains("File.createTempFile(\"ai-page-\", \".img\", context.cacheDir)"))
     }
 
@@ -462,13 +731,199 @@ class AiTranslationRepositoryStructureTest {
         assertEquals(AiTranslationBlockKind.DIALOGUE, block.kind)
         assertEquals("Sample source text", block.sourceText)
         assertEquals(listOf("示例译文"), block.translatedLines)
-        assertEquals(context.regions.single().rect, block.rect)
-        assertEquals(context.regions.single().rect, block.translationRect)
+        assertEquals(context.regions.single().effectiveSourceMaskBounds(), block.rect)
+        assertTrue(block.translationRect.width > context.regions.single().rect.width)
+        assertTrue(block.translationRect.height >= context.regions.single().rect.height)
         assertEquals(AiTranslationTextDirection.VERTICAL, block.textDirection)
         assertEquals("#111111", block.textColor)
         assertEquals("#FFFFFF", block.maskColor)
         assertEquals(0.82f, block.maskAlpha)
         assertEquals(0.96f, block.fontScale)
+    }
+
+    @Test
+    fun singleRegionResponseWithoutLocalRegionIdIsBoundToOnlyLocalRegion() {
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 3,
+            imageWidth = 1200,
+            imageHeight = 1800,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p3-r1",
+                    rect = AiTranslationRect(x = 0.15f, y = 0.20f, width = 0.12f, height = 0.22f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.91f,
+                    estimatedFontScale = 0.96f
+                )
+            )
+        )
+        val json = """
+            {
+              "pageIndex": 3,
+              "translations": [
+                {
+                  "sourceText": "Sample source text",
+                  "translatedLines": ["示例译文"],
+                  "kind": "dialogue"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val page = translatedPagesFromLocalRegionResponse(
+            normalizedJson = json,
+            fallbackPageIndexes = listOf(3),
+            localPageContexts = listOf(context),
+            mode = AiTranslationMode.LOCAL_DETECTION
+        ).single()
+
+        assertEquals("p3-r1", page.blocks.single().localRegionId)
+        assertEquals("Sample source text", page.blocks.single().sourceText)
+        assertEquals(listOf("示例译文"), page.blocks.single().translatedLines)
+    }
+
+    @Test
+    fun singleRegionResponseWithHallucinatedLocalRegionIdIsBoundToOnlyLocalRegion() {
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 3,
+            imageWidth = 1200,
+            imageHeight = 1800,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p3-r1",
+                    rect = AiTranslationRect(x = 0.15f, y = 0.20f, width = 0.12f, height = 0.22f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.91f,
+                    estimatedFontScale = 0.96f
+                )
+            )
+        )
+        val json = """
+            {
+              "pageIndex": 3,
+              "translations": [
+                {
+                  "localRegionId": "p3-r99",
+                  "sourceText": "Sample source text",
+                  "translatedLines": ["示例译文"],
+                  "kind": "dialogue"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val page = translatedPagesFromLocalRegionResponse(
+            normalizedJson = json,
+            fallbackPageIndexes = listOf(3),
+            localPageContexts = listOf(context),
+            mode = AiTranslationMode.LOCAL_DETECTION
+        ).single()
+
+        assertEquals("p3-r1", page.blocks.single().localRegionId)
+        assertEquals(context.regions.single().effectiveSourceMaskBounds(), page.blocks.single().rect)
+        assertEquals("Sample source text", page.blocks.single().sourceText)
+        assertEquals(listOf("示例译文"), page.blocks.single().translatedLines)
+    }
+
+    @Test
+    fun singleRegionResponseWithMultipleValidTranslationsIsRejectedAsAmbiguous() {
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 3,
+            imageWidth = 1200,
+            imageHeight = 1800,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p3-r1",
+                    rect = AiTranslationRect(x = 0.15f, y = 0.20f, width = 0.12f, height = 0.22f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.91f,
+                    estimatedFontScale = 0.96f
+                )
+            )
+        )
+        val json = """
+            {
+              "pageIndex": 3,
+              "translations": [
+                {
+                  "sourceText": "Sample source text",
+                  "translatedLines": ["当前区域译文"],
+                  "kind": "dialogue"
+                },
+                {
+                  "sourceText": "Other page text",
+                  "translatedLines": ["其它区域译文"],
+                  "kind": "dialogue"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val pages = translatedPagesFromLocalRegionResponse(
+            normalizedJson = json,
+            fallbackPageIndexes = listOf(3),
+            localPageContexts = listOf(context),
+            mode = AiTranslationMode.LOCAL_DETECTION
+        )
+
+        assertTrue(pages.isEmpty())
+    }
+
+    @Test
+    fun localCaptionTranslationKeepsRegionRotationAndUsesSignKind() {
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 4,
+            imageWidth = 1200,
+            imageHeight = 1800,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p4-r1",
+                    rect = AiTranslationRect(x = 0.12f, y = 0.16f, width = 0.28f, height = 0.08f),
+                    textDirection = AiTranslationTextDirection.HORIZONTAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.91f,
+                    estimatedFontScale = 1.0f,
+                    rotationDegrees = -7f
+                )
+            )
+        )
+        val json = """
+            {
+              "pageIndex": 4,
+              "translations": [
+                {
+                  "localRegionId": "p4-r1",
+                  "sourceText": "保健室",
+                  "translatedLines": ["医务室"],
+                  "kind": "caption"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val page = translatedPagesFromLocalRegionResponse(
+            normalizedJson = json,
+            fallbackPageIndexes = listOf(4),
+            localPageContexts = listOf(context),
+            mode = AiTranslationMode.LOCAL_DETECTION
+        ).single()
+        val block = page.blocks.single()
+
+        assertEquals(AiTranslationBlockKind.SIGN, block.kind)
+        assertEquals(AiTranslationTextDirection.HORIZONTAL, block.textDirection)
+        assertEquals(context.regions.single().effectiveSourceMaskBounds(), block.rect)
+        assertEquals(
+            context.regions.single().effectiveRenderBoundsForKind(AiTranslationBlockKind.SIGN),
+            block.translationRect
+        )
+        assertEquals(-7f, block.rotationDegrees)
     }
 
     @Test

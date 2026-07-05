@@ -301,13 +301,14 @@ fun ReaderScreen(
     val window = (view.context as? android.app.Activity)?.window
     val keepScreenOn by vm.prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
-    val aiTestModeEnabled by vm.prefs.aiTestModeEnabled.collectAsStateWithLifecycle(initialValue = false)
     val aiTranslationEnabled by vm.prefs.aiTranslationEnabled.collectAsStateWithLifecycle(initialValue = false)
     val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
-    val aiVerticalGlyphSpacingPercent by vm.prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 92)
+    val aiVerticalGlyphSpacingPercent by vm.prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 86)
     val aiVerticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier(aiVerticalGlyphSpacingPercent)
     var aiTranslationErrorDialogMessage by remember { mutableStateOf<String?>(null) }
+    var readerAiTimingDialog by remember { mutableStateOf<String?>(null) }
+    var readerAiFailureDialog by remember { mutableStateOf<String?>(null) }
     var readerAiDeleteFirstConfirmation by remember { mutableStateOf(false) }
     var readerAiDeleteFinalConfirmation by remember { mutableStateOf(false) }
 
@@ -374,7 +375,6 @@ fun ReaderScreen(
                 onSetSeriesCover,
                 canEditMetadata,
                 aiTranslationAvailable = aiTranslationControlsVisible,
-                aiTestModeEnabled = aiTranslationAvailable && aiTestModeEnabled,
                 verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier
             )
         } else {
@@ -386,7 +386,6 @@ fun ReaderScreen(
                     onSetSeriesCover,
                     canEditMetadata,
                     aiTranslationAvailable = aiTranslationControlsVisible,
-                    aiTestModeEnabled = aiTranslationAvailable && aiTestModeEnabled,
                     verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier
                 )
                 ReadingMode.SCROLL -> ScrollReader(
@@ -507,6 +506,7 @@ fun ReaderScreen(
     }
 
     if (aiTranslationAvailable && aiTranslationEnabled && vm.showAiTranslationPageActions) {
+        val currentAiFailureSummary = vm.currentAiTranslatedPage(vm.currentPage)?.errorSummary?.takeIf { it.isNotBlank() }
         AlertDialog(
             onDismissRequest = { vm.showAiTranslationPageActions = false },
             title = { Text(stringResource(R.string.reader_ai_translation)) },
@@ -523,6 +523,41 @@ fun ReaderScreen(
                     }
                     TextButton(
                         onClick = {
+                            val timing = vm.currentAiTranslationTiming()
+                            readerAiTimingDialog = if (timing == null) {
+                                context.getString(R.string.reader_ai_page_timing_empty)
+                            } else {
+                                buildString {
+                                    append(context.getString(R.string.reader_ai_page_timing_total, timing.totalMs))
+                                    timing.steps.forEach { step ->
+                                        append('\n')
+                                        append(
+                                            context.getString(
+                                                R.string.reader_ai_page_timing_step,
+                                                readerAiTimingStepLabel(context, step.label),
+                                                step.durationMs
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                            vm.showAiTranslationPageActions = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.reader_ai_page_timing))
+                    }
+                    TextButton(
+                        onClick = {
+                            readerAiFailureDialog = currentAiFailureSummary ?: context.getString(R.string.reader_ai_failure_reason_empty)
+                            vm.showAiTranslationPageActions = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.reader_ai_failure_reason))
+                    }
+                    TextButton(
+                        onClick = {
                             vm.showAiTranslationPageActions = false
                             readerAiDeleteFirstConfirmation = true
                         },
@@ -535,6 +570,70 @@ fun ReaderScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { vm.showAiTranslationPageActions = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    if (aiTranslationAvailable && aiTranslationEnabled) readerAiFailureDialog?.let { failureText ->
+        AlertDialog(
+            onDismissRequest = { readerAiFailureDialog = null },
+            title = { Text(stringResource(R.string.reader_ai_failure_reason_title)) },
+            text = {
+                SelectionContainer {
+                    Text(failureText)
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { readerAiFailureDialog = null }) {
+                    Text(stringResource(R.string.close))
+                }
+            }
+        )
+    }
+
+    if (aiTranslationAvailable && aiTranslationEnabled) readerAiTimingDialog?.let { timingText ->
+        AlertDialog(
+            onDismissRequest = { readerAiTimingDialog = null },
+            title = { Text(stringResource(R.string.reader_ai_page_timing_title)) },
+            text = {
+                SelectionContainer {
+                    Text(timingText)
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { readerAiTimingDialog = null }) {
+                    Text(stringResource(R.string.close))
+                }
+            }
+        )
+    }
+
+    if (aiTranslationAvailable && aiTranslationEnabled && vm.showAiLocalModelRequiredDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!vm.aiLocalModelDownloading) vm.showAiLocalModelRequiredDialog = false },
+            title = { Text(stringResource(R.string.reader_ai_local_model_required_title)) },
+            text = { Text(stringResource(R.string.reader_ai_local_model_required_message)) },
+            confirmButton = {
+                TextButton(
+                    enabled = !vm.aiLocalModelDownloading,
+                    onClick = { vm.downloadRequiredAiLocalModel() }
+                ) {
+                    if (vm.aiLocalModelDownloading) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text(stringResource(R.string.reader_ai_local_model_download))
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !vm.aiLocalModelDownloading,
+                    onClick = { vm.showAiLocalModelRequiredDialog = false }
+                ) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -610,8 +709,21 @@ fun ReaderScreen(
 
 private fun isAiTranslationErrorMessage(messageRes: Int): Boolean =
     messageRes == R.string.ai_translate_config_required ||
-        messageRes == R.string.reader_ai_test_failed ||
-        messageRes == R.string.reader_ai_retry_failed
+        messageRes == R.string.reader_ai_test_failed
+
+private fun readerAiTimingStepLabel(context: Context, key: String): String = when (key) {
+    "page_image_cache" -> context.getString(R.string.reader_ai_page_timing_step_page_image_cache)
+    "local_detection_cache" -> context.getString(R.string.reader_ai_page_timing_step_local_detection_cache)
+    "paddle_ocr" -> context.getString(R.string.reader_ai_page_timing_step_paddle_ocr)
+    "heuristic_fallback" -> context.getString(R.string.reader_ai_page_timing_step_heuristic_fallback)
+    "page_image_input" -> context.getString(R.string.reader_ai_page_timing_step_page_image_input)
+    "region_crop_images" -> context.getString(R.string.reader_ai_page_timing_step_region_crop_images)
+    "ai_request_batch" -> context.getString(R.string.reader_ai_page_timing_step_ai_request_batch)
+    "ai_request" -> context.getString(R.string.reader_ai_page_timing_step_ai_request)
+    "ai_response_parse" -> context.getString(R.string.reader_ai_page_timing_step_ai_response_parse)
+    "save_and_verify" -> context.getString(R.string.reader_ai_page_timing_step_save_and_verify)
+    else -> key
+}
 
 @Composable
 private fun ReaderTopControls(
@@ -744,23 +856,50 @@ private fun ReaderQuickSettingsRow(
     ) {
         AssistChip(
             onClick = onToggleFit,
-            label = { Text(stringResource(if (pageFit == "WIDTH") R.string.reader_quick_fit_width else R.string.reader_quick_fit_screen)) }
+            colors = readerQuickAssistChipColors(),
+            label = { ReaderQuickChipLabel(stringResource(if (pageFit == "WIDTH") R.string.reader_quick_fit_width else R.string.reader_quick_fit_screen)) }
         )
         AssistChip(
             onClick = onToggleDirection,
-            label = { Text(stringResource(if (readingDirection == "RTL") R.string.reader_quick_direction_rtl else R.string.reader_quick_direction_ltr)) }
+            colors = readerQuickAssistChipColors(),
+            label = { ReaderQuickChipLabel(stringResource(if (readingDirection == "RTL") R.string.reader_quick_direction_rtl else R.string.reader_quick_direction_ltr)) }
         )
         AssistChip(
             onClick = onCyclePreload,
-            label = { Text(stringResource(R.string.reader_quick_preload, preloadPages)) }
+            colors = readerQuickAssistChipColors(),
+            label = { ReaderQuickChipLabel(stringResource(R.string.reader_quick_preload, preloadPages)) }
         )
         FilterChip(
             selected = tapPageTurn,
             onClick = onToggleTapPageTurn,
-            label = { Text(stringResource(R.string.reader_quick_tap_turn)) }
+            colors = readerQuickFilterChipColors(),
+            label = { ReaderQuickChipLabel(stringResource(R.string.reader_quick_tap_turn)) }
         )
     }
 }
+
+@Composable
+private fun ReaderQuickChipLabel(text: String) {
+    Text(text, color = ReaderQuickChipTextColor)
+}
+
+@Composable
+private fun readerQuickAssistChipColors() = AssistChipDefaults.assistChipColors(
+    containerColor = ReaderQuickChipContainerColor,
+    labelColor = ReaderQuickChipTextColor
+)
+
+@Composable
+private fun readerQuickFilterChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = ReaderQuickChipContainerColor,
+    labelColor = ReaderQuickChipTextColor,
+    selectedContainerColor = ReaderQuickChipSelectedContainerColor,
+    selectedLabelColor = ReaderQuickChipTextColor
+)
+
+private val ReaderQuickChipContainerColor = Color.Black.copy(alpha = 0.58f)
+private val ReaderQuickChipSelectedContainerColor = Color(0xFF7A4A12).copy(alpha = 0.82f)
+private val ReaderQuickChipTextColor = Color.White
 
 @Composable
 private fun readerAiStatusLabel(vm: ReaderViewModel, aiTranslationAvailable: Boolean): String =
@@ -812,7 +951,6 @@ fun PagerReader(
     onSetSeriesCover: (String) -> Unit,
     canEditMetadata: Boolean,
     aiTranslationAvailable: Boolean,
-    aiTestModeEnabled: Boolean,
     verticalGlyphSpacingMultiplier: Float
 ) {
     if (vm.pageUrls.isEmpty()) return
@@ -1023,7 +1161,6 @@ fun PagerReader(
             onSetBookCover = onSetBookCover,
             onSetSeriesCover = onSetSeriesCover,
             canEditMetadata = canEditMetadata,
-            aiTestModeEnabled = aiTestModeEnabled,
             onDismiss = { longPressUrl = null },
         )
     }
@@ -1305,7 +1442,6 @@ private fun PageContextMenu(
     onSetBookCover: (String) -> Unit,
     onSetSeriesCover: (String) -> Unit,
     canEditMetadata: Boolean,
-    aiTestModeEnabled: Boolean,
     onDismiss: () -> Unit,
 ) {
     val imageLoader = coil.Coil.imageLoader(context)
@@ -1343,17 +1479,6 @@ private fun PageContextMenu(
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(bottom = 16.dp)) {
-            if (aiTestModeEnabled) {
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.reader_ai_test_current_page)) },
-                    leadingContent = { Icon(Icons.Default.AutoAwesome, null) },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.clickable {
-                        onDismiss()
-                        vm.testCurrentAiTranslationPage()
-                    }
-                )
-            }
             ListItem(
                 headlineContent = { Text(stringResource(R.string.reader_action_save)) },
                 leadingContent = { Icon(Icons.Default.Download, null) },
