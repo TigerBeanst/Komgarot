@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
@@ -64,6 +67,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -225,6 +230,7 @@ class AiTranslationRepository(
     ): AiTranslationPageActionResult {
         val runMode = AiTranslationMode.LOCAL_DETECTION
         ensureBookFile(book, book.media.pagesCount, runMode)
+        pageIndexes.forEach { pageIndex -> deletePageTranslation(book.id, pageIndex) }
         val result = bookTranslationQueue.withPermit {
             translatePages(
                 book,
@@ -1003,7 +1009,7 @@ class AiTranslationRepository(
             store.upsertPages(bookId, listOf(localDetectionPlaceholderPage(localContext, mode)))
         }
         val pageImageInput = timedAiTranslationStep(timingRecorder, AI_TIMING_PAGE_IMAGE_INPUT) {
-            val compressed = compressPageContextImageForAi(cachedPageFile)
+            val compressed = compressPageContextImageForAi(cachedPageFile, localContext.regions)
             imageInputFromBytes(
                 bytes = compressed.bytes,
                 pageIndex = pageIndex,
@@ -1219,6 +1225,7 @@ private fun localDetectionPlaceholderBlock(region: AiTranslationLocalTextRegion)
         translatedLines = emptyList(),
         rect = region.effectiveSourceMaskBounds(),
         translationRect = region.effectiveRenderBounds(),
+        sourceColumns = region.effectiveSourceColumns(),
         textColor = ensureReadableAiTextColor(region.textColor, region.backgroundColor),
         maskColor = region.backgroundColor,
         maskAlpha = 0.55f,
@@ -1248,22 +1255,23 @@ internal fun buildTranslatedPageFromLocalContext(
     translations: List<AiLocalRegionTranslation>,
     mode: AiTranslationMode
 ): AiTranslatedPage? {
+    val usableTranslations = translations
+        .filter {
+            it.translatedLines.any { line -> line.isNotBlank() } &&
+                !isPureNumberAiTranslationSource(it.sourceText)
+        }
     val translationsForRegions = if (localContext.regions.size == 1) {
-        translations.map { translation ->
-            if (translation.localRegionId.isBlank()) {
-                translation.copy(localRegionId = localContext.regions.single().id)
-            } else {
-                translation
-            }
+        if (usableTranslations.size != 1) return null
+        usableTranslations.map { translation ->
+            translation.copy(localRegionId = localContext.regions.single().id)
         }
     } else {
-        translations
+        usableTranslations
     }
     val translationsByRegion = translationsForRegions
         .filter {
             it.localRegionId.isNotBlank() &&
-                it.translatedLines.any { line -> line.isNotBlank() } &&
-                !isPureNumberAiTranslationSource(it.sourceText)
+                it.translatedLines.any { line -> line.isNotBlank() }
         }
         .associateBy { it.localRegionId }
     val blocks = localContext.regions.mapNotNull { region ->
@@ -1275,6 +1283,7 @@ internal fun buildTranslatedPageFromLocalContext(
             translatedLines = translation.translatedLines.map { it.trim() }.filter { it.isNotBlank() },
             rect = region.effectiveSourceMaskBounds(),
             translationRect = region.effectiveRenderBoundsForKind(translation.kind),
+            sourceColumns = region.effectiveSourceColumns(),
             textColor = ensureReadableAiTextColor(region.textColor, region.backgroundColor),
             maskColor = region.backgroundColor,
             maskAlpha = 0.82f,
@@ -1670,15 +1679,7 @@ private fun Bitmap.scaledForAiTextRegionCrop(): Bitmap {
     )
 }
 
-internal fun regionImagesPerRequest(settings: AiSettings): Int =
-    if (
-        settings.sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA ||
-        settings.sourceTextProfile == AiSourceTextProfile.AUTO
-    ) {
-        1
-    } else {
-        AiSettings.normalizeMaxImagesPerRequest(settings.maxImagesPerRequest) - 1
-    }
+internal fun regionImagesPerRequest(settings: AiSettings): Int = 1
 
 internal fun effectiveAiTranslationWorkerCount(settings: AiSettings, pendingCount: Int, maxMemoryBytes: Long = Runtime.getRuntime().maxMemory()): Int {
     val configured = settings.concurrentRequests.coerceAtLeast(1)
@@ -1771,7 +1772,40 @@ private data class CompressedAiImage(
     val bytes: ByteArray
 )
 
-private fun compressPageContextImageForAi(file: File): CompressedAiImage {
+internal data class AiPageContextMaskRect(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int
+)
+
+internal fun pageContextTextMaskRectsForAi(
+    imageWidth: Int,
+    imageHeight: Int,
+    regions: List<AiTranslationLocalTextRegion>
+): List<AiPageContextMaskRect> {
+    if (imageWidth <= 0 || imageHeight <= 0) return emptyList()
+    return regions.mapNotNull { region ->
+        region.effectiveSourceMaskBounds().toPageContextMaskRect(imageWidth, imageHeight)
+    }
+}
+
+private fun AiTranslationRect.toPageContextMaskRect(
+    imageWidth: Int,
+    imageHeight: Int
+): AiPageContextMaskRect? {
+    if (width <= 0f || height <= 0f) return null
+    val left = floor(x * imageWidth).toInt().coerceIn(0, imageWidth - 1)
+    val top = floor(y * imageHeight).toInt().coerceIn(0, imageHeight - 1)
+    val right = ceil((x + width) * imageWidth).toInt().coerceIn(left + 1, imageWidth)
+    val bottom = ceil((y + height) * imageHeight).toInt().coerceIn(top + 1, imageHeight)
+    return AiPageContextMaskRect(left = left, top = top, right = right, bottom = bottom)
+}
+
+private fun compressPageContextImageForAi(
+    file: File,
+    regions: List<AiTranslationLocalTextRegion>
+): CompressedAiImage {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(file.absolutePath, bounds)
     val sampleSize = aiImageSampleSize(
@@ -1785,7 +1819,8 @@ private fun compressPageContextImageForAi(file: File): CompressedAiImage {
             file = file,
             sampleSize = sampleSize,
             quality = AI_PAGE_CONTEXT_JPEG_QUALITY,
-            targetMaxEdge = AI_PAGE_CONTEXT_MAX_EDGE
+            targetMaxEdge = AI_PAGE_CONTEXT_MAX_EDGE,
+            pageContextMaskRegions = regions
         )
     )
 }
@@ -1821,7 +1856,8 @@ private fun compressDecodedPageImage(
     file: File,
     sampleSize: Int,
     quality: Int,
-    targetMaxEdge: Int? = null
+    targetMaxEdge: Int? = null,
+    pageContextMaskRegions: List<AiTranslationLocalTextRegion> = emptyList()
 ): ByteArray {
     val options = BitmapFactory.Options().apply {
         inSampleSize = sampleSize.coerceAtLeast(1)
@@ -1829,16 +1865,42 @@ private fun compressDecodedPageImage(
     }
     val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
         ?: error("failed to decode page image")
-    val outputBitmap = bitmap.scaledDownToMaxEdge(targetMaxEdge)
+    val maskedBitmap = bitmap.withOpaquePageContextTextMasks(pageContextMaskRegions)
+    val outputBitmap = maskedBitmap.scaledDownToMaxEdge(targetMaxEdge)
     return try {
         ByteArrayOutputStream().use { output ->
             outputBitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
             output.toByteArray()
         }
     } finally {
-        if (outputBitmap !== bitmap) outputBitmap.recycle()
+        if (outputBitmap !== maskedBitmap) outputBitmap.recycle()
+        if (maskedBitmap !== bitmap) maskedBitmap.recycle()
         bitmap.recycle()
     }
+}
+
+private fun Bitmap.withOpaquePageContextTextMasks(
+    regions: List<AiTranslationLocalTextRegion>
+): Bitmap {
+    val maskRects = pageContextTextMaskRectsForAi(width, height, regions)
+    if (maskRects.isEmpty()) return this
+    val mutableBitmap = copy(Bitmap.Config.ARGB_8888, true) ?: return this
+    val paint = Paint().apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+        alpha = 255
+    }
+    val canvas = Canvas(mutableBitmap)
+    maskRects.forEach { rect ->
+        canvas.drawRect(
+            rect.left.toFloat(),
+            rect.top.toFloat(),
+            rect.right.toFloat(),
+            rect.bottom.toFloat(),
+            paint
+        )
+    }
+    return mutableBitmap
 }
 
 private fun Bitmap.scaledDownToMaxEdge(targetMaxEdge: Int?): Bitmap {

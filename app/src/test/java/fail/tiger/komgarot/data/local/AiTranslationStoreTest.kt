@@ -225,6 +225,10 @@ class AiTranslationStoreTest {
                       "translatedLines": ["你好"],
                       "rect": { "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4 },
                       "translationRect": { "x": 0.12, "y": 0.24, "width": 0.12, "height": 0.22 },
+                      "sourceColumns": [
+                        { "x": 0.18, "y": 0.22, "width": 0.03, "height": 0.18 },
+                        { "x": 0.14, "y": 0.22, "width": 0.03, "height": 0.18 }
+                      ],
                       "textColor": "#111111",
                       "maskColor": "#FFFFFF",
                       "textDirection": "vertical",
@@ -252,6 +256,8 @@ class AiTranslationStoreTest {
         assertEquals(AiTranslationTextDirection.VERTICAL, block.textDirection)
         assertEquals(0.12f, block.translationRect.x)
         assertEquals(0.22f, block.translationRect.height)
+        assertEquals(2, block.sourceColumns.size)
+        assertEquals(0.18f, block.sourceColumns.first().x, 0.0001f)
     }
 
     @Test

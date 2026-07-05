@@ -2,6 +2,7 @@ package fail.tiger.komgarot.data.repository
 
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
 import fail.tiger.komgarot.data.local.AiTranslationBlock
+import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationRect
@@ -72,7 +73,7 @@ class AiLocalTextDetectorTest {
         )
         val leftColumn = rightColumn.copy(
             id = "p0-r2",
-            rect = AiTranslationRect(0.65f, 0.18f, 0.030f, 0.22f)
+            rect = AiTranslationRect(0.658f, 0.18f, 0.030f, 0.22f)
         )
 
         val selected = selectLocalTextDetectionRegions(
@@ -85,9 +86,9 @@ class AiLocalTextDetectorTest {
         assertEquals(1, selected.size)
         assertEquals("p0-r1", selected.single().id)
         val rect = selected.single().rect
-        assertEquals(0.65f, rect.x, 0.0001f)
+        assertEquals(0.658f, rect.x, 0.0001f)
         assertEquals(0.18f, rect.y, 0.0001f)
-        assertEquals(0.08f, rect.width, 0.0001f)
+        assertEquals(0.072f, rect.width, 0.0001f)
         assertEquals(0.22f, rect.height, 0.0001f)
     }
 
@@ -142,6 +143,31 @@ class AiLocalTextDetectorTest {
     }
 
     @Test
+    fun mergedVerticalColumnsKeepIndividualColumnGeometryForLayoutAndCrop() {
+        val rightColumn = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.70f, 0.18f, 0.030f, 0.22f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.68f
+        )
+        val leftColumn = rightColumn.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.65f, 0.20f, 0.030f, 0.18f)
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(listOf(leftColumn, rightColumn)).single()
+
+        assertEquals(listOf(rightColumn.rect, leftColumn.rect), merged.sourceColumns)
+        val crop = merged.effectiveAiCropBounds()
+        assertTrue(crop.x <= leftColumn.rect.x)
+        assertTrue(crop.x + crop.width >= rightColumn.rect.x + rightColumn.rect.width)
+        assertTrue(crop.width <= merged.rect.width + 0.018f)
+    }
+
+    @Test
     fun nearbyVerticalColumnsWithDifferentTopsRemainSeparateTextBoxes() {
         val upperColumn = AiTranslationLocalTextRegion(
             id = "p0-r1",
@@ -177,7 +203,7 @@ class AiLocalTextDetectorTest {
             ),
             AiTranslationLocalTextRegion(
                 id = "p0-r2",
-                rect = AiTranslationRect(0.65f, 0.18f, 0.030f, 0.22f),
+                rect = AiTranslationRect(0.658f, 0.18f, 0.030f, 0.22f),
                 textDirection = AiTranslationTextDirection.VERTICAL,
                 textColor = "#111111",
                 backgroundColor = "#FFFFFF",
@@ -195,7 +221,7 @@ class AiLocalTextDetectorTest {
             ),
             AiTranslationLocalTextRegion(
                 id = "p0-r4",
-                rect = AiTranslationRect(0.53f, 0.18f, 0.030f, 0.22f),
+                rect = AiTranslationRect(0.538f, 0.18f, 0.030f, 0.22f),
                 textDirection = AiTranslationTextDirection.VERTICAL,
                 textColor = "#111111",
                 backgroundColor = "#FFFFFF",
@@ -234,6 +260,240 @@ class AiLocalTextDetectorTest {
 
         assertEquals(2, merged.size)
         assertEquals(listOf("p0-r1", "p0-r2"), merged.map { it.id })
+    }
+
+    @Test
+    fun japaneseMangaKeepsNearbySoundEffectLikeColumnSeparateWhenFontSizeDiffers() {
+        val dialogueColumn = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.70f, 0.18f, 0.050f, 0.25f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.90f
+        )
+        val soundEffectColumn = dialogueColumn.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.63f, 0.17f, 0.065f, 0.30f),
+            estimatedFontScale = 1.05f
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(soundEffectColumn, dialogueColumn),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(2, merged.size)
+        assertEquals(listOf("p0-r1", "p0-r2"), merged.map { it.id })
+    }
+
+    @Test
+    fun japaneseMangaKeepsOverlappingSoundEffectLikeColumnSeparateFromDialogue() {
+        val dialogueRight = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.70f, 0.18f, 0.035f, 0.26f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.90f
+        )
+        val dialogueLeft = dialogueRight.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.652f, 0.184f, 0.035f, 0.22f)
+        )
+        val soundEffectLikeColumn = dialogueRight.copy(
+            id = "p0-r3",
+            rect = AiTranslationRect(0.63f, 0.18f, 0.042f, 0.26f),
+            estimatedFontScale = 0.96f
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(soundEffectLikeColumn, dialogueLeft, dialogueRight),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(2, merged.size)
+        assertEquals(listOf("p0-r1", "p0-r3"), merged.map { it.id })
+        assertEquals(2, merged.first().sourceColumns.size)
+        assertEquals(1, merged.last().sourceColumns.size)
+    }
+
+    @Test
+    fun japaneseMangaKeepsSlightlyLargerAdjacentSoundEffectColumnSeparateFromDialogue() {
+        val dialogueRight = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.70f, 0.20f, 0.034f, 0.22f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.90f
+        )
+        val dialogueLeft = dialogueRight.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.655f, 0.21f, 0.035f, 0.21f),
+            estimatedFontScale = 0.91f
+        )
+        val soundEffectLikeColumn = dialogueRight.copy(
+            id = "p0-r3",
+            rect = AiTranslationRect(0.613f, 0.19f, 0.038f, 0.24f),
+            estimatedFontScale = 1.05f
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(soundEffectLikeColumn, dialogueLeft, dialogueRight),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(2, merged.size)
+        assertEquals(listOf("p0-r1", "p0-r3"), merged.map { it.id })
+        assertEquals(2, merged.first().sourceColumns.size)
+        assertEquals(1, merged.last().sourceColumns.size)
+    }
+
+    @Test
+    fun japaneseMangaMergesOnlyTopAlignedAdjacentDialogueColumns() {
+        val dialogueRight = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.720f, 0.220f, 0.035f, 0.320f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.90f
+        )
+        val dialogueMiddle = dialogueRight.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.676f, 0.224f, 0.035f, 0.300f)
+        )
+        val dialogueLeft = dialogueRight.copy(
+            id = "p0-r3",
+            rect = AiTranslationRect(0.632f, 0.218f, 0.035f, 0.310f)
+        )
+        val nearbySoundEffect = dialogueRight.copy(
+            id = "p0-r4",
+            rect = AiTranslationRect(0.588f, 0.100f, 0.037f, 0.280f),
+            estimatedFontScale = 0.92f
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(nearbySoundEffect, dialogueLeft, dialogueMiddle, dialogueRight),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(2, merged.size)
+        assertEquals(listOf("p0-r1", "p0-r4"), merged.map { it.id })
+        assertEquals(
+            listOf(dialogueRight.rect, dialogueMiddle.rect, dialogueLeft.rect),
+            merged.first().sourceColumns
+        )
+        assertEquals(listOf(nearbySoundEffect.rect), merged.last().sourceColumns)
+    }
+
+    @Test
+    fun japaneseMangaKeepsSameHeightSameWidthColumnsSeparateWhenHorizontalGapIsLoose() {
+        val rightColumn = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.720f, 0.220f, 0.035f, 0.260f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.90f
+        )
+        val looseLeftColumn = rightColumn.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.660f, 0.222f, 0.035f, 0.250f)
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(looseLeftColumn, rightColumn),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(2, merged.size)
+        assertEquals(listOf("p0-r1", "p0-r2"), merged.map { it.id })
+    }
+
+    @Test
+    fun japaneseMangaMergesOnlyNearEqualWidthColumns() {
+        val rightColumn = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.720f, 0.220f, 0.035f, 0.260f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.90f
+        )
+        val widerColumn = rightColumn.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.675f, 0.222f, 0.043f, 0.250f)
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(widerColumn, rightColumn),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(2, merged.size)
+        assertEquals(listOf("p0-r1", "p0-r2"), merged.map { it.id })
+    }
+
+    @Test
+    fun japaneseMangaMergesCloseDialogueColumnsEvenWhenColumnHeightsDiffer() {
+        val rightColumn = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.70f, 0.18f, 0.034f, 0.34f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.90f
+        )
+        val middleColumn = rightColumn.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.655f, 0.185f, 0.034f, 0.16f)
+        )
+        val leftColumn = rightColumn.copy(
+            id = "p0-r3",
+            rect = AiTranslationRect(0.610f, 0.176f, 0.034f, 0.24f)
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(leftColumn, middleColumn, rightColumn),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(1, merged.size)
+        assertEquals(listOf(rightColumn.rect, middleColumn.rect, leftColumn.rect), merged.single().sourceColumns)
+    }
+
+    @Test
+    fun japaneseMangaMergesShortTopAlignedColumnWhenDistanceIsClose() {
+        val longColumn = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.70f, 0.18f, 0.030f, 0.32f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.90f
+        )
+        val shortColumn = longColumn.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.66f, 0.188f, 0.030f, 0.12f)
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(shortColumn, longColumn),
+            AiSourceTextProfile.JAPANESE_MANGA
+        )
+
+        assertEquals(1, merged.size)
+        assertEquals("p0-r1", merged.single().id)
     }
 
     @Test
@@ -463,8 +723,8 @@ class AiLocalTextDetectorTest {
         assertEquals(AiTranslationTextDirection.VERTICAL, corrected.textDirection)
         assertEquals("#F2F2F2", corrected.textColor)
         assertEquals("#111111", corrected.maskColor)
-        assertEquals(region.rect, corrected.rect)
-        assertEquals(region.rect, corrected.translationRect)
+        assertEquals(region.effectiveSourceMaskBounds(), corrected.rect)
+        assertEquals(region.effectiveRenderBoundsForKind(block.kind), corrected.translationRect)
         assertEquals(1.1f, corrected.fontScale)
     }
 
@@ -492,8 +752,8 @@ class AiLocalTextDetectorTest {
 
         val corrected = block.correctWithLocalRegion(region)
 
-        assertEquals(region.rect, corrected.rect)
-        assertEquals(region.rect, corrected.translationRect)
+        assertEquals(region.effectiveSourceMaskBounds(), corrected.rect)
+        assertEquals(region.effectiveRenderBoundsForKind(block.kind), corrected.translationRect)
         assertEquals(1.05f, corrected.fontScale)
     }
 
@@ -589,8 +849,8 @@ class AiLocalTextDetectorTest {
 
         val corrected = correctBlocksWithLocalRegions(driftedBlocks, listOf(first, second))
 
-        assertEquals(first.rect, corrected[0].rect)
-        assertEquals(second.rect, corrected[1].rect)
+        assertEquals(first.effectiveSourceMaskBounds(), corrected[0].rect)
+        assertEquals(second.effectiveSourceMaskBounds(), corrected[1].rect)
     }
 
     @Test
@@ -616,7 +876,7 @@ class AiLocalTextDetectorTest {
 
         val corrected = correctBlocksWithLocalRegions(listOf(block), listOf(first, second)).single()
 
-        assertEquals(second.rect, corrected.rect)
+        assertEquals(second.effectiveSourceMaskBounds(), corrected.rect)
     }
 
     @Test
@@ -645,7 +905,7 @@ class AiLocalTextDetectorTest {
         val corrected = correctBlocksWithLocalRegions(listOf(block), listOf(firstByReadingOrder, second)).single()
 
         assertEquals(second.id, corrected.localRegionId)
-        assertEquals(second.rect, corrected.rect)
+        assertEquals(second.effectiveSourceMaskBounds(), corrected.rect)
         assertEquals(AiTranslationTextDirection.VERTICAL, corrected.textDirection)
     }
 
@@ -674,7 +934,7 @@ class AiLocalTextDetectorTest {
 
         val corrected = correctBlocksWithLocalRegions(listOf(block), listOf(wrongRegion, actualRegion)).single()
 
-        assertEquals(wrongRegion.rect, corrected.rect)
+        assertEquals(wrongRegion.effectiveSourceMaskBounds(), corrected.rect)
         assertEquals(wrongRegion.id, corrected.localRegionId)
     }
 
@@ -709,8 +969,8 @@ class AiLocalTextDetectorTest {
 
         val corrected = correctBlocksWithLocalRegions(blocks, listOf(first, second))
 
-        assertEquals(first.rect, corrected[0].rect)
-        assertEquals(second.rect, corrected[1].rect)
+        assertEquals(first.effectiveSourceMaskBounds(), corrected[0].rect)
+        assertEquals(second.effectiveSourceMaskBounds(), corrected[1].rect)
         assertEquals(AiTranslationTextDirection.VERTICAL, corrected[1].textDirection)
         assertEquals(0.86f, corrected[1].fontScale)
     }
@@ -738,8 +998,8 @@ class AiLocalTextDetectorTest {
 
         val corrected = correctBlocksWithLocalRegions(blocks, listOf(first, second))
 
-        assertEquals(first.rect, corrected[0].rect)
-        assertEquals(second.rect, corrected[1].rect)
+        assertEquals(first.effectiveSourceMaskBounds(), corrected[0].rect)
+        assertEquals(second.effectiveSourceMaskBounds(), corrected[1].rect)
     }
 
     @Test
@@ -765,7 +1025,7 @@ class AiLocalTextDetectorTest {
 
         val corrected = correctBlocksWithLocalRegions(listOf(block), listOf(firstByReadingOrder, secondByReadingOrder)).single()
 
-        assertEquals(firstByReadingOrder.rect, corrected.rect)
+        assertEquals(firstByReadingOrder.effectiveSourceMaskBounds(), corrected.rect)
         assertEquals(firstByReadingOrder.id, corrected.localRegionId)
     }
 
@@ -792,7 +1052,7 @@ class AiLocalTextDetectorTest {
 
         val corrected = correctBlocksWithLocalRegions(listOf(block), listOf(firstByReadingOrder, lowerLeft)).single()
 
-        assertEquals(firstByReadingOrder.rect, corrected.rect)
+        assertEquals(firstByReadingOrder.effectiveSourceMaskBounds(), corrected.rect)
         assertEquals(firstByReadingOrder.id, corrected.localRegionId)
     }
 
@@ -815,7 +1075,7 @@ class AiLocalTextDetectorTest {
         val corrected = correctBlocksWithLocalRegions(blocks, listOf(region))
 
         assertEquals(1, corrected.size)
-        assertEquals(region.rect, corrected.single().rect)
+        assertEquals(region.effectiveSourceMaskBounds(), corrected.single().rect)
         assertEquals(listOf("音效"), corrected.single().translatedLines)
     }
 
@@ -875,5 +1135,65 @@ class AiLocalTextDetectorTest {
         assertEquals(1536, corrected.imageWidth)
         assertEquals(2234, corrected.imageHeight)
         assertEquals("#111111", corrected.blocks.single().textColor)
+    }
+
+    @Test
+    fun defaultSourceMaskExpandsDetectedTextBounds() {
+        val region = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(x = 0.30f, y = 0.22f, width = 0.030f, height = 0.24f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.92f,
+            estimatedFontScale = 0.88f
+        )
+
+        val mask = region.effectiveSourceMaskBounds()
+
+        assertTrue(mask.x < region.rect.x)
+        assertTrue(mask.y < region.rect.y)
+        assertTrue(mask.width > region.rect.width)
+        assertTrue(mask.height > region.rect.height)
+    }
+
+    @Test
+    fun verticalDialogueRenderBoundsExpandsNarrowDetectedColumnIntoBubbleSpace() {
+        val region = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(x = 0.58f, y = 0.14f, width = 0.030f, height = 0.30f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.92f,
+            estimatedFontScale = 0.92f
+        )
+
+        val renderBounds = region.effectiveRenderBoundsForKind(AiTranslationBlockKind.DIALOGUE)
+
+        assertTrue(renderBounds.width >= 0.085f)
+        assertTrue(renderBounds.height > region.rect.height)
+    }
+
+    @Test
+    fun defaultAiCropBoundsUseTightExpandedDetectedTextBounds() {
+        val region = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(x = 0.58f, y = 0.14f, width = 0.030f, height = 0.30f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.92f,
+            estimatedFontScale = 0.92f
+        )
+
+        val cropBounds = region.effectiveAiCropBounds()
+        val maskBounds = region.effectiveSourceMaskBounds()
+        val renderBounds = region.effectiveRenderBoundsForKind(AiTranslationBlockKind.DIALOGUE)
+
+        assertTrue(cropBounds.width > region.rect.width)
+        assertTrue(cropBounds.height > region.rect.height)
+        assertTrue(cropBounds.width <= maskBounds.width)
+        assertTrue(cropBounds.width < renderBounds.width)
     }
 }

@@ -28,7 +28,8 @@ data class AiTranslationLocalTextRegion(
     val rotationDegrees: Float = 0f,
     val textBounds: AiTranslationRect = AiTranslationRect(),
     val renderBounds: AiTranslationRect = AiTranslationRect(),
-    val aiCropBounds: AiTranslationRect = AiTranslationRect()
+    val aiCropBounds: AiTranslationRect = AiTranslationRect(),
+    val sourceColumns: List<AiTranslationRect> = emptyList()
 )
 
 data class AiTranslationRegionLayoutHints(
@@ -45,6 +46,10 @@ Translate dialogue balloons, narration boxes, sound effects, signs, and importan
 Keep character voice, pauses, shouting, hesitation, short punchy lines, and comic timing.
 Translate sound effects as manga sound effects with impact. Preserve repeated sounds and visual rhythm when useful.
 Sound effects must return kind: "SFX" and use short translatedLines suitable for small overlay text.
+Classify the current crop itself as dialogue, narration, sign, or SFX before translating.
+If the current crop itself is a sound effect, return kind: "SFX" even when page context contains dialogue nearby.
+SFX translatedLines must stay very short and contain only the sound-effect translation.
+If a crop contains dialogue plus surrounding sound effects, translate the anchored main dialogue or sign text and omit surrounding sound effects from translatedLines unless the crop itself is dominated by sound-effect text.
 Preserve Japanese corner quotes 「」 and nested corner quotes 『』 when they express quoted speech, title text, emphasis, or source style.
 Quote style is part of the translation contract: if the source crop or sourceText uses 「...」 or 『...』, translatedLines must use the same outer quote marks at the corresponding quoted spans.
 For Chinese targets, Japanese manga quoted dialogue, title text, emphasis, and quoted narration use 「」 and 『』. Standard curly quotes “ ” are used only when the source crop itself uses “ ”.
@@ -54,6 +59,8 @@ For each page, return pageIndex and translations.
 Each translation must include sourceText, translatedLines, and kind.
 Translate the current local text region into one returned translation.
 Each request contains one local text region crop: a text box, balloon crop, sign, or sound effect crop. Read the whole crop as one coherent unit before translating.
+The app binds this response to the requested local region.
+The translations array must contain exactly one object for the current crop.
 Each local region has normalized rect coordinates in the page image.
 Read the current text-region crop image and return sourceText in Japanese or the original source language.
 Use the page context image to understand scene context, speaker intent, tone, sound effects, and ambiguous crop text.
@@ -92,6 +99,8 @@ fun aiTranslationUserPrompt(
         appendLine("localTextRegions:")
         appendLine(localContextGson.toJson(localPageContexts.toPromptPagesJson()))
         appendLine("Translate the current local text region. Return sourceText and translatedLines for this region.")
+        appendLine("The app binds this response to the requested local region.")
+        appendLine("The translations array must contain exactly one object for the current crop.")
         appendLine("The current region is one independent text box, balloon crop, sign, or sound effect. Read the full crop before translating so multiline text stays coherent.")
         if (sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON) {
             appendLine("Korean horizontal webtoon source profile: read Korean text left-to-right within each line and top-to-bottom across lines.")
@@ -137,6 +146,12 @@ private fun AiTranslationLocalTextRegion.toPromptRegionJson(
 ): JsonObject = JsonObject().apply {
     addProperty("textDirection", textDirection.toPromptValue())
     add("rect", rect.toPromptRectJson())
+    val columns = sourceColumns.filter { it.width > 0f && it.height > 0f }
+    if (columns.isNotEmpty()) {
+        add("sourceColumns", JsonArray().apply {
+            columns.forEach { column -> add(column.toPromptRectJson()) }
+        })
+    }
     if (rotationDegrees != 0f) {
         addProperty("rotationDegrees", rotationDegrees)
     }
@@ -151,16 +166,30 @@ fun aiTranslationRegionLayoutHints(
     val safeImageWidth = pageImageWidth.coerceAtLeast(1)
     val safeImageHeight = pageImageHeight.coerceAtLeast(1)
     val scale = region.estimatedFontScale.coerceIn(0.55f, 1.60f)
+    val columns = region.sourceColumns.filter { it.width > 0f && it.height > 0f }
     return when (region.textDirection) {
         AiTranslationTextDirection.VERTICAL -> {
-            val glyphWidthNormX = (0.045f * scale).coerceAtLeast(0.006f)
+            val detectedColumnWidthNormX = columns
+                .map { it.width }
+                .sorted()
+                .takeIf { it.isNotEmpty() }
+                ?.let { it[it.size / 2] }
+            val glyphWidthNormX = detectedColumnWidthNormX
+                ?.let { it * 0.82f }
+                ?: (0.045f * scale).coerceAtLeast(0.006f)
+            val columnWidthNormX = detectedColumnWidthNormX ?: glyphWidthNormX
             val estimatedFontPx = (glyphWidthNormX * safeImageWidth).roundToInt().coerceAtLeast(8)
-            val columnAdvanceNormX = glyphWidthNormX * 1.45f
-            val glyphAdvanceNormY = glyphWidthNormX * safeImageWidth / safeImageHeight * 1.05f
+            val columnAdvanceNormX = columnWidthNormX * 1.45f
+            val glyphAdvanceNormY = columnWidthNormX * safeImageWidth / safeImageHeight * 1.05f
+            val heightNorm = columns
+                .takeIf { it.isNotEmpty() }
+                ?.maxOf { it.height }
+                ?: region.rect.height
             AiTranslationRegionLayoutHints(
                 estimatedFontPx = estimatedFontPx,
-                suggestedColumns = (region.rect.width / columnAdvanceNormX).roundToInt().coerceIn(1, 8),
-                maxCharsPerColumn = floor(region.rect.height / glyphAdvanceNormY).toInt().coerceIn(2, 40),
+                suggestedColumns = columns.size.coerceIn(1, 8).takeIf { columns.isNotEmpty() }
+                    ?: (region.rect.width / columnAdvanceNormX).roundToInt().coerceIn(1, 8),
+                maxCharsPerColumn = floor(heightNorm / glyphAdvanceNormY).toInt().coerceIn(2, 40),
                 suggestedLines = 1,
                 maxCharsPerLine = 0
             )

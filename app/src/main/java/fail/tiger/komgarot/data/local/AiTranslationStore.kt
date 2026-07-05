@@ -286,6 +286,18 @@ private fun toAiTranslatedBookJson(book: AiTranslatedBook): String {
                                         addProperty("height", block.translationRect.height)
                                     })
                                 }
+                                if (block.sourceColumns.isNotEmpty()) {
+                                    add("sourceColumns", JsonArray().apply {
+                                        block.sourceColumns.forEach { column ->
+                                            add(JsonObject().apply {
+                                                addProperty("x", column.x)
+                                                addProperty("y", column.y)
+                                                addProperty("width", column.width)
+                                                addProperty("height", column.height)
+                                            })
+                                        }
+                                    })
+                                }
                                 addProperty("textColor", block.textColor)
                                 addProperty("maskColor", block.maskColor)
                                 addProperty("maskAlpha", block.maskAlpha)
@@ -413,6 +425,7 @@ private fun parseAiTranslationBlockElement(element: JsonElement): AiTranslationB
                 .orEmpty(),
             rect = parseAiTranslationRect(obj.getByAliases("rect", "d")),
             translationRect = parseAiTranslationRect(obj.getByAliases("translationRect", "m")),
+            sourceColumns = parseAiTranslationRectList(obj.getByAliases("sourceColumns", "o")),
             textColor = obj.getStringByAliases("textColor", "e") ?: "#111111",
             maskColor = obj.getStringByAliases("maskColor", "f") ?: "#FFFFFF",
             maskAlpha = obj.getFloatByAliases("maskAlpha", "g") ?: 0.72f,
@@ -458,6 +471,13 @@ private fun parseAiTranslationRect(element: JsonElement?): AiTranslationRect {
         height = obj.getFloatByAliases("height", "d") ?: 0f
     )
 }
+
+private fun parseAiTranslationRectList(element: JsonElement?): List<AiTranslationRect> =
+    element?.takeIf { it.isJsonArray }
+        ?.asJsonArray
+        ?.map(::parseAiTranslationRect)
+        ?.filter { it.width > 0f && it.height > 0f }
+        .orEmpty()
 
 private fun JsonObject.getAsJsonArrayOrNull(name: String) =
     get(name)?.takeIf { it.isJsonArray }?.asJsonArray

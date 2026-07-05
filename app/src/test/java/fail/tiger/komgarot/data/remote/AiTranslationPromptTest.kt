@@ -32,6 +32,10 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("Page context images are scene context only"))
         assertTrue(prompt.contains("Do not read, translate, or infer sourceText from page context images"))
         assertTrue(prompt.contains("The readable text source is the current text-region crop image"))
+        assertTrue(prompt.contains("Classify the current crop itself as dialogue, narration, sign, or SFX"))
+        assertTrue(prompt.contains("If a crop contains dialogue plus surrounding sound effects"))
+        assertTrue(prompt.contains("If the current crop itself is a sound effect, return kind: \"SFX\""))
+        assertTrue(prompt.contains("SFX translatedLines must stay very short"))
         assertTrue(prompt.contains("Preserve Japanese corner quotes"))
         assertTrue(prompt.contains("Quote style is part of the translation contract"))
         assertTrue(prompt.contains("translatedLines must use the same outer quote marks"))
@@ -145,6 +149,8 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("\"estimatedFontPx\":57"))
         assertTrue(prompt.contains("Translate the current local text region"))
         assertTrue(prompt.contains("Return sourceText"))
+        assertTrue(prompt.contains("The app binds this response to the requested local region"))
+        assertTrue(prompt.contains("translations array must contain exactly one object"))
         assertTrue(!prompt.contains("Return localRegionId"))
         assertTrue(prompt.contains("The attached images are ordered"))
         assertTrue(prompt.contains("Page context images are for scene context only"))
@@ -182,6 +188,30 @@ class AiTranslationPromptTest {
         assertEquals(1, hints.suggestedColumns)
         assertEquals(7, hints.maxCharsPerColumn)
         assertEquals(57, hints.estimatedFontPx)
+    }
+
+    @Test
+    fun verticalLayoutHintsUseTallestSourceColumnHeight() {
+        val hints = aiTranslationRegionLayoutHints(
+            pageImageWidth = 1000,
+            pageImageHeight = 2000,
+            region = AiTranslationLocalTextRegion(
+                id = "p4-r1",
+                rect = AiTranslationRect(x = 0.1f, y = 0.2f, width = 0.08f, height = 0.22f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.74f,
+                estimatedFontScale = 1.0f,
+                sourceColumns = listOf(
+                    AiTranslationRect(x = 0.16f, y = 0.20f, width = 0.03f, height = 0.20f),
+                    AiTranslationRect(x = 0.12f, y = 0.28f, width = 0.03f, height = 0.10f)
+                )
+            )
+        )
+
+        assertEquals(2, hints.suggestedColumns)
+        assertEquals(12, hints.maxCharsPerColumn)
     }
 
     @Test
