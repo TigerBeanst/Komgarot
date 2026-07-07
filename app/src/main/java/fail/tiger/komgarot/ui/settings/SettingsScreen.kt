@@ -252,6 +252,9 @@ private fun SettingsContent(
     var showWebDavUrlDialog by remember { mutableStateOf(false) }
     var showWebDavUsernameDialog by remember { mutableStateOf(false) }
     var showWebDavPasswordDialog by remember { mutableStateOf(false) }
+    var showWebDavBackupPicker by remember { mutableStateOf(false) }
+    var webDavBackupFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    var webDavBackupLoading by remember { mutableStateOf(false) }
     var localModelDownloading by remember { mutableStateOf(false) }
     var localModelsInstalled by remember { mutableStateOf(false) }
     fun saveS3Settings(next: SecureAiSettings) {
@@ -699,6 +702,31 @@ private fun SettingsContent(
                             context.getString(R.string.operation_failed)
                         }
                         android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_webdav_restore_now)) },
+                supportingContent = {
+                    Text(stringResource(if (webDavBackupLoading) R.string.loading else R.string.settings_webdav_restore_now_desc))
+                },
+                modifier = Modifier.clickable(enabled = !webDavBackupLoading) {
+                    scope.launch {
+                        webDavBackupLoading = true
+                        val result = app?.webDavBackupRepository?.listBackups()
+                        webDavBackupLoading = false
+                        val files = result?.getOrNull().orEmpty()
+                        if (result?.isSuccess == true && files.isNotEmpty()) {
+                            webDavBackupFiles = files
+                            showWebDavBackupPicker = true
+                        } else {
+                            val message = if (result?.isSuccess == true) {
+                                context.getString(R.string.settings_webdav_restore_no_backups)
+                            } else {
+                                context.getString(R.string.operation_failed)
+                            }
+                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             )
@@ -1227,6 +1255,44 @@ private fun SettingsContent(
             onDismiss = { showWebDavPasswordDialog = false }
         )
     }
+
+    if (showWebDavBackupPicker) {
+        AlertDialog(
+            onDismissRequest = { showWebDavBackupPicker = false },
+            title = { Text(stringResource(R.string.settings_webdav_restore_select_backup)) },
+            text = {
+                Column {
+                    webDavBackupFiles.forEach { fileName ->
+                        ListItem(
+                            headlineContent = { Text(webDavBackupDisplayName(fileName)) },
+                            supportingContent = { Text(fileName) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showWebDavBackupPicker = false
+                                    scope.launch {
+                                        val result = app?.webDavBackupRepository?.restoreBackup(fileName)
+                                        val message = if (result?.isSuccess == true) {
+                                            secureAiSettings = app?.secureAiSettingsStore?.read() ?: secureAiSettings
+                                            context.getString(R.string.settings_webdav_restore_success)
+                                        } else {
+                                            context.getString(R.string.operation_failed)
+                                        }
+                                        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showWebDavBackupPicker = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -1282,7 +1348,7 @@ private fun AboutSection(appUpdateRepository: AppUpdateRepository) {
             Image(
                 painter = painterResource(R.mipmap.ic_launcher_foreground),
                 contentDescription = stringResource(R.string.app_name),
-                modifier = Modifier.size(42.dp)
+                modifier = Modifier.size(48.dp)
             )
         },
         trailingContent = {
@@ -1425,6 +1491,13 @@ private const val WEB_DAV_PASSWORD_MASK = "********"
 
 private fun webDavPasswordDisplayText(password: String): String =
     if (password.isBlank()) "" else WEB_DAV_PASSWORD_MASK
+
+private fun webDavBackupDisplayName(fileName: String): String {
+    val raw = fileName.removePrefix("Komgarot_backup_").removeSuffix(".zip")
+    if (raw.length != 15 || raw[8] != '_') return fileName
+    return "${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)} " +
+        "${raw.substring(9, 11)}:${raw.substring(11, 13)}:${raw.substring(13, 15)}"
+}
 
 private fun deviceTierLabelRes(tier: AiLocalModelTier): Int =
     when (tier) {

@@ -120,6 +120,21 @@ class AiTranslationStoreTest {
     }
 
     @Test
+    fun importBooksWritesRestoredBooksAndSkipsBlankIds() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+
+        store.importBooks(
+            listOf(
+                sampleBook().copy(bookId = "book-restored"),
+                sampleBook().copy(bookId = "")
+            )
+        )
+
+        assertEquals("book-restored", store.readBook("book-restored")?.bookId)
+        assertEquals(null, store.readBook(""))
+    }
+
+    @Test
     fun storeCanListCachedTranslationBookIdsForMaintenance() {
         val store = AiTranslationStore(temporaryFolder.newFolder("files"))
         store.saveBookNow(sampleBook())

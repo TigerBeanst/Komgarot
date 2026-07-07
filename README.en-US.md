@@ -19,7 +19,8 @@ Komgarot is an Android comic reader client for Komga servers, built with Kotlin 
 - Series search, author search, sorting, and filters
 - Book detail pages with metadata viewing and editing
 - Paged reading, vertical scroll reading, reading direction, page fit, and progress seeking
-- AI translation
+- AI translation with local PaddleOCR detection, vision-model translation, cache, retry, timing, and failure details
+- WebDAV ZIP backup and restore
 - Long-press page actions: save, share, set as book cover, or set as series cover
 - Incognito reading, app lock, and keep-screen-on mode
 - Admin entry for libraries, users, server settings, maintenance, and activity
@@ -37,25 +38,34 @@ Komgarot is an Android comic reader client for Komga servers, built with Kotlin 
 </p>
 
 ## AI Translation
-> This feature requires your own OpenAI-compatible AI service and a vision-capable model.
+> This feature requires your own OpenAI-compatible AI service and a vision-capable model. **Note: this feature consumes a large number of tokens.**
 >
-> Generation speed and quality vary by model. Some model providers may apply stricter policies to sensitive content and fail to return translations, so choose a provider that fits your needs.
+> Before using it, download the local PaddleOCR detection model in the app. Komgarot first detects page text regions locally and creates masks, then sends the current text-region crop and page context image to the vision model for translation.
 >
-> For speed and quality, AI translation sends one request per text segment with the dialogue text and the full image. Translating one image may consume a large number of tokens. My personal average is 2000+ tokens per request.
+> AI translation supports serial and parallel requests. Serial mode is the default, and parallel mode lets you configure the request count. Long-press the translation button to view per-page timing and failure details. Retrying a page reruns OCR, masking, and translation for that page.
+>
+> Detection and prompts can be tuned by source text type: auto, Japanese vertical manga, and Korean horizontal webtoon. Translation results are cached by book, and the cache/task screens support clearing data and purging stale entries.
 
 ### Translation Preview
 <p>
   <img src="assets/screenshot/Screenshot_AI_01_origin.jpg" alt="Komgarot AI translation 1 original" width="180">
-  <img src="assets/screenshot/Screenshot_AI_01_translated.jpg" alt="Komgarot AI translation 1 result" width="180">
+  <img src="assets/screenshot/Screenshot_AI_01_translated.jpg" alt="Komgarot AI translation 1 translated" width="180">
   <img src="assets/screenshot/Screenshot_AI_02_origin.jpg" alt="Komgarot AI translation 2 original" width="180">
-  <img src="assets/screenshot/Screenshot_AI_02_translated.jpg" alt="Komgarot AI translation 2 result" width="180">
-</p>
-<p>
+  <img src="assets/screenshot/Screenshot_AI_02_translated.jpg" alt="Komgarot AI translation 2 translated" width="180">
   <img src="assets/screenshot/Screenshot_AI_03_origin.jpg" alt="Komgarot AI translation 3 original" width="180">
-  <img src="assets/screenshot/Screenshot_AI_03_translated.jpg" alt="Komgarot AI translation 3 result" width="180">
-  <img src="assets/screenshot/Screenshot_AI_04_origin.jpg" alt="Komgarot AI translation 4 original" width="180">
-  <img src="assets/screenshot/Screenshot_AI_04_translated.jpg" alt="Komgarot AI translation 4 result" width="180">
+  <img src="assets/screenshot/Screenshot_AI_03_translated.jpg" alt="Komgarot AI translation 3 translated" width="180">
 </p>
+
+## WebDAV Backup And Restore
+
+Komgarot creates a `Komgarot` folder under the configured WebDAV URL path and stores ZIP backups named like `Komgarot_backup_20260706_170802.zip`. The app appends a trailing `/` to the URL when needed.
+
+The ZIP backup contains:
+
+- `app-settings.json`: app settings, AI service settings, S3 image URL settings, and API key settings
+- `ai-translate/`: AI translation JSON data split by book ID
+
+Restore shows the latest 5 backups for selection. Komga account/server settings and WebDAV server/username/password stay local.
 
 ## Requirements
 

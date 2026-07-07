@@ -1261,10 +1261,11 @@ internal fun buildTranslatedPageFromLocalContext(
                 !isPureNumberAiTranslationSource(it.sourceText)
         }
     val translationsForRegions = if (localContext.regions.size == 1) {
-        if (usableTranslations.size != 1) return null
-        usableTranslations.map { translation ->
-            translation.copy(localRegionId = localContext.regions.single().id)
-        }
+        listOf(
+            (usableTranslations.firstOrNull() ?: return null).copy(
+                localRegionId = localContext.regions.single().id
+            )
+        )
     } else {
         usableTranslations
     }
@@ -1713,7 +1714,7 @@ internal fun effectiveAiTranslationChunkWorkerCount(settings: AiSettings, chunkC
 
 private fun aiLocalContextCacheKey(file: File, settings: AiSettings): String =
     listOf(
-        "local-v4",
+        "local-v13",
         file.length(),
         file.lastModified(),
         settings.localModelSource.storedValue,
@@ -1766,6 +1767,7 @@ private const val AI_TIMING_AI_RESPONSE_PARSE = "ai_response_parse"
 private const val AI_TIMING_SAVE_AND_VERIFY = "save_and_verify"
 private const val AI_TRANSLATION_CHUNK_RETRY_DELAY_MS = 350L
 private const val AI_TRANSLATION_TASK_PAUSE_POLL_MS = 500L
+private const val AI_PAGE_CONTEXT_TEXT_MASK_PADDING_PX = 2
 
 private data class CompressedAiImage(
     val mimeType: String,
@@ -1785,20 +1787,32 @@ internal fun pageContextTextMaskRectsForAi(
     regions: List<AiTranslationLocalTextRegion>
 ): List<AiPageContextMaskRect> {
     if (imageWidth <= 0 || imageHeight <= 0) return emptyList()
-    return regions.mapNotNull { region ->
-        region.effectiveSourceMaskBounds().toPageContextMaskRect(imageWidth, imageHeight)
+    return regions.flatMap { region ->
+        val sourceColumns = region.sourceColumns.filter { it.width > 0f && it.height > 0f }
+        if (sourceColumns.isNotEmpty()) {
+            sourceColumns.mapNotNull { column ->
+                column.toPageContextMaskRect(
+                    imageWidth = imageWidth,
+                    imageHeight = imageHeight,
+                    paddingPx = AI_PAGE_CONTEXT_TEXT_MASK_PADDING_PX
+                )
+            }
+        } else {
+            listOfNotNull(region.effectiveSourceMaskBounds().toPageContextMaskRect(imageWidth, imageHeight))
+        }
     }
 }
 
 private fun AiTranslationRect.toPageContextMaskRect(
     imageWidth: Int,
-    imageHeight: Int
+    imageHeight: Int,
+    paddingPx: Int = 0
 ): AiPageContextMaskRect? {
     if (width <= 0f || height <= 0f) return null
-    val left = floor(x * imageWidth).toInt().coerceIn(0, imageWidth - 1)
-    val top = floor(y * imageHeight).toInt().coerceIn(0, imageHeight - 1)
-    val right = ceil((x + width) * imageWidth).toInt().coerceIn(left + 1, imageWidth)
-    val bottom = ceil((y + height) * imageHeight).toInt().coerceIn(top + 1, imageHeight)
+    val left = (floor(x * imageWidth).toInt() - paddingPx).coerceIn(0, imageWidth - 1)
+    val top = (floor(y * imageHeight).toInt() - paddingPx).coerceIn(0, imageHeight - 1)
+    val right = (ceil((x + width) * imageWidth).toInt() + paddingPx).coerceIn(left + 1, imageWidth)
+    val bottom = (ceil((y + height) * imageHeight).toInt() + paddingPx).coerceIn(top + 1, imageHeight)
     return AiPageContextMaskRect(left = left, top = top, right = right, bottom = bottom)
 }
 

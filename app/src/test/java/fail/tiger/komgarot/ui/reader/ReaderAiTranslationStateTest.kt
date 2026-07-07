@@ -158,7 +158,23 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("?.status != AiTranslationPageStatus.DONE"))
         assertTrue(viewModelSource.contains("if (pageIndexes.isEmpty())"))
         assertTrue(viewModelSource.contains("repository.retryPagesTranslation("))
-        assertTrue(viewModelSource.contains("pageIndexes = pageIndexes"))
+        assertTrue(viewModelSource.contains("pageIndexes = batchPageIndexes"))
+    }
+
+    @Test
+    fun activeDisplayModeExtendsAiTranslationWindowWhileWorkIsRunning() {
+        val translateStart = viewModelSource.indexOf("fun translateCurrentAiPageIfDisplayEnabled(preloadPages: Int)")
+        val translateEnd = viewModelSource.indexOf("private fun isAiTranslationWorkRunning()", translateStart)
+        assertTrue(translateStart >= 0)
+        assertTrue(translateEnd > translateStart)
+        val translateSource = viewModelSource.substring(translateStart, translateEnd)
+
+        assertTrue(viewModelSource.contains("startOrExtendCurrentAndPreloadedAiTranslation("))
+        assertTrue(viewModelSource.contains("appendAiTranslationPageIndexes(pageIndexes)"))
+        assertTrue(translateSource.contains("startOrExtendCurrentAndPreloadedAiTranslation("))
+        assertTrue(translateSource.contains("publishStartedMessage = false"))
+        assertTrue(translateSource.contains("includeFailedPages = false"))
+        assertFalse(translateSource.contains("if (isAiTranslationWorkRunning()) return"))
     }
 
     @Test
@@ -171,7 +187,7 @@ class ReaderAiTranslationStateTest {
         val startSource = viewModelSource.substring(start, end)
 
         assertTrue(startSource.contains("repository.retryPagesTranslation("))
-        assertTrue(startSource.contains("pageIndexes = pageIndexes"))
+        assertTrue(startSource.contains("pageIndexes = batchPageIndexes"))
         assertFalse(startSource.contains("for (pageIndex in pageIndexes)"))
         assertFalse(startSource.contains("repository.retryPageTranslation(loaded, currentServerUrl, pageIndex, currentPages)"))
         assertTrue(repositorySource.contains("suspend fun retryPagesTranslation("))
@@ -193,10 +209,7 @@ class ReaderAiTranslationStateTest {
 
         assertTrue(viewModelSource.contains("fun translateCurrentAiPageIfDisplayEnabled(preloadPages: Int)"))
         assertTrue(viewModelSource.contains("currentAiTranslationDisplayMode != AiTranslationDisplayMode.ON"))
-        assertTrue(viewModelSource.contains("isAiTranslationWorkRunning()"))
-        assertTrue(viewModelSource.contains("currentAiTranslatedPage(currentPage)?.status"))
-        assertTrue(viewModelSource.contains("AiTranslationPageStatus.DONE, AiTranslationPageStatus.RUNNING, AiTranslationPageStatus.FAILED -> return"))
-        assertTrue(viewModelSource.contains("startCurrentAndPreloadedAiTranslation(preloadPages)"))
+        assertTrue(viewModelSource.contains("startOrExtendCurrentAndPreloadedAiTranslation("))
         assertTrue(screenSource.contains("vm.translateCurrentAiPageIfDisplayEnabled(memoryAwarePreloadPages)"))
     }
 

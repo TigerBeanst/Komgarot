@@ -41,9 +41,9 @@ data class AiTranslationImageInput(
         )
 
     fun metadataText(): String = if (localRegionId.isBlank()) {
-        "imageRole=page_context; pageIndex=$pageIndex; sceneContextOnly=true"
+        "Image 1: context; page=$pageIndex"
     } else {
-        "imageRole=text_region; pageIndex=$pageIndex; currentTextRegion=true; textSourceOnlyForCurrentRegion=true"
+        "Image 2: crop; page=$pageIndex"
     }
 }
 
