@@ -170,7 +170,7 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("readLocalPageContext("))
         assertTrue(source.contains("saveLocalPageContext("))
         assertTrue(source.contains("aiLocalContextCacheKey("))
-        assertTrue(source.contains("\"local-v4\""))
+        assertTrue(source.contains("\"local-v13\""))
         assertTrue(source.contains("readRegionCrop("))
         assertTrue(source.contains("saveRegionCrop("))
         assertTrue(source.contains("aiRegionCropCacheKey("))
@@ -235,6 +235,39 @@ class AiTranslationRepositoryStructureTest {
 
         assertEquals(1, rects.size)
         assertEquals(AiPageContextMaskRect(left = 18, top = 56, right = 32, bottom = 104), rects.single())
+    }
+
+    @Test
+    fun pageContextMaskRectsUseSourceColumnsWhenAvailable() {
+        val regions = listOf(
+            AiTranslationLocalTextRegion(
+                id = "p0-r1",
+                rect = AiTranslationRect(x = 0.20f, y = 0.30f, width = 0.20f, height = 0.30f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.9f,
+                estimatedFontScale = 1.0f,
+                sourceColumns = listOf(
+                    AiTranslationRect(x = 0.30f, y = 0.20f, width = 0.03f, height = 0.20f),
+                    AiTranslationRect(x = 0.25f, y = 0.22f, width = 0.03f, height = 0.18f)
+                )
+            )
+        )
+
+        val rects = pageContextTextMaskRectsForAi(
+            imageWidth = 100,
+            imageHeight = 200,
+            regions = regions
+        )
+
+        assertEquals(
+            listOf(
+                AiPageContextMaskRect(left = 28, top = 38, right = 35, bottom = 82),
+                AiPageContextMaskRect(left = 23, top = 42, right = 30, bottom = 82)
+            ),
+            rects
+        )
     }
 
     @Test
@@ -830,7 +863,7 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
-    fun singleRegionResponseWithMultipleValidTranslationsIsRejectedAsAmbiguous() {
+    fun singleRegionResponseWithMultipleValidTranslationsBindsFirstResultToOnlyRegion() {
         val context = AiTranslationLocalPageContext(
             pageIndex = 3,
             imageWidth = 1200,
@@ -865,14 +898,16 @@ class AiTranslationRepositoryStructureTest {
             }
         """.trimIndent()
 
-        val pages = translatedPagesFromLocalRegionResponse(
+        val page = translatedPagesFromLocalRegionResponse(
             normalizedJson = json,
             fallbackPageIndexes = listOf(3),
             localPageContexts = listOf(context),
             mode = AiTranslationMode.LOCAL_DETECTION
-        )
+        ).single()
 
-        assertTrue(pages.isEmpty())
+        assertEquals("p3-r1", page.blocks.single().localRegionId)
+        assertEquals("Sample source text", page.blocks.single().sourceText)
+        assertEquals(listOf("当前区域译文"), page.blocks.single().translatedLines)
     }
 
     @Test
@@ -900,8 +935,8 @@ class AiTranslationRepositoryStructureTest {
               "translations": [
                 {
                   "localRegionId": "p4-r1",
-                  "sourceText": "保健室",
-                  "translatedLines": ["医务室"],
+                  "sourceText": "案内板",
+                  "translatedLines": ["导览牌"],
                   "kind": "caption"
                 }
               ]

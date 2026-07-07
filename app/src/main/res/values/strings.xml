@@ -397,12 +397,14 @@
     <string name="settings_webdav_password">WebDAV password</string>
     <string name="settings_webdav_backup_scope">Backup scope</string>
     <string name="settings_webdav_backup_excludes_credentials">Backs up app settings and AI translation JSON data. Komga server, WebDAV server, usernames, and passwords stay local.</string>
-    <string name="settings_webdav_backup_hint">Komgarot will request creation of a “Komgarot” folder under the entered URL path and save configuration files there.\nBackup scope: app settings and AI translation JSON data. Komga server, WebDAV server, username, and password are outside the backup scope.</string>
+    <string name="settings_webdav_backup_hint">Komgarot will request creation of a “Komgarot” folder under the entered URL path and save configuration files there.\nBackup scope: app settings, AI service credentials, S3 image URL settings, and AI translation JSON data. Komga account/server and WebDAV server/username/password stay local.</string>
     <string name="settings_webdav_backup_now">Back up now</string>
-    <string name="settings_webdav_backup_now_desc">Upload settings and AI translation JSON data to WebDAV.</string>
+    <string name="settings_webdav_backup_now_desc">Upload a ZIP backup with app settings and AI translation JSON data.</string>
     <string name="settings_webdav_backup_success">Backup uploaded</string>
     <string name="settings_webdav_restore_now">Restore backup</string>
-    <string name="settings_webdav_restore_now_desc">Download settings and AI translation JSON data from WebDAV.</string>
+    <string name="settings_webdav_restore_now_desc">Choose a WebDAV ZIP backup to restore.</string>
+    <string name="settings_webdav_restore_select_backup">Select a backup to restore</string>
+    <string name="settings_webdav_restore_no_backups">No WebDAV backups found</string>
     <string name="settings_webdav_restore_success">Backup restored</string>
 
     <!-- Metadata -->

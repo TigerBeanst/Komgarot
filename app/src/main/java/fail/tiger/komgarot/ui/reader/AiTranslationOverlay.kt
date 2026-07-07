@@ -89,12 +89,14 @@ fun AiTranslationOverlay(
         displayBlocks.forEach { block ->
             val safe = block.renderSafe()
             val hasTranslatedText = safe.translatedLines.any { it.isNotBlank() }
-            val sourcePlacement = safe.rect
-            val textPlacement = safe.translationRect.effectiveOrNull() ?: sourcePlacement
             val sourceMaskPlacements = aiTranslationSourceMaskRects(
                 block = safe,
                 pageWidthDp = bounds.width.value,
                 pageHeightDp = bounds.height.value
+            )
+            val textPlacement = aiTranslationTextPlacement(
+                block = safe,
+                sourceMaskPlacements = sourceMaskPlacements
             )
             val blockWidth = bounds.width * textPlacement.width.coerceIn(0f, 1f)
             val blockHeight = bounds.height * textPlacement.height.coerceIn(0f, 1f)
@@ -660,7 +662,13 @@ internal fun aiTranslationFontSizeSp(
     }
     val sizeFromTextArea = sqrt((rectWidthDp * rectHeightDp) / maxOf(1f, safeTextLength * 0.72f))
     val rawSize = when (textDirection) {
-        AiTranslationTextDirection.VERTICAL -> minOf(sizeFromBox, sizeFromTextHeight, sizeFromTextArea * 1.22f)
+        AiTranslationTextDirection.VERTICAL -> {
+            if (sourceColumnWidthDp > 0f && kind != AiTranslationBlockKind.SFX) {
+                sizeFromBox
+            } else {
+                minOf(sizeFromBox, sizeFromTextHeight, sizeFromTextArea * 1.22f)
+            }
+        }
         AiTranslationTextDirection.HORIZONTAL,
         AiTranslationTextDirection.AUTO -> minOf(sizeFromBox, sizeFromTextHeight, sizeFromTextArea * 1.18f)
     }
@@ -706,6 +714,16 @@ internal fun aiTranslationSourceMaskRects(
     val horizontalPadding = AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP / pageWidthDp
     val verticalPadding = AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP / pageHeightDp
     return rects.map { it.expandNormalized(horizontalPadding, verticalPadding) }
+}
+
+internal fun aiTranslationTextPlacement(
+    block: AiTranslationBlock,
+    sourceMaskPlacements: List<AiTranslationRect>
+): AiTranslationRect {
+    val ocrPlacement = sourceMaskPlacements
+        .takeIf { block.kind.usesSolidAiTranslationMask() }
+        ?.boundingRectOrNull()
+    return ocrPlacement ?: block.translationRect.effectiveOrNull() ?: block.rect
 }
 
 internal fun aiTranslationSourceColumnMetrics(
@@ -1145,6 +1163,21 @@ private fun Char.attachesToPreviousText(): Boolean = this in AI_TRANSLATION_TRAI
 
 private fun AiTranslationRect.effectiveOrNull(): AiTranslationRect? =
     takeIf { width > 0f && height > 0f }
+
+private fun List<AiTranslationRect>.boundingRectOrNull(): AiTranslationRect? {
+    val valid = filter { it.width > 0f && it.height > 0f }
+    if (valid.isEmpty()) return null
+    val left = valid.minOf { it.x }
+    val top = valid.minOf { it.y }
+    val right = valid.maxOf { it.right }
+    val bottom = valid.maxOf { it.bottom }
+    return AiTranslationRect(
+        x = left,
+        y = top,
+        width = (right - left).coerceAtLeast(0f),
+        height = (bottom - top).coerceAtLeast(0f)
+    )
+}
 
 private fun AiTranslationRect.expandNormalized(horizontalPadding: Float, verticalPadding: Float): AiTranslationRect {
     val left = (x - horizontalPadding).coerceAtLeast(0f)

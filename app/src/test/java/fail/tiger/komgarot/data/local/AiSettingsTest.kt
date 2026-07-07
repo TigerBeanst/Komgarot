@@ -123,6 +123,22 @@ class AiSettingsTest {
     }
 
     @Test
+    fun authPreferencesClearKeepsLocalSettingsAndClearsOnlyCredentials() {
+        val source = java.io.File("src/main/java/fail/tiger/komgarot/data/local/AuthPreferences.kt").readText()
+        val clearBody = Regex("suspend fun clear\\(\\) \\{([\\s\\S]*?)\\n    \\}")
+            .find(source)
+            ?.groupValues
+            ?.get(1)
+            .orEmpty()
+
+        assertTrue(clearBody.contains("it.remove(SERVER_URL)"))
+        assertTrue(clearBody.contains("it.remove(USERNAME)"))
+        assertTrue(clearBody.contains("it.remove(PASSWORD)"))
+        assertTrue(clearBody.contains("secureAuthStore.clear()"))
+        assertFalse(clearBody.contains("it.clear()"))
+    }
+
+    @Test
     fun modelCollectionDefaultsCanBeOverridden() {
         val settings = AiSettings.defaults().copy(
             modelCollectionId = "Custom/collection",

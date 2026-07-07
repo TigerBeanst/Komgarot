@@ -149,7 +149,7 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun verticalDialogueLayoutOnlyShrinksSlightlyForOneExtraColumn() {
         val layout = fitVerticalAiTranslationText(
-            lines = listOf("嘉白君真是拥有好身材呀"),
+            lines = listOf("示例角色拥有稳定的长句译文"),
             rectWidthDp = 70f,
             rectHeightDp = 170f,
             baseFontSizeSp = 14.2f,
@@ -223,6 +223,54 @@ class AiTranslationOverlayLayoutTest {
         assertTrue(layout.fontSizeSp >= 15.9f)
         assertTrue(layout.fontSizeSp <= 16.1f)
         assertEquals(17f, layout.columnWidthDp, 0.0001f)
+    }
+
+    @Test
+    fun translatedTextPlacementUsesOcrMaskBoundsForNormalText() {
+        val block = AiTranslationBlock(
+            rect = AiTranslationRect(x = 0.10f, y = 0.10f, width = 0.30f, height = 0.50f),
+            translationRect = AiTranslationRect(x = 0.08f, y = 0.08f, width = 0.42f, height = 0.62f),
+            sourceColumns = listOf(
+                AiTranslationRect(x = 0.30f, y = 0.16f, width = 0.030f, height = 0.28f),
+                AiTranslationRect(x = 0.25f, y = 0.18f, width = 0.030f, height = 0.20f)
+            ),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            kind = AiTranslationBlockKind.DIALOGUE
+        )
+        val masks = aiTranslationSourceMaskRects(
+            block = block,
+            pageWidthDp = 500f,
+            pageHeightDp = 1000f
+        )
+
+        val placement = aiTranslationTextPlacement(block, masks)
+
+        assertEquals(0.246f, placement.x, 0.0001f)
+        assertEquals(0.158f, placement.y, 0.0001f)
+        assertEquals(0.088f, placement.width, 0.0001f)
+        assertEquals(0.284f, placement.height, 0.0001f)
+    }
+
+    @Test
+    fun sfxPlacementKeepsRequestedTranslationBounds() {
+        val block = AiTranslationBlock(
+            rect = AiTranslationRect(x = 0.10f, y = 0.10f, width = 0.30f, height = 0.50f),
+            translationRect = AiTranslationRect(x = 0.08f, y = 0.08f, width = 0.42f, height = 0.62f),
+            sourceColumns = listOf(
+                AiTranslationRect(x = 0.30f, y = 0.16f, width = 0.030f, height = 0.28f)
+            ),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            kind = AiTranslationBlockKind.SFX
+        )
+        val masks = aiTranslationSourceMaskRects(
+            block = block,
+            pageWidthDp = 500f,
+            pageHeightDp = 1000f
+        )
+
+        val placement = aiTranslationTextPlacement(block, masks)
+
+        assertEquals(block.translationRect, placement)
     }
 
     @Test
@@ -328,7 +376,7 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun verticalDialogueKeepsSourceColumnFontWhenExtraTranslatedColumnsNeedMoreWidth() {
         val layout = fitVerticalAiTranslationText(
-            lines = listOf("嘉白君真是拥有不错的身体呀"),
+            lines = listOf("示例角色拥有较长的译文内容"),
             rectWidthDp = 18f,
             rectHeightDp = 128f,
             baseFontSizeSp = 8f,
@@ -348,7 +396,7 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun verticalDialogueUsesSourceColumnMaxHeightForWrappingWhenRenderBoxIsShort() {
         val layout = fitVerticalAiTranslationText(
-            lines = listOf("年轻又有好身材嘉白君真是拥有了好部下呢"),
+            lines = listOf("这是一段用于验证换行高度的较长译文"),
             rectWidthDp = 24f,
             rectHeightDp = 80f,
             baseFontSizeSp = 8f,
@@ -400,6 +448,25 @@ class AiTranslationOverlayLayoutTest {
         assertTrue(layout.fontSizeSp >= 32.9f)
         assertTrue(layout.fontSizeSp <= 33.1f)
         assertEquals(34f, layout.columnWidthDp, 0.0001f)
+    }
+
+    @Test
+    fun verticalDialogueFontWithSourceColumnWidthSkipsAreaCompression() {
+        val fontSize = aiTranslationFontSizeSp(
+            baseScale = 1f,
+            rectWidthDp = 18f,
+            rectHeightDp = 140f,
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            lineCount = 1,
+            textLength = 20,
+            kind = AiTranslationBlockKind.DIALOGUE,
+            sourceColumnWidthDp = 24f,
+            sourceColumnHeightDp = 180f,
+            sourceColumnCount = 1
+        )
+
+        assertTrue(fontSize >= 22.9f)
+        assertTrue(fontSize <= 23.1f)
     }
 
     @Test
@@ -482,7 +549,7 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun veryNarrowVerticalLayoutStillFitsInsideRegionBounds() {
         val layout = fitVerticalAiTranslationText(
-            lines = listOf("护理教员", "32岁"),
+            lines = listOf("职务说明", "编号三二"),
             rectWidthDp = 12f,
             rectHeightDp = 58f,
             baseFontSizeSp = 12f,
@@ -502,7 +569,7 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun veryNarrowHorizontalLayoutCanWrapToSingleCharactersToFit() {
         val layout = fitHorizontalAiTranslationText(
-            lines = listOf("医务室"),
+            lines = listOf("导览牌"),
             rectWidthDp = 12f,
             rectHeightDp = 48f,
             baseFontSizeSp = 18f,
@@ -760,7 +827,7 @@ class AiTranslationOverlayLayoutTest {
         )
         val second = AiTranslationBlock(
             localRegionId = "r2",
-            translatedLines = listOf("嘉白君"),
+            translatedLines = listOf("示例名"),
             textDirection = AiTranslationTextDirection.VERTICAL,
             rect = AiTranslationRect(x = 0.10f, y = 0.12f, width = 0.03f, height = 0.12f),
             translationRect = AiTranslationRect(x = 0.09f, y = 0.12f, width = 0.08f, height = 0.12f)

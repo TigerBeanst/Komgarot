@@ -394,12 +394,14 @@
     <string name="settings_webdav_password">WebDAV 密码</string>
     <string name="settings_webdav_backup_scope">备份范围</string>
     <string name="settings_webdav_backup_excludes_credentials">备份 App 设置和 AI 翻译 JSON 数据。Komga 服务器、WebDAV 服务器、用户名和密码只保存在本机。</string>
-    <string name="settings_webdav_backup_hint">Komgarot 会向填写的URL路径中请求新建「Komgarot」目录，并在其中保存配置文件。\n备份范围：App 设置和 AI 翻译 JSON 数据。Komga 服务器、WebDAV 服务器、用户名和密码不在备份范围内。</string>
+    <string name="settings_webdav_backup_hint">Komgarot 会向填写的URL路径中请求新建「Komgarot」目录，并在其中保存配置文件。\n备份范围：App 设置、AI 服务凭据、S3 图片 URL 配置和 AI 翻译 JSON 数据。Komga 账号/服务器和 WebDAV 服务器/用户名/密码只保存在本机。</string>
     <string name="settings_webdav_backup_now">立即备份</string>
-    <string name="settings_webdav_backup_now_desc">上传设置和 AI 翻译 JSON 数据到 WebDAV。</string>
+    <string name="settings_webdav_backup_now_desc">上传包含 App 设置和 AI 翻译 JSON 数据的 ZIP 备份。</string>
     <string name="settings_webdav_backup_success">备份已上传</string>
     <string name="settings_webdav_restore_now">恢复备份</string>
-    <string name="settings_webdav_restore_now_desc">从 WebDAV 下载设置和 AI 翻译 JSON 数据。</string>
+    <string name="settings_webdav_restore_now_desc">选择一个 WebDAV ZIP 备份进行恢复。</string>
+    <string name="settings_webdav_restore_select_backup">选择要恢复的备份</string>
+    <string name="settings_webdav_restore_no_backups">未找到 WebDAV 备份</string>
     <string name="settings_webdav_restore_success">备份已恢复</string>
 
     <!-- 元数据 -->

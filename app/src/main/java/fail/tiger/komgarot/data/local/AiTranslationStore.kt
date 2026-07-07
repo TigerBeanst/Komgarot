@@ -161,6 +161,15 @@ class AiTranslationStore(private val filesDir: File) {
     }
 
     @Synchronized
+    fun importBooks(books: List<AiTranslatedBook>) {
+        books.forEach { book ->
+            if (book.bookId.isNotBlank()) {
+                saveBookNow(book)
+            }
+        }
+    }
+
+    @Synchronized
     fun listBookIds(): List<String> {
         if (!booksDir.isDirectory) return emptyList()
         return booksDir.listFiles { file -> file.isFile && file.extension == "json" }

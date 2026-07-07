@@ -101,12 +101,12 @@ class AiTranslationOverlayStructureTest {
     }
 
     @Test
-    fun overlayUsesAiReturnedRectAndColors() {
+    fun overlayUsesOcrMaskPlacementAndColors() {
         assertTrue(overlaySource.contains("BoxWithConstraints"))
-        assertTrue(overlaySource.contains("safe.rect"))
-        assertTrue(overlaySource.contains("val sourcePlacement = safe.rect"))
-        assertTrue(overlaySource.contains("val textPlacement = safe.translationRect.effectiveOrNull() ?: sourcePlacement"))
+        assertTrue(overlaySource.contains("block.rect"))
         assertTrue(overlaySource.contains("val sourceMaskPlacements = aiTranslationSourceMaskRects("))
+        assertTrue(overlaySource.contains("val textPlacement = aiTranslationTextPlacement("))
+        assertTrue(overlaySource.contains("sourceMaskPlacements = sourceMaskPlacements"))
         assertTrue(overlaySource.contains("pageWidthDp = bounds.width.value"))
         assertTrue(overlaySource.contains("pageHeightDp = bounds.height.value"))
         assertTrue(overlaySource.contains("columns = sourceMaskPlacements"))

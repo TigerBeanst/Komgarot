@@ -303,7 +303,11 @@ class AuthPreferences(private val context: Context) {
     }
 
     suspend fun clear() {
-        context.dataStore.edit { it.clear() }
+        context.dataStore.edit {
+            it.remove(SERVER_URL)
+            it.remove(USERNAME)
+            it.remove(PASSWORD)
+        }
         secureAuthStore.clear()
         updateCredentials(AuthCredentials("", "", ""))
     }
