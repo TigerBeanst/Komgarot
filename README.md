@@ -27,13 +27,13 @@ Komgarot 是一个面向 Komga 服务器的 Android 漫画阅读客户端，使�
 ## 截图
 
 <p>
-  <img src="assets/screenshot/Screenshot_01.jpg" alt="Komgarot 截图 1" width="150">
-  <img src="assets/screenshot/Screenshot_02.jpg" alt="Komgarot 截图 2" width="150">
-  <img src="assets/screenshot/Screenshot_03.jpg" alt="Komgarot 截图 3" width="150">
-  <img src="assets/screenshot/Screenshot_04.jpg" alt="Komgarot 截图 4" width="150">
-  <img src="assets/screenshot/Screenshot_05.jpg" alt="Komgarot 截图 5" width="150">
-  <img src="assets/screenshot/Screenshot_06.jpg" alt="Komgarot 截图 6" width="150">
-  <img src="assets/screenshot/Screenshot_07.jpg" alt="Komgarot 截图 7" width="150">
+  <img src="assets/screenshot/Screenshot_01.jpg" alt="Komgarot 截图 1" width="180">
+  <img src="assets/screenshot/Screenshot_02.jpg" alt="Komgarot 截图 2" width="180">
+  <img src="assets/screenshot/Screenshot_03.jpg" alt="Komgarot 截图 3" width="180">
+  <img src="assets/screenshot/Screenshot_04.jpg" alt="Komgarot 截图 4" width="180">
+  <img src="assets/screenshot/Screenshot_05.jpg" alt="Komgarot 截图 5" width="180">
+  <img src="assets/screenshot/Screenshot_06.jpg" alt="Komgarot 截图 6" width="180">
+  <img src="assets/screenshot/Screenshot_07.jpg" alt="Komgarot 截图 7" width="180">
 </p>
 
 ## AI 翻译
@@ -48,14 +48,9 @@ Komgarot 是一个面向 Komga 服务器的 Android 漫画阅读客户端，使�
 > （个人平均单次请求 1700~2000 Token，一张图平均 1w+ Token）
 
 ### 翻译效果预览
-<p>
-  <img src="assets/screenshot/Screenshot_AI_01_origin.jpg" alt="Komgarot AI翻译 1 原图" width="150">
-  <img src="assets/screenshot/Screenshot_AI_01_translated.jpg" alt="Komgarot AI翻译 1 结果" width="150">
-  <img src="assets/screenshot/Screenshot_AI_02_origin.jpg" alt="Komgarot AI翻译 2 原图" width="150">
-  <img src="assets/screenshot/Screenshot_AI_02_translated.jpg" alt="Komgarot AI翻译 2 结果" width="150">
-  <img src="assets/screenshot/Screenshot_AI_03_origin.jpg" alt="Komgarot AI翻译 3 原图" width="150">
-  <img src="assets/screenshot/Screenshot_AI_03_translated.jpg" alt="Komgarot AI翻译 3 结果" width="150">
-</p>
+<p><img src="assets/screenshot/Screenshot_AI_01.jpg" alt="Komgarot AI翻译 1"></p>
+<p><img src="assets/screenshot/Screenshot_AI_02.jpg" alt="Komgarot AI翻译 2"></p>
+<p><img src="assets/screenshot/Screenshot_AI_03.jpg" alt="Komgarot AI翻译 3"></p>
 
 ## 环境
 

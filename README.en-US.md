@@ -48,15 +48,10 @@ Komgarot is an Android comic reader client for Komga servers, built with Kotlin 
 > (Personal average is 1700~2000 tokens per single request, and an average of 10k+ tokens per image)
 
 
-### Translation Effect Preview
-<p>
-  <img src="assets/screenshot/Screenshot_AI_01_origin.jpg" alt="Komgarot AI translation 1 original" width="150">
-  <img src="assets/screenshot/Screenshot_AI_01_translated.jpg" alt="Komgarot AI translation 1 translated" width="150">
-  <img src="assets/screenshot/Screenshot_AI_02_origin.jpg" alt="Komgarot AI translation 2 original" width="150">
-  <img src="assets/screenshot/Screenshot_AI_02_translated.jpg" alt="Komgarot AI translation 2 translated" width="150">
-  <img src="assets/screenshot/Screenshot_AI_03_origin.jpg" alt="Komgarot AI translation 3 original" width="150">
-  <img src="assets/screenshot/Screenshot_AI_03_translated.jpg" alt="Komgarot AI translation 3 translated" width="150">
-</p>
+### Translation Preview
+<p><img src="assets/screenshot/Screenshot_AI_01.jpg" alt="Komgarot AI translation 1"></p>
+<p><img src="assets/screenshot/Screenshot_AI_02.jpg" alt="Komgarot AI translation 2"></p>
+<p><img src="assets/screenshot/Screenshot_AI_03.jpg" alt="Komgarot AI translation 3"></p>
 
 ## Environment
 
