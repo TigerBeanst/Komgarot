@@ -67,8 +67,15 @@ fun BookScreen(
         }
     }
 
-    if ((vm.books.size == 1 && !vm.hasMore) || (vm.loading && vm.series == null && vm.error == null)) {
+    if (vm.books.size == 1 && !vm.hasMore) {
         Box(Modifier.fillMaxSize())
+        return
+    }
+
+    if (vm.loading && vm.series == null && vm.error == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
         return
     }
 

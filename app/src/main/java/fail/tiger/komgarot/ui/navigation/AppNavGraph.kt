@@ -116,26 +116,9 @@ fun AppNavGraph(app: KomgarotApp) {
     }
 
     val slideDistance = rememberSlideDistance()
-    val openSeries: (String, Int) -> Unit = { seriesId, booksCount ->
-        if (booksCount == 1) {
-            scope.launch {
-                val book = runCatching { app.bookRepository.getBooks(seriesId, 0) }.getOrNull()?.content?.firstOrNull()
-                if (book != null) {
-                    navController.navigate(
-                        Screen.BookDetail.go(
-                            book.id,
-                            book.metadata.title.ifEmpty { book.name },
-                            book.seriesTitle.orEmpty(),
-                            book.media.pagesCount,
-                            true
-                        )
-                    )
-                } else {
-                    navController.navigate(Screen.Books.go(seriesId))
-                }
-            }
-        } else {
-            navController.navigate(Screen.Books.go(seriesId))
+    val openSeries: (String, Int) -> Unit = { seriesId, _ ->
+        navController.navigate(Screen.Books.go(seriesId)) {
+            launchSingleTop = true
         }
     }
 
@@ -373,6 +356,9 @@ fun AppNavGraph(app: KomgarotApp) {
                 seriesId = seriesId, serverUrl = serverUrl,
                 onBookClick = { id, name, pages, isOneShot ->
                     navController.navigate(Screen.BookDetail.go(id, name, "", pages, isOneShot)) {
+                        if (isOneShot) {
+                            popUpTo(Screen.Books.go(seriesId)) { inclusive = true }
+                        }
                         launchSingleTop = true
                     }
                 },

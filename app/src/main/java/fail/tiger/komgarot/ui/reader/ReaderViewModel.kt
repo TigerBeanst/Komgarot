@@ -358,26 +358,25 @@ class ReaderViewModel(
             return
         }
         if (isAiTranslationWorkRunning()) {
-            pageIndexes.forEach { pageIndex -> updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING) }
-            appendAiTranslationPageIndexes(pageIndexes)
+            prioritizeAiTranslationPageIndexes(pageIndexes)
             return
         }
-        pageIndexes.forEach { pageIndex -> updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING) }
         if (publishStartedMessage) publishAiTranslationMessage(R.string.reader_ai_retry_started)
         aiTranslationJob?.cancel(userPausedAiTranslationCancellation())
-        aiTranslationPageIndexes = pageIndexes
+        prioritizeAiTranslationPageIndexes(pageIndexes)
         val launchedJob = viewModelScope.launch {
             prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.ON.storedValue)
             val processedPageIndexes = mutableSetOf<Int>()
             try {
                 while (true) {
-                    val batchPageIndexes = aiTranslationPageIndexes.filter { it !in processedPageIndexes }
-                    if (batchPageIndexes.isEmpty()) break
-                    processedPageIndexes += batchPageIndexes
-                    val result = repository.retryPagesTranslation(
+                    val nextPageIndex = aiTranslationPageIndexes.firstOrNull { it !in processedPageIndexes }
+                        ?: break
+                    processedPageIndexes += nextPageIndex
+                    updateAiTranslationPageStatus(nextPageIndex, AiTranslationPageStatus.RUNNING)
+                    val result = repository.retryPageTranslation(
                         book = loaded,
                         serverUrl = currentServerUrl,
-                        pageIndexes = batchPageIndexes,
+                        pageIndex = nextPageIndex,
                         cachedPages = currentPages,
                         onPageUpdated = { page ->
                             viewModelScope.launch { applyAiTranslationPageUpdate(page) }
@@ -385,12 +384,9 @@ class ReaderViewModel(
                     )
                     aiTranslatedBook = repository.readBookState(loaded.id)
                     currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
-                    val failedPageIndex = batchPageIndexes.firstOrNull { pageIndex ->
-                        aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }?.status != AiTranslationPageStatus.DONE
-                    }
-                    if (!result.ok || failedPageIndex != null) {
-                        val pageIndex = failedPageIndex ?: batchPageIndexes.first()
-                        val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }
+                    val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == nextPageIndex }
+                    if (!result.ok || updatedPage?.status != AiTranslationPageStatus.DONE) {
+                        val pageIndex = nextPageIndex
                         if (updatedPage?.status != AiTranslationPageStatus.FAILED) {
                             updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.FAILED)
                         }
@@ -412,8 +408,10 @@ class ReaderViewModel(
         aiTranslationJob = launchedJob
     }
 
-    private fun appendAiTranslationPageIndexes(pageIndexes: List<Int>) {
-        aiTranslationPageIndexes = (aiTranslationPageIndexes + pageIndexes).distinct()
+    private fun prioritizeAiTranslationPageIndexes(pageIndexes: List<Int>) {
+        aiTranslationPageIndexes = (pageIndexes + aiTranslationPageIndexes)
+            .distinct()
+            .filter { it in 0 until pageUrls.size }
     }
 
     private fun shouldQueueAiTranslationPage(status: AiTranslationPageStatus?, includeFailedPages: Boolean): Boolean =
