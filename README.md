@@ -96,17 +96,17 @@ app/build/outputs/apk/debug/
 
 - Kotlin
 - Jetpack Compose
-- Material 3
-- Navigation Compose
 - Retrofit + Gson
 - OkHttp
 - Coil
-- DataStore Preferences
-- AndroidX Security Crypto
-- AndroidX Biometric
+- ONNX Runtime Android
 
 ## 鸣谢
 [hgmzhn/manga-translator-ui](https://github.com/hgmzhn/manga-translator-ui)
+
+[jobobby04/tachiyomisy](https://github.com/jobobby04/tachiyomisy)
+
+[FooIBar/EhViewer](https://github.com/FooIBar/EhViewer)
 
 ## 友链
 [LINUX DO](https://linux.do)
