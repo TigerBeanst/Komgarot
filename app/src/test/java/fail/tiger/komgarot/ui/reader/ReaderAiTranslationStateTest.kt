@@ -157,8 +157,8 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("readerAiTranslationPageRange("))
         assertTrue(viewModelSource.contains("?.status != AiTranslationPageStatus.DONE"))
         assertTrue(viewModelSource.contains("if (pageIndexes.isEmpty())"))
-        assertTrue(viewModelSource.contains("repository.retryPagesTranslation("))
-        assertTrue(viewModelSource.contains("pageIndexes = batchPageIndexes"))
+        assertTrue(viewModelSource.contains("repository.retryPageTranslation("))
+        assertTrue(viewModelSource.contains("pageIndex = nextPageIndex"))
     }
 
     @Test
@@ -170,7 +170,7 @@ class ReaderAiTranslationStateTest {
         val translateSource = viewModelSource.substring(translateStart, translateEnd)
 
         assertTrue(viewModelSource.contains("startOrExtendCurrentAndPreloadedAiTranslation("))
-        assertTrue(viewModelSource.contains("appendAiTranslationPageIndexes(pageIndexes)"))
+        assertTrue(viewModelSource.contains("prioritizeAiTranslationPageIndexes(pageIndexes)"))
         assertTrue(translateSource.contains("startOrExtendCurrentAndPreloadedAiTranslation("))
         assertTrue(translateSource.contains("publishStartedMessage = false"))
         assertTrue(translateSource.contains("includeFailedPages = false"))
@@ -178,7 +178,7 @@ class ReaderAiTranslationStateTest {
     }
 
     @Test
-    fun currentAndPreloadedAiTranslationUsesBatchRepositoryCall() {
+    fun currentAndPreloadedAiTranslationPrioritizesWindowAndProcessesOnePageAtATime() {
         val repositorySource = File("src/main/java/fail/tiger/komgarot/data/repository/AiTranslationRepository.kt").readText()
         val start = viewModelSource.indexOf("private fun startCurrentAndPreloadedAiTranslation")
         val end = viewModelSource.indexOf("fun retryCurrentAiTranslationPage()", start)
@@ -186,10 +186,12 @@ class ReaderAiTranslationStateTest {
         assertTrue(end > start)
         val startSource = viewModelSource.substring(start, end)
 
-        assertTrue(startSource.contains("repository.retryPagesTranslation("))
-        assertTrue(startSource.contains("pageIndexes = batchPageIndexes"))
+        assertTrue(startSource.contains("prioritizeAiTranslationPageIndexes(pageIndexes)"))
+        assertTrue(startSource.contains("val nextPageIndex = aiTranslationPageIndexes.firstOrNull { it !in processedPageIndexes }"))
+        assertTrue(startSource.contains("repository.retryPageTranslation("))
+        assertTrue(startSource.contains("pageIndex = nextPageIndex"))
+        assertFalse(startSource.contains("pageIndexes = batchPageIndexes"))
         assertFalse(startSource.contains("for (pageIndex in pageIndexes)"))
-        assertFalse(startSource.contains("repository.retryPageTranslation(loaded, currentServerUrl, pageIndex, currentPages)"))
         assertTrue(repositorySource.contains("suspend fun retryPagesTranslation("))
         assertTrue(repositorySource.contains("translatePages("))
     }

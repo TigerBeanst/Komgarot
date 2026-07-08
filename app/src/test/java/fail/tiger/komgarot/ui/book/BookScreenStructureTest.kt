@@ -24,4 +24,11 @@ class BookScreenStructureTest {
 
         assertTrue(titleSource.contains("maxLines = 2"))
     }
+
+    @Test
+    fun initialSeriesBooksLoadShowsProgressIndicator() {
+        assertTrue(source.contains("if (vm.loading && vm.series == null && vm.error == null)"))
+        assertTrue(source.contains("contentAlignment = Alignment.Center"))
+        assertTrue(source.contains("CircularProgressIndicator()"))
+    }
 }
