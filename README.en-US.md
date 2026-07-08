@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp" alt="Komgarot icon" width="200" height="200">
+  <img src="app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp" alt="Komgarot icon" width="144" height="144">
 </p>
 
 <p align="center">
@@ -10,20 +10,19 @@
 
 Komgarot is an Android comic reader client for Komga servers, built with Kotlin and Jetpack Compose.
 
-> Feel free to suggest features in the issues. I don't use every part of Komga, so I probably won't have considered adding them yet.
+> Feel free to open issues with feature requests. I do not use every Komga feature myself, so I may not have planned them from the start.
 
 ## Features
 
-- Sign in to a Komga server
-- Browse libraries, series, collections, and read lists
-- Series search, author search, sorting, and filters
-- Book detail pages with metadata viewing and editing
-- Paged reading, vertical scroll reading, reading direction, page fit, and progress seeking
-- AI translation with local PaddleOCR detection, vision-model translation, cache, retry, timing, and failure details
-- WebDAV ZIP backup and restore
-- Long-press page actions: save, share, set as book cover, or set as series cover
-- Incognito reading, app lock, and keep-screen-on mode
-- Admin entry for libraries, users, server settings, maintenance, and activity
+- Log in to the Komga server
+- Browse libraries, series, collections, and reading lists
+- Series search, author search, sorting, and filtering
+- Book details, metadata viewing and editing
+- Paged reading, scroll reading, reading direction, page fit, and progress jumping
+- AI translation: After locally identifying text positions, it sends the full image and screenshots of the text block locations to the AI for translation
+- Long press a page to save, share, or set as a book or series cover
+- Privacy reading, app lock, and keep screen on
+- Administrator portal: Libraries, users, server settings, maintenance, and activity
 
 ## Screenshots
 
@@ -38,36 +37,28 @@ Komgarot is an Android comic reader client for Komga servers, built with Kotlin 
 </p>
 
 ## AI Translation
-> This feature requires your own OpenAI-compatible AI service and a vision-capable model. **Note: this feature consumes a large number of tokens.**
+> Currently, this is mainly aimed at Japanese manga.
 >
-> Before using it, download the local PaddleOCR detection model in the app. Komgarot first detects page text regions locally and creates masks, then sends the current text-region crop and page context image to the vision model for translation.
+> This feature requires users to provide their own OpenAI-compatible AI service, and a model that supports vision must be used. **Please note, this feature will consume a large number of tokens.**
 >
-> AI translation supports serial and parallel requests. Serial mode is the default, and parallel mode lets you configure the request count. Long-press the translation button to view per-page timing and failure details. Retrying a page reruns OCR, masking, and translation for that page.
+> Generation speed and results vary depending on the model. If the images and text contain content that violates the model provider's policies, it may result in a failure to return translation results, so please choose at your own discretion. Serial translation is the default, translating only one sentence at a time. If you find the speed too slow, you can switch to parallel in the settings. Please note that AI providers may limit the number of concurrent requests.
 >
-> Detection and prompts can be tuned by source text type: auto, Japanese vertical manga, and Korean horizontal webtoon. Translation results are cached by book, and the cache/task screens support clearing data and purging stale entries.
+> For the sake of speed and quality, the AI translation opts for **one request per sentence of text**. The request includes the dialogue content and the complete image, therefore translating a single image will result in high consumption; sometimes there will be caching.
+>
+> (Personal average is 1700~2000 tokens per single request, and an average of 10k+ tokens per image)
 
-### Translation Preview
+
+### Translation Effect Preview
 <p>
-  <img src="assets/screenshot/Screenshot_AI_01_origin.jpg" alt="Komgarot AI translation 1 original" width="180">
-  <img src="assets/screenshot/Screenshot_AI_01_translated.jpg" alt="Komgarot AI translation 1 translated" width="180">
-  <img src="assets/screenshot/Screenshot_AI_02_origin.jpg" alt="Komgarot AI translation 2 original" width="180">
-  <img src="assets/screenshot/Screenshot_AI_02_translated.jpg" alt="Komgarot AI translation 2 translated" width="180">
-  <img src="assets/screenshot/Screenshot_AI_03_origin.jpg" alt="Komgarot AI translation 3 original" width="180">
-  <img src="assets/screenshot/Screenshot_AI_03_translated.jpg" alt="Komgarot AI translation 3 translated" width="180">
+  <img src="assets/screenshot/Screenshot_AI_01_origin.jpg" alt="Komgarot AI translation 1 original" width="150">
+  <img src="assets/screenshot/Screenshot_AI_01_translated.jpg" alt="Komgarot AI translation 1 translated" width="150">
+  <img src="assets/screenshot/Screenshot_AI_02_origin.jpg" alt="Komgarot AI translation 2 original" width="150">
+  <img src="assets/screenshot/Screenshot_AI_02_translated.jpg" alt="Komgarot AI translation 2 translated" width="150">
+  <img src="assets/screenshot/Screenshot_AI_03_origin.jpg" alt="Komgarot AI translation 3 original" width="150">
+  <img src="assets/screenshot/Screenshot_AI_03_translated.jpg" alt="Komgarot AI translation 3 translated" width="150">
 </p>
 
-## WebDAV Backup And Restore
-
-Komgarot creates a `Komgarot` folder under the configured WebDAV URL path and stores ZIP backups named like `Komgarot_backup_20260706_170802.zip`. The app appends a trailing `/` to the URL when needed.
-
-The ZIP backup contains:
-
-- `app-settings.json`: app settings, AI service settings, S3 image URL settings, and API key settings
-- `ai-translate/`: AI translation JSON data split by book ID
-
-Restore shows the latest 5 backups for selection. Komga account/server settings and WebDAV server/username/password stay local.
-
-## Requirements
+## Environment
 
 - Android 11+
 - A reachable Komga server
@@ -106,7 +97,7 @@ Debug output:
 app/build/outputs/apk/debug/
 ```
 
-## Stack
+## Technology Stack
 
 - Kotlin
 - Jetpack Compose
@@ -119,5 +110,8 @@ app/build/outputs/apk/debug/
 - AndroidX Security Crypto
 - AndroidX Biometric
 
-## Links
+## Acknowledgements
+[hgmzhn/manga-translator-ui](https://github.com/hgmzhn/manga-translator-ui)
+
+## Friend Links
 [LINUX DO](https://linux.do)

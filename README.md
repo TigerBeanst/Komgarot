@@ -19,8 +19,7 @@ Komgarot 是一个面向 Komga 服务器的 Android 漫画阅读客户端，使�
 - 系列搜索、作者搜索、排序、筛选
 - 书籍详情、元数据查看与编辑
 - 分页阅读、滚动阅读、阅读方向、页面适配、进度跳转
-- AI 翻译：本地 PaddleOCR 检测、视觉模型翻译、缓存、重试、耗时和失败原因查看
-- WebDAV ZIP 备份与恢复
+- AI 翻译：本地识别文本位置后，携带全图和文本块位置内容截图发送给 AI 进行翻译
 - 长按页面保存、分享、设置为书籍或系列封面
 - 隐私阅读、应用锁、保持亮屏
 - 管理员入口：书库、用户、服务器设置、维护、活动
@@ -38,13 +37,15 @@ Komgarot 是一个面向 Komga 服务器的 Android 漫画阅读客户端，使�
 </p>
 
 ## AI 翻译
-> 此功能需要用户自己准备 OpenAI 兼容的 AI 服务和支持视觉的模型。**注意，此功能会消耗大量 Token。**
+> 目前只主要针对日漫
+> 
+> 此功能需要用户自己准备 OpenAI 兼容的 AI 服务，且需使用支持视觉的模型。**注意，此功能会消耗大量 Token。**
 >
-> 使用前需要在应用内下载本地 PaddleOCR 检测模型。应用会先在本地识别页面文字区域并生成遮罩，再把当前文字区域截图和页面上下文图发送给视觉模型翻译。
+> 生成速度和效果随模型而异，如果图片和文本包含违反模型提供商政策的内容，可能导致其无法返回翻译结果，请自行选择。默认串行翻译，一次只翻译一句话，若嫌速度慢可以在设置里换到并行。请注意 AI 提供商可能会限制并发数量。
 >
-> AI 翻译支持串行和并发请求，默认串行；并发模式可配置请求数量。长按翻译按钮可以查看本页耗时统计和失败原因，重试本页会重新执行本页的 OCR、遮罩和翻译流程。
+> 为了速度和质量考虑，AI 翻译选择了**每一句文本一次请求**，请求中带有对话内容和完整图片，因此翻译一张图会产生较多消耗，有时候会有缓存
 >
-> 可按原文类型优化检测和提示词，包括自动、日漫竖排和韩文横排 Webtoon。翻译结果会按书本缓存，已缓存和任务列表支持清空与失效数据净化。
+> （个人平均单次请求 1700~2000 Token，一张图平均 1w+ Token）
 
 ### 翻译效果预览
 <p>
@@ -55,17 +56,6 @@ Komgarot 是一个面向 Komga 服务器的 Android 漫画阅读客户端，使�
   <img src="assets/screenshot/Screenshot_AI_03_origin.jpg" alt="Komgarot AI翻译 3 原图" width="150">
   <img src="assets/screenshot/Screenshot_AI_03_translated.jpg" alt="Komgarot AI翻译 3 结果" width="150">
 </p>
-
-## WebDAV 备份与恢复
-
-Komgarot 会在填写的 WebDAV URL 路径下创建 `Komgarot` 目录，并保存形如 `Komgarot_backup_20260706_170802.zip` 的备份包。URL 末尾缺少 `/` 时，应用会自动补全。
-
-备份包包含：
-
-- `app-settings.json`：App 设置、AI 服务配置、S3 图片 URL 配置和 API 密钥配置
-- `ai-translate/`：按书本 ID 拆分保存的 AI 翻译 JSON 数据
-
-恢复备份时会显示最新 5 个备份供选择。Komga 账号/服务器配置和 WebDAV 服务器/用户名/密码仅保存在本机。
 
 ## 环境
 
@@ -119,6 +109,9 @@ app/build/outputs/apk/debug/
 - DataStore Preferences
 - AndroidX Security Crypto
 - AndroidX Biometric
+
+## 鸣谢
+[hgmzhn/manga-translator-ui](https://github.com/hgmzhn/manga-translator-ui)
 
 ## 友链
 [LINUX DO](https://linux.do)
