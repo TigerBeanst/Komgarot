@@ -46,16 +46,18 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
-    fun retryPagesClearPageCacheBeforeTranslationStarts() {
+    fun retryPagesClearPageCacheOnlyAfterQueuePermitIsAcquired() {
         val retryStart = source.indexOf("suspend fun retryPagesTranslation(")
         val retryEnd = source.indexOf("fun deletePageTranslation(", retryStart)
         assertTrue(retryStart >= 0)
         assertTrue(retryEnd > retryStart)
         val retrySource = source.substring(retryStart, retryEnd)
 
+        val permitIndex = retrySource.indexOf("bookTranslationQueue.withPermit")
         val clearIndex = retrySource.indexOf("deletePageTranslation(book.id, pageIndex)")
         val translateIndex = retrySource.indexOf("translatePages(")
-        assertTrue(clearIndex >= 0)
+        assertTrue(permitIndex >= 0)
+        assertTrue(clearIndex > permitIndex)
         assertTrue(translateIndex > clearIndex)
     }
 
@@ -136,7 +138,7 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("pending.distinct()"))
         assertTrue(source.contains("val nextPrepareOffset = AtomicInteger(0)"))
         assertTrue(source.contains("val pageIndex = orderedPending[offset]"))
-        assertTrue(source.contains("effectiveAiTranslationWorkerCount(settings, orderedPending.size)"))
+        assertTrue(source.contains("effectiveAiTranslationRemoteWorkerCount("))
         assertTrue(source.contains("effectiveAiTranslationPreparationWorkerCount(settings, orderedPending.size)"))
         assertTrue(source.contains("remoteSemaphore.withPermit"))
         assertTrue(source.contains("translateBatch("))
@@ -501,6 +503,34 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
+    fun localDetectionPlaceholderIsPublishedBeforeRemoteTranslation() {
+        val prepareStart = source.indexOf("private suspend fun preparePageInput(")
+        val prepareEnd = source.indexOf("private fun ensureCachedPageFile(", prepareStart)
+        assertTrue(prepareStart >= 0)
+        assertTrue(prepareEnd > prepareStart)
+        val prepareSource = source.substring(prepareStart, prepareEnd)
+
+        assertTrue(prepareSource.contains("onPageUpdated: (AiTranslatedPage) -> Unit"))
+        assertTrue(prepareSource.contains("val placeholderPage = localDetectionPlaceholderPage(localContext, mode)"))
+        assertTrue(prepareSource.contains("store.upsertPages(bookId, listOf(placeholderPage))"))
+        assertTrue(prepareSource.contains("onPageUpdated(placeholderPage)"))
+        assertTrue(prepareSource.contains("currentCoroutineContext().ensureActive()"))
+        assertTrue(
+            prepareSource.indexOf("store.upsertPages(bookId, listOf(placeholderPage))") <
+                prepareSource.indexOf("onPageUpdated(placeholderPage)")
+        )
+        assertTrue(
+            prepareSource.indexOf("localTextDetector.detect(") <
+                prepareSource.indexOf("currentCoroutineContext().ensureActive()")
+        )
+        assertTrue(
+            prepareSource.indexOf("currentCoroutineContext().ensureActive()") <
+                prepareSource.indexOf("store.upsertPages(bookId, listOf(placeholderPage))")
+        )
+        assertTrue(prepareSource.indexOf("onPageUpdated(placeholderPage)") < prepareSource.indexOf("compressPageContextImageForAi("))
+    }
+
+    @Test
     fun dynamicWorkerCountsRespectMemoryCapsAndPendingPageCount() {
         val settings = fail.tiger.komgarot.data.local.AiSettings.defaults().copy(concurrentRequests = 4)
 
@@ -511,6 +541,30 @@ class AiTranslationRepositoryStructureTest {
         assertEquals(1, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 192L * 1024L * 1024L))
         assertEquals(2, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 384L * 1024L * 1024L))
         assertEquals(2, effectiveAiTranslationPreparationWorkerCount(settings, pendingCount = 10, maxMemoryBytes = 768L * 1024L * 1024L))
+    }
+
+    @Test
+    fun readerRemotePageConcurrencyCapIsAppliedAfterMemoryCap() {
+        val settings = fail.tiger.komgarot.data.local.AiSettings.defaults().copy(concurrentRequests = 4)
+
+        assertEquals(
+            1,
+            effectiveAiTranslationRemoteWorkerCount(
+                settings = settings,
+                pendingCount = 10,
+                concurrencyCap = 1,
+                maxMemoryBytes = 768L * 1024L * 1024L
+            )
+        )
+        assertEquals(
+            2,
+            effectiveAiTranslationRemoteWorkerCount(
+                settings = settings,
+                pendingCount = 10,
+                concurrencyCap = null,
+                maxMemoryBytes = 384L * 1024L * 1024L
+            )
+        )
     }
 
     @Test
@@ -583,7 +637,8 @@ class AiTranslationRepositoryStructureTest {
     @Test
     fun localDetectionPlaceholdersAreSavedBeforeAiResponse() {
         assertTrue(source.contains("localDetectionPlaceholderPage("))
-        assertTrue(source.contains("store.upsertPages(bookId, listOf(localDetectionPlaceholderPage(localContext, mode)))"))
+        assertTrue(source.contains("val placeholderPage = localDetectionPlaceholderPage(localContext, mode)"))
+        assertTrue(source.contains("store.upsertPages(bookId, listOf(placeholderPage))"))
     }
 
     @Test
@@ -681,7 +736,8 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(inputSource.contains("ensureCachedPageFile(book.seriesId, bookId, url)"))
         assertTrue(inputSource.contains("localTextDetector.detect("))
         assertTrue(inputSource.contains("onTimingStep = timingRecorder::add"))
-        assertTrue(inputSource.contains("store.upsertPages(bookId, listOf(localDetectionPlaceholderPage(localContext, mode)))"))
+        assertTrue(inputSource.contains("val placeholderPage = localDetectionPlaceholderPage(localContext, mode)"))
+        assertTrue(inputSource.contains("store.upsertPages(bookId, listOf(placeholderPage))"))
     }
 
     @Test
