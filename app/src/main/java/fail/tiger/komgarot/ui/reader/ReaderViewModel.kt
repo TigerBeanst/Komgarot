@@ -369,25 +369,42 @@ class ReaderViewModel(
             val processedPageIndexes = mutableSetOf<Int>()
             try {
                 while (true) {
-                    val nextPageIndex = aiTranslationPageIndexes.firstOrNull { it !in processedPageIndexes }
-                        ?: break
-                    processedPageIndexes += nextPageIndex
-                    updateAiTranslationPageStatus(nextPageIndex, AiTranslationPageStatus.RUNNING)
-                    val result = repository.retryPageTranslation(
+                    val batchPageIndexes = nextAiTranslationPageBatch(
+                        pageIndexes = aiTranslationPageIndexes,
+                        processedPageIndexes = processedPageIndexes
+                    )
+                    if (batchPageIndexes.isEmpty()) break
+                    processedPageIndexes += batchPageIndexes
+                    batchPageIndexes.forEach { pageIndex ->
+                        updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING)
+                    }
+                    val result = repository.retryPagesTranslation(
                         book = loaded,
                         serverUrl = currentServerUrl,
-                        pageIndex = nextPageIndex,
+                        pageIndexes = batchPageIndexes,
                         cachedPages = currentPages,
+                        remotePageConcurrencyCap = 1,
                         onPageUpdated = { page ->
-                            viewModelScope.launch { applyAiTranslationPageUpdate(page) }
+                            launch { applyAiTranslationPageUpdate(page) }
                         }
                     )
                     aiTranslatedBook = repository.readBookState(loaded.id)
                     currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
-                    val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == nextPageIndex }
-                    if (!result.ok || updatedPage?.status != AiTranslationPageStatus.DONE) {
-                        val pageIndex = nextPageIndex
-                        if (updatedPage?.status != AiTranslationPageStatus.FAILED) {
+                    val firstFailedPageIndex = batchPageIndexes.firstOrNull { pageIndex ->
+                        aiTranslatedBook?.pages
+                            ?.firstOrNull { page -> page.pageIndex == pageIndex }
+                            ?.status != AiTranslationPageStatus.DONE
+                    }
+                    if (!result.ok || firstFailedPageIndex != null) {
+                        val pageIndex = firstFailedPageIndex ?: batchPageIndexes.first()
+                        val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }
+                        batchPageIndexes.forEach { batchPageIndex ->
+                            val batchPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == batchPageIndex }
+                            if (batchPage?.status != AiTranslationPageStatus.DONE && batchPage?.status != AiTranslationPageStatus.FAILED) {
+                                updateAiTranslationPageStatus(batchPageIndex, AiTranslationPageStatus.FAILED)
+                            }
+                        }
+                        if (updatedPage?.status != AiTranslationPageStatus.DONE) {
                             updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.FAILED)
                         }
                         publishAiTranslationFailureMessage(loaded, pageIndex, updatedPage, result)
@@ -461,7 +478,7 @@ class ReaderViewModel(
                     pageIndex = pageIndex,
                     cachedPages = currentPages,
                     onPageUpdated = { page ->
-                        viewModelScope.launch { applyAiTranslationPageUpdate(page) }
+                        launch { applyAiTranslationPageUpdate(page) }
                     }
                 )
                 aiTranslatedBook = repository.readBookState(loaded.id)
@@ -660,6 +677,11 @@ internal fun readerAiTranslationPageRange(currentPage: Int, pageCount: Int, prel
     val end = (start + preloadPages.coerceAtLeast(0)).coerceAtMost(pageCount - 1)
     return (start..end).toList()
 }
+
+internal fun nextAiTranslationPageBatch(
+    pageIndexes: List<Int>,
+    processedPageIndexes: Set<Int>
+): List<Int> = pageIndexes.filter { pageIndex -> pageIndex !in processedPageIndexes }
 
 internal fun mergeAiTranslationRefresh(
     current: AiTranslatedBook?,

@@ -157,8 +157,8 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("readerAiTranslationPageRange("))
         assertTrue(viewModelSource.contains("?.status != AiTranslationPageStatus.DONE"))
         assertTrue(viewModelSource.contains("if (pageIndexes.isEmpty())"))
-        assertTrue(viewModelSource.contains("repository.retryPageTranslation("))
-        assertTrue(viewModelSource.contains("pageIndex = nextPageIndex"))
+        assertTrue(viewModelSource.contains("repository.retryPagesTranslation("))
+        assertTrue(viewModelSource.contains("pageIndexes = batchPageIndexes"))
     }
 
     @Test
@@ -178,7 +178,7 @@ class ReaderAiTranslationStateTest {
     }
 
     @Test
-    fun currentAndPreloadedAiTranslationPrioritizesWindowAndProcessesOnePageAtATime() {
+    fun currentAndPreloadedAiTranslationUsesPagePreparationPipelineForWholeWindow() {
         val repositorySource = File("src/main/java/fail/tiger/komgarot/data/repository/AiTranslationRepository.kt").readText()
         val start = viewModelSource.indexOf("private fun startCurrentAndPreloadedAiTranslation")
         val end = viewModelSource.indexOf("fun retryCurrentAiTranslationPage()", start)
@@ -187,13 +187,33 @@ class ReaderAiTranslationStateTest {
         val startSource = viewModelSource.substring(start, end)
 
         assertTrue(startSource.contains("prioritizeAiTranslationPageIndexes(pageIndexes)"))
-        assertTrue(startSource.contains("val nextPageIndex = aiTranslationPageIndexes.firstOrNull { it !in processedPageIndexes }"))
-        assertTrue(startSource.contains("repository.retryPageTranslation("))
-        assertTrue(startSource.contains("pageIndex = nextPageIndex"))
-        assertFalse(startSource.contains("pageIndexes = batchPageIndexes"))
-        assertFalse(startSource.contains("for (pageIndex in pageIndexes)"))
+        assertTrue(startSource.contains("nextAiTranslationPageBatch("))
+        assertTrue(startSource.contains("repository.retryPagesTranslation("))
+        assertTrue(startSource.contains("pageIndexes = batchPageIndexes"))
+        assertTrue(startSource.contains("remotePageConcurrencyCap = 1"))
+        assertTrue(startSource.contains("batchPageIndexes.forEach { pageIndex ->"))
+        assertTrue(startSource.contains("onPageUpdated = { page ->\n                            launch { applyAiTranslationPageUpdate(page) }"))
+        assertFalse(startSource.contains("repository.retryPageTranslation("))
         assertTrue(repositorySource.contains("suspend fun retryPagesTranslation("))
         assertTrue(repositorySource.contains("translatePages("))
+    }
+
+    @Test
+    fun aiTranslationBatchSkipsProcessedPagesAndKeepsNewPriorityOrder() {
+        assertEquals(
+            listOf(7, 6, 8),
+            nextAiTranslationPageBatch(
+                pageIndexes = listOf(7, 6, 8, 5),
+                processedPageIndexes = setOf(5)
+            )
+        )
+        assertEquals(
+            listOf(9, 7, 6, 8),
+            nextAiTranslationPageBatch(
+                pageIndexes = listOf(9, 7, 6, 8, 5),
+                processedPageIndexes = setOf(5)
+            )
+        )
     }
 
     @Test

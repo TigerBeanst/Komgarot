@@ -58,7 +58,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -226,12 +228,13 @@ class AiTranslationRepository(
         serverUrl: String,
         pageIndexes: List<Int>,
         cachedPages: List<PageDto> = emptyList(),
+        remotePageConcurrencyCap: Int? = null,
         onPageUpdated: (AiTranslatedPage) -> Unit = {}
     ): AiTranslationPageActionResult {
         val runMode = AiTranslationMode.LOCAL_DETECTION
         ensureBookFile(book, book.media.pagesCount, runMode)
-        pageIndexes.forEach { pageIndex -> deletePageTranslation(book.id, pageIndex) }
         val result = bookTranslationQueue.withPermit {
+            pageIndexes.forEach { pageIndex -> deletePageTranslation(book.id, pageIndex) }
             translatePages(
                 book,
                 serverUrl,
@@ -240,6 +243,7 @@ class AiTranslationRepository(
                 requireEnabled = false,
                 knownPages = cachedPages,
                 cachedPages = cachedPages,
+                remotePageConcurrencyCap = remotePageConcurrencyCap,
                 onPageTranslated = { updateTask(book, AiTranslationTaskStatus.RUNNING) },
                 onPageUpdated = onPageUpdated
             )
@@ -290,6 +294,7 @@ class AiTranslationRepository(
         requireEnabled: Boolean = true,
         knownPages: List<PageDto> = emptyList(),
         cachedPages: List<PageDto> = emptyList(),
+        remotePageConcurrencyCap: Int? = null,
         onPageTranslated: () -> Unit = {},
         onPageUpdated: (AiTranslatedPage) -> Unit = {}
     ): AiTranslationRunResult = withContext(Dispatchers.IO) {
@@ -368,6 +373,7 @@ class AiTranslationRepository(
             s3Uploader = secure.s3ImageUrlConfigOrNull()?.let { AiS3ImageUploader(imageUploadHttpClient, it) },
             pending = pending,
             allPages = allPages,
+            remotePageConcurrencyCap = remotePageConcurrencyCap,
             onPageTranslated = onPageTranslated,
             onPageUpdated = onPageUpdated
         )
@@ -385,11 +391,16 @@ class AiTranslationRepository(
         s3Uploader: AiS3ImageUploader?,
         pending: List<Int>,
         allPages: List<PageDto>,
+        remotePageConcurrencyCap: Int? = null,
         onPageTranslated: () -> Unit = {},
         onPageUpdated: (AiTranslatedPage) -> Unit = {}
     ): List<AiTranslationRunResult> = coroutineScope {
         val orderedPending = pending.distinct()
-        val remoteWorkerCount = effectiveAiTranslationWorkerCount(settings, orderedPending.size)
+        val remoteWorkerCount = effectiveAiTranslationRemoteWorkerCount(
+            settings = settings,
+            pendingCount = orderedPending.size,
+            concurrencyCap = remotePageConcurrencyCap
+        )
         val preparationWorkerCount = effectiveAiTranslationPreparationWorkerCount(settings, orderedPending.size)
         val remoteSemaphore = Semaphore(remoteWorkerCount)
         val preparedPages = orderedPending.map { CompletableDeferred<PreparedAiPageResult>() }
@@ -409,7 +420,8 @@ class AiTranslationRepository(
                                 settings = settings,
                                 s3Uploader = s3Uploader,
                                 pageIndex = pageIndex,
-                                pages = allPages
+                                pages = allPages,
+                                onPageUpdated = onPageUpdated
                             )
                         )
                     } catch (throwable: Throwable) {
@@ -980,7 +992,8 @@ class AiTranslationRepository(
         settings: AiSettings,
         s3Uploader: AiS3ImageUploader?,
         pageIndex: Int,
-        pages: List<PageDto>
+        pages: List<PageDto>,
+        onPageUpdated: (AiTranslatedPage) -> Unit = {}
     ): PreparedAiPageInput {
         val mode = AiTranslationMode.LOCAL_DETECTION
         val bookId = book.id
@@ -994,19 +1007,22 @@ class AiTranslationRepository(
         val cachedLocalContext = timedAiTranslationStep(timingRecorder, AI_TIMING_LOCAL_DETECTION_CACHE) {
             store.readLocalPageContext(bookId, pageIndex, localContextCacheKey)
         }
-        val localContext = cachedLocalContext
-            ?: localTextDetector.detect(
+        val localContext = cachedLocalContext ?: localTextDetector.detect(
                 file = cachedPageFile,
                 pageIndex = pageIndex,
                 settings = settings,
                 onTimingStep = timingRecorder::add
-            ).also { detected ->
-                timedAiTranslationStep(timingRecorder, AI_TIMING_LOCAL_DETECTION_CACHE) {
-                    store.saveLocalPageContext(bookId, pageIndex, localContextCacheKey, detected)
-                }
+            )
+        currentCoroutineContext().ensureActive()
+        if (cachedLocalContext == null) {
+            timedAiTranslationStep(timingRecorder, AI_TIMING_LOCAL_DETECTION_CACHE) {
+                store.saveLocalPageContext(bookId, pageIndex, localContextCacheKey, localContext)
             }
+        }
         if (localContext.regions.isNotEmpty()) {
-            store.upsertPages(bookId, listOf(localDetectionPlaceholderPage(localContext, mode)))
+            val placeholderPage = localDetectionPlaceholderPage(localContext, mode)
+            store.upsertPages(bookId, listOf(placeholderPage))
+            onPageUpdated(placeholderPage)
         }
         val pageImageInput = timedAiTranslationStep(timingRecorder, AI_TIMING_PAGE_IMAGE_INPUT) {
             val compressed = compressPageContextImageForAi(cachedPageFile, localContext.regions)
@@ -1690,6 +1706,19 @@ internal fun effectiveAiTranslationWorkerCount(settings: AiSettings, pendingCoun
         else -> configured
     }
     return min(configured, memoryCap).coerceAtMost(pendingCount.coerceAtLeast(1)).coerceAtLeast(1)
+}
+
+internal fun effectiveAiTranslationRemoteWorkerCount(
+    settings: AiSettings,
+    pendingCount: Int,
+    concurrencyCap: Int?,
+    maxMemoryBytes: Long = Runtime.getRuntime().maxMemory()
+): Int {
+    val configuredWorkerCount = effectiveAiTranslationWorkerCount(settings, pendingCount, maxMemoryBytes)
+    return concurrencyCap
+        ?.coerceAtLeast(1)
+        ?.let { cap -> min(configuredWorkerCount, cap) }
+        ?: configuredWorkerCount
 }
 
 internal fun effectiveAiTranslationPreparationWorkerCount(settings: AiSettings, pendingCount: Int, maxMemoryBytes: Long = Runtime.getRuntime().maxMemory()): Int {
