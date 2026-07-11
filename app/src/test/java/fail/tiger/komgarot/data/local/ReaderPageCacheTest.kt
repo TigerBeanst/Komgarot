@@ -9,6 +9,22 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class ReaderPageCacheTest {
+    @Test
+    fun removeCachedFileDeletesEveryCompatibleCacheLocation() {
+        val cacheDir = temporaryFolder.newFolder("remove-cache")
+        val url = "page-url"
+        val scoped = ReaderPageCache.cacheFile(cacheDir, "series", "book", url)
+        val book = ReaderPageCache.cacheFile(cacheDir, "book", url)
+        scoped.parentFile?.mkdirs()
+        scoped.writeBytes(byteArrayOf(1))
+        book.writeBytes(byteArrayOf(2))
+
+        ReaderPageCache.removeCachedFile(cacheDir, "series", "book", url)
+
+        assertFalse(scoped.exists())
+        assertFalse(book.exists())
+    }
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 

@@ -104,6 +104,18 @@ object ReaderPageCache {
         entry.tempFile.delete()
     }
 
+    fun removeCachedFile(context: Context, seriesId: String, bookId: String, url: String) {
+        removeCachedFile(context.cacheDir, seriesId, bookId, url)
+        cacheFile(context, url).delete()
+    }
+
+    fun removeCachedFile(cacheDir: File, seriesId: String, bookId: String, url: String) {
+        listOf(
+            cacheFile(cacheDir, seriesId, bookId, url),
+            cacheFile(cacheDir, bookId, url)
+        ).distinctBy(File::getAbsolutePath).forEach(File::delete)
+    }
+
     fun clear(context: Context) {
         cacheDir(context).deleteRecursively()
     }

@@ -39,10 +39,11 @@ class ReaderPageRequestsTest {
         val result = readerPagerActualPreloadRange(
             pagerPages = pages,
             currentPagerIndex = 3,
-            preloadPages = 2
+            preloadPages = 2,
+            direction = 1
         )
 
-        assertEquals(listOf(1, 3, 4), result)
+        assertEquals(listOf(3, 4, 1), result)
     }
 
     @Test
@@ -67,7 +68,7 @@ class ReaderPageRequestsTest {
         val source = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
         val effectStart = source.indexOf("LaunchedEffect(vm.currentPage)")
         assertTrue(effectStart >= 0)
-        val effectEnd = source.indexOf("LaunchedEffect(pagerState.currentPage", effectStart)
+        val effectEnd = source.indexOf("LaunchedEffect(vm.currentPage, memoryAwarePreloadPages", effectStart)
         val effectSource = source.substring(effectStart, effectEnd)
 
         assertTrue(effectSource.contains("pagerState.scrollToPage(targetPage)"))
@@ -101,7 +102,7 @@ class ReaderPageRequestsTest {
     }
 
     @Test
-    fun pagerPrecomposesAdjacentHugePageAheadOfTurn() {
+    fun pagerKeepsLargeCoilPreviewSingleViewport() {
         val pagerPages = buildReaderPagerPages(
             pageCount = 3,
             previousBook = null,
@@ -114,7 +115,7 @@ class ReaderPageRequestsTest {
         )
 
         assertEquals(
-            1,
+            0,
             readerPagerBeyondViewportPageCount(
                 einkMode = false,
                 pagerPages = pagerPages,
@@ -149,6 +150,66 @@ class ReaderPageRequestsTest {
     }
 
     @Test
+    fun booksContainingTiledPagesKeepStableAdjacentComposition() {
+        assertEquals(1, readerPagerBeyondViewportPageCount(einkMode = false, hasTiledPages = true))
+        assertEquals(0, readerPagerBeyondViewportPageCount(einkMode = false, hasTiledPages = false))
+        assertEquals(1, readerPagerBeyondViewportPageCount(einkMode = true, hasTiledPages = false))
+    }
+
+    @Test
+    fun screenSizedDecodeKeepsAllPagesOnCoilFirstFrame() {
+        assertFalse(readerPageNeedsStableAdjacentComposition(null))
+        assertFalse(
+            readerPageNeedsStableAdjacentComposition(
+                PageDto(number = 1, mediaType = "image/jpeg", width = 0, height = 0)
+            )
+        )
+        assertFalse(
+            readerPageNeedsStableAdjacentComposition(
+                PageDto(number = 2, mediaType = "image/jpeg", width = 12000, height = 18000)
+            )
+        )
+        assertFalse(
+            readerPageNeedsStableAdjacentComposition(
+                PageDto(number = 3, mediaType = "image/jpeg", width = 1600, height = 2400)
+            )
+        )
+    }
+
+    @Test
+    fun backwardPreloadPrioritizesPreviousPagesBeforeOppositeNeighbor() {
+        val pages = buildReaderPagerPages(
+            pageCount = 6,
+            previousBook = null,
+            nextBook = null
+        )
+
+        val result = readerPagerActualPreloadRange(
+            pagerPages = pages,
+            currentPagerIndex = pages.pagerIndexForActualPage(3),
+            preloadPages = 3,
+            direction = -1
+        )
+
+        assertEquals(listOf(2, 1, 0, 4), result)
+    }
+
+    @Test
+    fun pagerTargetImmediatelyControlsReversePreloadDirection() {
+        val pages = buildReaderPagerPages(pageCount = 6, previousBook = null, nextBook = null)
+
+        assertEquals(
+            -1,
+            readerPagerPreloadDirection(
+                pagerPages = pages,
+                currentPagerIndex = pages.pagerIndexForActualPage(3),
+                targetPagerIndex = pages.pagerIndexForActualPage(2),
+                fallbackDirection = 1
+            )
+        )
+    }
+
+    @Test
     fun readerRetainsOnlyNormalDecodedPagesInMemory() {
         assertTrue(readerShouldRetainPageInMemory(einkMode = true, renderMode = ReaderPageRenderMode.COIL))
         assertTrue(readerShouldRetainPageInMemory(einkMode = false, renderMode = ReaderPageRenderMode.COIL))
@@ -157,13 +218,13 @@ class ReaderPageRequestsTest {
     }
 
     @Test
-    fun hugeReaderPagesUseTiledRendering() {
+    fun largeReaderPagesUseBoundedCoilPreview() {
         assertEquals(
-            ReaderPageRenderMode.TILED,
+            ReaderPageRenderMode.COIL,
             readerPageRenderMode(PageDto(number = 1, mediaType = "image/jpeg", width = 12000, height = 18000))
         )
         assertEquals(
-            ReaderPageRenderMode.TILED,
+            ReaderPageRenderMode.COIL,
             readerPageRenderMode(PageDto(number = 2, mediaType = "image/jpeg", width = 1600, height = 16000))
         )
         assertEquals(
@@ -182,18 +243,277 @@ class ReaderPageRequestsTest {
     }
 
     @Test
+    fun actualBitmapByteCountTakesPriorityOverDensityScaledDimensions() {
+        assertTrue(
+            readerBitmapExceedsCanvasSafeSize(
+                width = 1200,
+                height = 1800,
+                bitmapByteCount = 234_000_000L
+            )
+        )
+        assertFalse(
+            readerBitmapExceedsCanvasSafeSize(
+                width = 12000,
+                height = 18000,
+                bitmapByteCount = 8L * 1024L * 1024L
+            )
+        )
+    }
+
+    @Test
+    fun scrollDisplayDecodeKeepsQualityHeadroomWithinMemoryBudget() {
+        assertEquals(
+            ReaderDisplayDecodeSize(width = 1350, height = 1939),
+            readerDisplayDecodeSize(
+                layoutWidth = 1080,
+                layoutHeight = 1551,
+                qualityScale = 1.25f,
+                maxDecodedBytes = 16L * 1024L * 1024L
+            )
+        )
+        val constrained = readerDisplayDecodeSize(
+            layoutWidth = 2400,
+            layoutHeight = 3600,
+            qualityScale = 1.25f,
+            maxDecodedBytes = 8L * 1024L * 1024L
+        )
+        assertTrue(constrained.width.toLong() * constrained.height.toLong() * 4L <= 8L * 1024L * 1024L)
+    }
+
+    @Test
+    fun lowMemoryDevicesKeepLargePagesOnBoundedCoilPreview() {
+        val page = PageDto(number = 1, mediaType = "image/jpeg", width = 4000, height = 6000)
+
+        assertEquals(
+            ReaderPageRenderMode.COIL,
+            readerPageRenderMode(page, maxMemoryBytes = 192L * 1024L * 1024L)
+        )
+        assertEquals(
+            ReaderPageRenderMode.COIL,
+            readerPageRenderMode(page, maxMemoryBytes = 512L * 1024L * 1024L)
+        )
+    }
+
+    @Test
     fun tiledRenderingUsesSharperTilesWhenZoomed() {
-        assertEquals(4, readerTileSampleSize(12000, 18000, 1080, 2400, zoomScale = 1f))
-        assertEquals(1, readerTileSampleSize(12000, 18000, 1080, 2400, zoomScale = 5f))
+        assertEquals(8, readerTileSampleSize(12000, 18000, 1080, 2400, zoomScale = 1f))
+        assertEquals(2, readerTileSampleSize(12000, 18000, 1080, 2400, zoomScale = 5f))
+    }
+
+    @Test
+    fun widthFitLongPageDetailTilesStaySharperThanItsPreview() {
+        assertEquals(
+            1,
+            readerTileSampleSize(
+                imageWidth = 1600,
+                imageHeight = 16000,
+                viewportWidth = 1080,
+                viewportHeight = 2400,
+                zoomScale = 1f,
+                fillWidth = true
+            )
+        )
     }
 
     @Test
     fun tiledPreviewUsesSafeScreenSizedDecodeBeforeZoom() {
         assertFalse(shouldDrawReaderTiles(zoomScale = 1f))
-        assertFalse(shouldDrawReaderTiles(zoomScale = 1.39f))
-        assertTrue(shouldDrawReaderTiles(zoomScale = 1.4f))
+        assertFalse(shouldDrawReaderTiles(zoomScale = 1.04f))
+        assertTrue(shouldDrawReaderTiles(zoomScale = 1.05f))
+        assertTrue(shouldDrawReaderTiles(zoomScale = 1f, previewNeedsDetailTiles = true))
         assertEquals(8, readerPreviewSampleSize(9049, 9049, 1080, 2400, fillWidth = false))
-        assertEquals(2, readerPreviewSampleSize(1600, 16000, 1080, 2400, fillWidth = true))
+        assertEquals(1, readerPreviewSampleSize(1600, 16000, 1080, 2400, fillWidth = true))
+    }
+
+    @Test
+    fun renderBudgetCapsCurrentPreviewAdjacentPreviewsAndActiveTilesTogether() {
+        val megabyte = 1024L * 1024L
+        val budget = readerRenderMemoryBudget(128L * megabyte)
+
+        assertTrue(budget.hardLimitBytes <= 36L * megabyte)
+        assertTrue(
+            budget.currentPreviewBytes + budget.adjacentPreviewBytes * 2L + budget.activeTileBytes <=
+                budget.hardLimitBytes
+        )
+        assertEquals(
+            budget.currentPreviewBytes + budget.adjacentPreviewBytes * 2L,
+            readerPreviewCacheBytes(128L * megabyte)
+        )
+    }
+
+    @Test
+    fun visibleTileWorkingSetCanExpandCacheWithinRenderBudget() {
+        val megabyte = 1024L * 1024L
+        val budget = readerRenderMemoryBudget(512L * megabyte)
+        val visibleBytes = readerVisibleTileWorkingSetBytes(
+            imageWidth = 10240,
+            imageHeight = 12288,
+            firstColumn = 0,
+            lastColumn = 4,
+            firstRow = 0,
+            lastRow = 5,
+            sampleSize = 4
+        )
+
+        assertTrue(visibleBytes > budget.activeTileBytes)
+        assertEquals(visibleBytes, readerActiveTileCacheBytes(visibleBytes, budget))
+        val cappedTileBytes = readerActiveTileCacheBytes(Long.MAX_VALUE, budget)
+        assertTrue(
+            budget.currentPreviewBytes + budget.adjacentPreviewBytes * 2L + cappedTileBytes <=
+                budget.hardLimitBytes
+        )
+    }
+
+    @Test
+    fun cachedPreviewQualityUsesActualBitmapDimensions() {
+        assertTrue(
+            readerPreviewBitmapMeetsDisplayTarget(
+                bitmapWidth = 1080,
+                bitmapHeight = 2400,
+                imageWidth = 4000,
+                imageHeight = 6000,
+                viewportWidth = 1080,
+                viewportHeight = 2400,
+                fillWidth = false
+            )
+        )
+        assertFalse(
+            readerPreviewBitmapMeetsDisplayTarget(
+                bitmapWidth = 540,
+                bitmapHeight = 800,
+                imageWidth = 4000,
+                imageHeight = 6000,
+                viewportWidth = 1080,
+                viewportHeight = 2400,
+                fillWidth = false
+            )
+        )
+    }
+
+    @Test
+    fun lowMemoryTileSampleKeepsWholeVisibleWorkingSetResident() {
+        val budget = readerRenderMemoryBudget(128L * 1024L * 1024L)
+        val cacheBytes = readerActiveTileCacheBytes(Long.MAX_VALUE, budget)
+
+        val sampleSize = readerTileSampleSizeForCache(
+            imageWidth = 12000,
+            imageHeight = 18000,
+            visibleLeft = 0,
+            visibleTop = 0,
+            visibleRight = 12000,
+            visibleBottom = 18000,
+            initialSampleSize = 8,
+            maxCacheBytes = cacheBytes
+        )
+
+        assertEquals(16, sampleSize)
+        val tileSize = 512 * sampleSize
+        val visibleBytes = readerVisibleTileWorkingSetBytes(
+            imageWidth = 12000,
+            imageHeight = 18000,
+            firstColumn = 0,
+            lastColumn = (12000 - 1) / tileSize,
+            firstRow = 0,
+            lastRow = (18000 - 1) / tileSize,
+            sampleSize = sampleSize
+        )
+        assertTrue(visibleBytes <= cacheBytes)
+        assertEquals(
+            64,
+            readerTileSampleSizeForCache(
+                imageWidth = 60000,
+                imageHeight = 90000,
+                visibleLeft = 0,
+                visibleTop = 0,
+                visibleRight = 60000,
+                visibleBottom = 90000,
+                initialSampleSize = 32,
+                maxCacheBytes = cacheBytes
+            )
+        )
+    }
+
+    @Test
+    fun previewDecodePlanReportsWhenMemoryFallbackNeedsVisibleDetailTiles() {
+        val plan = readerPreviewDecodePlan(
+            imageWidth = 1600,
+            imageHeight = 16000,
+            viewportWidth = 1080,
+            viewportHeight = 2400,
+            fillWidth = true,
+            qualityScale = READER_CURRENT_PREVIEW_QUALITY_SCALE,
+            maxDecodedBytes = 16L * 1024L * 1024L
+        )
+
+        assertEquals(4, plan.sampleSize)
+        assertFalse(plan.meetsQualityTarget)
+        assertFalse(plan.meetsDisplayTarget)
+    }
+
+    @Test
+    fun zoomOffsetsLimitTileDecodeToTheTransformedVisibleArea() {
+        val bounds = readerZoomVisibleBounds(
+            viewportWidth = 1080,
+            viewportHeight = 2400,
+            zoomScale = 3f,
+            zoomOffsetX = -540f,
+            zoomOffsetY = 600f
+        )
+
+        assertEquals(540f, bounds.left, 0.01f)
+        assertEquals(900f, bounds.right, 0.01f)
+        assertEquals(600f, bounds.top, 0.01f)
+        assertEquals(1400f, bounds.bottom, 0.01f)
+    }
+
+    @Test
+    fun adjacentPreviewAllowsTinyUpscaleToReduceDecodedPixels() {
+        assertEquals(
+            4,
+            readerPreviewSampleSize(
+                imageWidth = 5000,
+                imageHeight = 7000,
+                viewportWidth = 1080,
+                viewportHeight = 2400,
+                fillWidth = false,
+                qualityScale = READER_ADJACENT_PREVIEW_QUALITY_SCALE,
+                maxUpscaleFraction = READER_PREVIEW_MAX_UPSCALE_FRACTION
+            )
+        )
+    }
+
+    @Test
+    fun currentPreviewKeepsQualityHeadroomForMangaText() {
+        assertEquals(
+            2,
+            readerPreviewSampleSize(
+                imageWidth = 5000,
+                imageHeight = 7000,
+                viewportWidth = 1080,
+                viewportHeight = 2400,
+                fillWidth = false,
+                qualityScale = READER_CURRENT_PREVIEW_QUALITY_SCALE,
+                maxUpscaleFraction = READER_PREVIEW_MAX_UPSCALE_FRACTION
+            )
+        )
+    }
+
+    @Test
+    fun largeMangaPageKeepsDisplayResolutionInsideLowMemoryBudget() {
+        val budget = readerRenderMemoryBudget(128L * 1024L * 1024L)
+        val plan = readerPreviewDecodePlan(
+            imageWidth = 4206,
+            imageHeight = 6040,
+            viewportWidth = 1080,
+            viewportHeight = 2400,
+            fillWidth = false,
+            qualityScale = READER_CURRENT_PREVIEW_QUALITY_SCALE,
+            maxDecodedBytes = budget.currentPreviewBytes
+        )
+
+        assertEquals(4, plan.sampleSize)
+        assertTrue(plan.meetsDisplayTarget)
+        assertFalse(plan.meetsQualityTarget)
     }
 
     @Test

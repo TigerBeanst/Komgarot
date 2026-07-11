@@ -1,17 +1,26 @@
 package fail.tiger.komgarot.ui.reader
 
 import android.content.Context
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Size
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
 import fail.tiger.komgarot.data.remote.dto.PageDto
+import kotlin.math.floor
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 private const val LOW_MEMORY_PRELOAD_LIMIT = 2
 private const val MID_MEMORY_PRELOAD_LIMIT = 3
 private const val HIGH_MEMORY_PRELOAD_LIMIT = 5
 private const val CANVAS_SAFE_BITMAP_BYTES = 96L * 1024L * 1024L
+
+internal const val READER_CURRENT_PREVIEW_QUALITY_SCALE = 1.25f
+internal const val READER_ADJACENT_PREVIEW_QUALITY_SCALE = 1f
+internal const val READER_PREVIEW_MAX_UPSCALE_FRACTION = 0.03f
 
 enum class ReaderPageRenderMode { COIL, TILED }
 
@@ -38,6 +47,10 @@ fun readerPageRequest(
     cacheVersion: Int = 0,
     allowHardware: Boolean = false,
     originalSize: Boolean = false,
+    displayWidthPx: Int = 0,
+    displayHeightPx: Int = 0,
+    displayQualityScale: Float = 1f,
+    displayMaxDecodedBytes: Long = Long.MAX_VALUE,
     retainInMemory: Boolean = false,
     retryKey: Int = 0,
     progressListener: ImageDownloadProgressListener? = null,
@@ -63,7 +76,17 @@ fun readerPageRequest(
         .allowHardware(allowHardware)
         .allowRgb565(false)
         .apply {
-            size(Size.ORIGINAL)
+            if (originalSize) {
+                size(Size.ORIGINAL)
+            } else if (displayWidthPx > 0 && displayHeightPx > 0) {
+                val displayDecodeSize = readerDisplayDecodeSize(
+                    layoutWidth = displayWidthPx,
+                    layoutHeight = displayHeightPx,
+                    qualityScale = displayQualityScale,
+                    maxDecodedBytes = displayMaxDecodedBytes
+                )
+                size(displayDecodeSize.width, displayDecodeSize.height)
+            }
             if (listener != null) {
                 this.listener(listener)
             }
@@ -106,6 +129,9 @@ fun readerNextQuickPreloadPages(current: Int): Int = when {
 
 fun readerPagerBeyondViewportPageCount(einkMode: Boolean): Int = if (einkMode) 1 else 0
 
+fun readerPagerBeyondViewportPageCount(einkMode: Boolean, hasTiledPages: Boolean): Int =
+    if (einkMode || hasTiledPages) 1 else 0
+
 fun readerPagerBeyondViewportPageCount(
     einkMode: Boolean,
     pagerPages: List<ReaderPagerPage>,
@@ -117,7 +143,7 @@ fun readerPagerBeyondViewportPageCount(
     val to = (currentPagerIndex + 1).coerceAtMost(pagerPages.lastIndex)
     return if ((from..to).any { index ->
             val page = pagerPages.getOrNull(index) as? ReaderPagerPage.Actual
-            page != null && pageInfo(page.pageIndex)?.let(::readerPageRenderMode) == ReaderPageRenderMode.TILED
+            page != null && readerPageNeedsStableAdjacentComposition(pageInfo(page.pageIndex))
         }
     ) {
         1
@@ -129,32 +155,95 @@ fun readerPagerBeyondViewportPageCount(
 fun readerShouldRetainPageInMemory(einkMode: Boolean, renderMode: ReaderPageRenderMode): Boolean =
     renderMode == ReaderPageRenderMode.COIL
 
-fun readerPageRenderMode(page: PageDto): ReaderPageRenderMode {
-    val width = page.width.coerceAtLeast(0)
-    val height = page.height.coerceAtLeast(0)
-    if (width == 0 || height == 0) return ReaderPageRenderMode.COIL
-    return if (readerBitmapExceedsCanvasSafeSize(width, height)) {
-        ReaderPageRenderMode.TILED
-    } else {
-        ReaderPageRenderMode.COIL
-    }
+@Suppress("UNUSED_PARAMETER")
+fun readerPageRenderMode(
+    page: PageDto,
+    maxMemoryBytes: Long = Runtime.getRuntime().maxMemory()
+): ReaderPageRenderMode = ReaderPageRenderMode.COIL
+
+@Suppress("UNUSED_PARAMETER")
+fun readerPageNeedsStableAdjacentComposition(page: PageDto?): Boolean = false
+
+fun readerBitmapExceedsCanvasSafeSize(
+    width: Int,
+    height: Int,
+    bytesPerPixel: Int = 4,
+    bitmapByteCount: Long? = null,
+    maxSafeBytes: Long = CANVAS_SAFE_BITMAP_BYTES
+): Boolean {
+    bitmapByteCount?.takeIf { it > 0L }?.let { return it >= maxSafeBytes }
+    if (width <= 0 || height <= 0 || bytesPerPixel <= 0) return true
+    return width.toLong() * height.toLong() * bytesPerPixel.toLong() >= maxSafeBytes
 }
 
-fun readerBitmapExceedsCanvasSafeSize(width: Int, height: Int, bytesPerPixel: Int = 4): Boolean {
-    if (width <= 0 || height <= 0 || bytesPerPixel <= 0) return true
-    return width.toLong() * height.toLong() * bytesPerPixel.toLong() >= CANVAS_SAFE_BITMAP_BYTES
+data class ReaderDisplayDecodeSize(val width: Int, val height: Int)
+
+fun readerDisplayDecodeSize(
+    layoutWidth: Int,
+    layoutHeight: Int,
+    qualityScale: Float,
+    maxDecodedBytes: Long
+): ReaderDisplayDecodeSize {
+    val scale = qualityScale.coerceAtLeast(1f)
+    val targetWidth = (layoutWidth.coerceAtLeast(1) * scale).roundToInt().coerceAtLeast(1)
+    val targetHeight = (layoutHeight.coerceAtLeast(1) * scale).roundToInt().coerceAtLeast(1)
+    val targetBytes = targetWidth.toLong() * targetHeight.toLong() * 4L
+    if (targetBytes <= maxDecodedBytes.coerceAtLeast(4L)) {
+        return ReaderDisplayDecodeSize(targetWidth, targetHeight)
+    }
+    val reduction = sqrt(maxDecodedBytes.coerceAtLeast(4L).toDouble() / targetBytes.toDouble())
+    return ReaderDisplayDecodeSize(
+        width = floor(targetWidth * reduction).toInt().coerceAtLeast(1),
+        height = floor(targetHeight * reduction).toInt().coerceAtLeast(1)
+    )
 }
+
+fun readerDrawableExceedsCanvasSafeSize(
+    drawable: Drawable?,
+    maxSafeBytes: Long = readerCanvasSafeBitmapBytes(Runtime.getRuntime().maxMemory())
+): Boolean {
+    val bitmap = (drawable as? BitmapDrawable)?.bitmap
+    if (bitmap?.isRecycled == true) return true
+    return readerBitmapExceedsCanvasSafeSize(
+        width = drawable?.intrinsicWidth ?: 0,
+        height = drawable?.intrinsicHeight ?: 0,
+        bitmapByteCount = bitmap?.byteCount?.toLong(),
+        maxSafeBytes = maxSafeBytes
+    )
+}
+
+internal fun readerCanvasSafeBitmapBytes(maxMemoryBytes: Long): Long =
+    (maxMemoryBytes / 4L).coerceAtMost(CANVAS_SAFE_BITMAP_BYTES)
 
 fun readerPagerActualPreloadRange(
     pagerPages: List<ReaderPagerPage>,
     currentPagerIndex: Int,
-    preloadPages: Int
+    preloadPages: Int,
+    direction: Int = 1
 ): List<Int> {
-    val from = (currentPagerIndex - 1).coerceAtLeast(0)
-    val to = (currentPagerIndex + preloadPages).coerceAtMost(pagerPages.lastIndex)
-    if (from > to) return emptyList()
+    val normalizedDirection = if (direction < 0) -1 else 1
+    val forward = (1..preloadPages.coerceAtLeast(0))
+        .map { distance -> currentPagerIndex + normalizedDirection * distance }
+    val oppositeNeighbor = currentPagerIndex - normalizedDirection
 
-    return (from..to)
-        .filter { it != currentPagerIndex }
+    return (forward + oppositeNeighbor)
+        .distinct()
         .mapNotNull { index -> (pagerPages.getOrNull(index) as? ReaderPagerPage.Actual)?.pageIndex }
+}
+
+fun readerPagerPreloadDirection(
+    pagerPages: List<ReaderPagerPage>,
+    currentPagerIndex: Int,
+    targetPagerIndex: Int,
+    fallbackDirection: Int
+): Int {
+    val currentPage = (pagerPages.getOrNull(currentPagerIndex) as? ReaderPagerPage.Actual)?.pageIndex
+    val targetPage = (pagerPages.getOrNull(targetPagerIndex) as? ReaderPagerPage.Actual)?.pageIndex
+    val delta = if (currentPage != null && targetPage != null) targetPage - currentPage else 0
+    return when {
+        delta < 0 -> -1
+        delta > 0 -> 1
+        fallbackDirection < 0 -> -1
+        else -> 1
+    }
 }
