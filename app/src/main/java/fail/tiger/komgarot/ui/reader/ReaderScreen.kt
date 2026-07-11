@@ -78,6 +78,9 @@ import fail.tiger.komgarot.ui.cover.writeTemporaryCoverImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -133,6 +136,11 @@ private fun rememberReaderPageRequest(
     url: String,
     seriesId: String,
     bookId: String,
+    originalSize: Boolean,
+    displayWidthPx: Int = 0,
+    displayHeightPx: Int = 0,
+    displayQualityScale: Float = 1f,
+    displayMaxDecodedBytes: Long = readerRenderMemoryBudget().currentPreviewBytes,
     allowHardware: Boolean = false,
     retainInMemory: Boolean = false,
     retryKey: Int = 0
@@ -147,7 +155,20 @@ private fun rememberReaderPageRequest(
         onDispose { progressState.dispose() }
     }
 
-    val request = remember(context, url, allowHardware, retainInMemory, retryKey, progressState, cacheVersion) {
+    val request = remember(
+        context,
+        url,
+        originalSize,
+        displayWidthPx,
+        displayHeightPx,
+        displayQualityScale,
+        displayMaxDecodedBytes,
+        allowHardware,
+        retainInMemory,
+        retryKey,
+        progressState,
+        cacheVersion
+    ) {
         readerPageRequest(
             context = context,
             url = url,
@@ -155,7 +176,11 @@ private fun rememberReaderPageRequest(
             bookId = bookId,
             cacheVersion = cacheVersion,
             allowHardware = allowHardware,
-            originalSize = true,
+            originalSize = originalSize,
+            displayWidthPx = displayWidthPx,
+            displayHeightPx = displayHeightPx,
+            displayQualityScale = displayQualityScale,
+            displayMaxDecodedBytes = displayMaxDecodedBytes,
             retainInMemory = retainInMemory,
             retryKey = retryKey,
             progressListener = progressState.listener,
@@ -972,10 +997,21 @@ fun PagerReader(
     val pagerScope = rememberCoroutineScope()
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
     val retainedPagePainters = remember(vm.currentBookId) { mutableStateMapOf<String, Painter>() }
+    val pagerRenderMemoryBudget = remember { readerRenderMemoryBudget() }
+    val hasTiledPages = vm.pageUrls.indices.any { pageIndex ->
+        readerPageNeedsStableAdjacentComposition(vm.pageInfo(pageIndex))
+    }
+    var preloadDirection by remember(vm.currentBookId) { mutableIntStateOf(1) }
+    var lastActualPage by remember(vm.currentBookId) { mutableIntStateOf(vm.currentPage) }
 
     LaunchedEffect(pagerState.currentPage, pagerPages) {
         when (val page = pagerPages.getOrNull(pagerState.currentPage)) {
-            is ReaderPagerPage.Actual -> vm.updatePage(page.pageIndex)
+            is ReaderPagerPage.Actual -> {
+                val pageDelta = page.pageIndex - lastActualPage
+                if (pageDelta != 0) preloadDirection = if (pageDelta < 0) -1 else 1
+                lastActualPage = page.pageIndex
+                vm.updatePage(page.pageIndex)
+            }
             is ReaderPagerPage.Trigger -> {
                 if (openedBoundaryBookId != page.target.id) {
                     openedBoundaryBookId = page.target.id
@@ -994,21 +1030,33 @@ fun PagerReader(
     LaunchedEffect(vm.currentPage, memoryAwarePreloadPages, vm.pageUrls) {
         retainedPagePainters.trimReaderPagePainters(vm.pageUrls, vm.currentPage, memoryAwarePreloadPages)
     }
-    LaunchedEffect(pagerState.currentPage, pagerPages, memoryAwarePreloadPages, vm.pageUrls) {
-        readerPagerActualPreloadRange(
+    val targetPreloadDirection = readerPagerPreloadDirection(
+        pagerPages = pagerPages,
+        currentPagerIndex = pagerState.currentPage,
+        targetPagerIndex = pagerState.targetPage,
+        fallbackDirection = preloadDirection
+    )
+    LaunchedEffect(pagerState.targetPage, pagerPages, memoryAwarePreloadPages, targetPreloadDirection, vm.pageUrls) {
+        val preloadIndexes = readerPagerActualPreloadRange(
             pagerPages = pagerPages,
-            currentPagerIndex = pagerState.currentPage,
-            preloadPages = memoryAwarePreloadPages
-        ).forEach { pageIndex ->
-            val pageUrl = vm.pageUrls.getOrNull(pageIndex)
-            if (pageUrl != null) {
-                ensureReaderPageFileCached(
-                    context = context,
-                    url = pageUrl,
-                    seriesId = vm.currentSeriesId,
-                    bookId = vm.currentBookId
-                )
-            }
+            currentPagerIndex = pagerState.targetPage,
+            preloadPages = memoryAwarePreloadPages,
+            direction = targetPreloadDirection
+        )
+        coroutineScope {
+            preloadIndexes.mapNotNull { pageIndex ->
+                vm.pageUrls.getOrNull(pageIndex)?.let { pageIndex to it }
+            }.map { (_, pageUrl) ->
+                async {
+                    ensureReaderPageFileCached(
+                        context = context,
+                        url = pageUrl,
+                        seriesId = vm.currentSeriesId,
+                        bookId = vm.currentBookId,
+                        priority = ReaderPageLoadPriority.PREFETCH
+                    )
+                }
+            }.awaitAll()
         }
     }
     DisposableEffect(einkMode, readingDirection, pagerPages, pagerState) {
@@ -1051,9 +1099,7 @@ fun PagerReader(
         state = pagerState,
         beyondViewportPageCount = readerPagerBeyondViewportPageCount(
             einkMode = einkMode,
-            pagerPages = pagerPages,
-            currentPagerIndex = pagerState.currentPage,
-            pageInfo = vm::pageInfo
+            hasTiledPages = hasTiledPages
         ),
         reverseLayout = readingDirection == "RTL",
         userScrollEnabled = !einkMode,
@@ -1068,9 +1114,11 @@ fun PagerReader(
                 val pageInfo = vm.pageInfo(actualPageIndex)
                 val renderMode = if (pageInfo != null) readerPageRenderMode(pageInfo) else ReaderPageRenderMode.COIL
                 val retainInMemory = readerShouldRetainPageInMemory(einkMode, renderMode)
+                val isDisplayTarget = page == pagerState.targetPage
+                val isSettledPage = page == pagerState.settledPage
                 var retryKey by remember(pageUrl) { mutableIntStateOf(0) }
 
-                Box(
+                BoxWithConstraints(
                     Modifier
                         .fillMaxSize()
                         .pointerInput(actualPageIndex) {
@@ -1082,10 +1130,28 @@ fun PagerReader(
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    val pageAspectRatio = pageInfo
+                        ?.takeIf { it.width > 0 && it.height > 0 }
+                        ?.let { it.width.toFloat() / it.height.toFloat() }
+                    val displayWidthPx = constraints.maxWidth.coerceAtLeast(1)
+                    val displayHeightPx = if (pageFit == "WIDTH" && pageAspectRatio != null) {
+                        (displayWidthPx / pageAspectRatio).roundToInt().coerceAtLeast(1)
+                    } else {
+                        constraints.maxHeight.coerceAtLeast(1)
+                    }
                     val pageRequestState = rememberReaderPageRequest(
                         url = pageUrl,
                         seriesId = vm.currentSeriesId,
                         bookId = vm.currentBookId,
+                        originalSize = false,
+                        displayWidthPx = displayWidthPx,
+                        displayHeightPx = displayHeightPx,
+                        displayQualityScale = if (isDisplayTarget) 1.25f else 1f,
+                        displayMaxDecodedBytes = if (isDisplayTarget) {
+                            pagerRenderMemoryBudget.currentPreviewBytes
+                        } else {
+                            pagerRenderMemoryBudget.adjacentPreviewBytes
+                        },
                         retainInMemory = retainInMemory,
                         retryKey = retryKey
                     )
@@ -1100,6 +1166,12 @@ fun PagerReader(
                         retryKey = retryKey,
                         pageFit = pageFit,
                         zoomState = zoomState,
+                        isActive = isDisplayTarget,
+                        previewQualityScale = if (isSettledPage || (isDisplayTarget && !pagerState.isScrollInProgress)) {
+                            READER_CURRENT_PREVIEW_QUALITY_SCALE
+                        } else {
+                            READER_ADJACENT_PREVIEW_QUALITY_SCALE
+                        },
                         einkMode = einkMode,
                         aiTranslatedPage = vm.currentAiTranslatedPage(actualPageIndex).takeIf { aiTranslationAvailable },
                         aiDisplayMode = if (aiTranslationAvailable) vm.aiTranslationDisplayModeForPage(actualPageIndex) else AiTranslationDisplayMode.OFF,
@@ -1178,6 +1250,8 @@ private fun ZoomableReaderPageContent(
     retryKey: Int,
     pageFit: String,
     zoomState: ZoomState,
+    isActive: Boolean,
+    previewQualityScale: Float,
     einkMode: Boolean,
     aiTranslatedPage: AiTranslatedPage?,
     aiDisplayMode: AiTranslationDisplayMode,
@@ -1220,6 +1294,10 @@ private fun ZoomableReaderPageContent(
                 retryKey = retryKey,
                 fillWidth = pageFit == "WIDTH",
                 zoomScale = zoomState.scale,
+                zoomOffsetX = zoomState.offsetX,
+                zoomOffsetY = zoomState.offsetY,
+                isActive = isActive,
+                previewQualityScale = previewQualityScale,
                 progressListener = pageRequestState.progressState.listener,
                 modifier = Modifier.matchParentSize(),
                 loadingContent = {
@@ -1230,6 +1308,7 @@ private fun ZoomableReaderPageContent(
                     )
                 },
                 errorContent = { ReaderPageError(onRetry = onRetry) },
+                tileErrorContent = { retryTiles -> ReaderTileDecodeError(onRetry = retryTiles) },
                 onLoadStart = pageRequestState.progressState::reset,
                 onLoadComplete = pageRequestState.progressState::complete,
                 onImageReady = { pageImageLoaded = true }
@@ -1283,7 +1362,7 @@ private fun ZoomableReaderPageContent(
                     else -> {
                         val success = state as? AsyncImagePainter.State.Success
                         val drawable = success?.result?.drawable
-                        if (readerBitmapExceedsCanvasSafeSize(drawable?.intrinsicWidth ?: 0, drawable?.intrinsicHeight ?: 0)) {
+                        if (readerDrawableExceedsCanvasSafeSize(drawable)) {
                             forceTiledRender = true
                             PageLoadingPlaceholder(
                                 progressState = pageRequestState.progressState,
@@ -1433,6 +1512,30 @@ private fun ReaderPageError(onRetry: () -> Unit) {
     }
 }
 
+@Composable
+private fun ReaderTileDecodeError(onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            color = Color.Black.copy(alpha = 0.82f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(stringResource(R.string.reader_detail_load_failed), color = Color.White)
+                OutlinedButton(onClick = onRetry) {
+                    Text(stringResource(R.string.reader_retry), color = Color.White)
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PageContextMenu(
@@ -1571,6 +1674,9 @@ fun ScrollReader(
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val retainedPagePainters = remember(vm.currentBookId) { mutableStateMapOf<String, Painter>() }
+    val scrollRenderMemoryBudget = remember { readerRenderMemoryBudget() }
+    var scrollPreloadDirection by remember(vm.currentBookId) { mutableIntStateOf(1) }
+    var lastVisiblePage by remember(vm.currentBookId) { mutableIntStateOf(vm.currentPage) }
 
     LaunchedEffect(vm.currentPage) {
         val currentPageVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == vm.currentPage }
@@ -1590,26 +1696,36 @@ fun ScrollReader(
             }
             .distinctUntilChanged()
             .collect { index ->
-                if (index != null) vm.updatePage(index)
+                if (index != null) {
+                    val pageDelta = index - lastVisiblePage
+                    if (pageDelta != 0) scrollPreloadDirection = if (pageDelta < 0) -1 else 1
+                    lastVisiblePage = index
+                    vm.updatePage(index)
+                }
             }
     }
 
-    LaunchedEffect(vm.currentPage, memoryAwarePreloadPages, vm.pageUrls) {
+    LaunchedEffect(vm.currentPage, memoryAwarePreloadPages, scrollPreloadDirection, vm.pageUrls) {
         retainedPagePainters.trimReaderPagePainters(vm.pageUrls, vm.currentPage, memoryAwarePreloadPages)
-        val from = (vm.currentPage - 1).coerceAtLeast(0)
-        val to = (vm.currentPage + memoryAwarePreloadPages).coerceAtMost(vm.pageUrls.lastIndex)
-        if (from <= to) {
-            for (index in from..to) {
-                if (index != vm.currentPage) {
+        val forwardIndexes = (1..memoryAwarePreloadPages.coerceAtLeast(0))
+            .map { distance -> vm.currentPage + scrollPreloadDirection * distance }
+        val oppositeNeighbor = vm.currentPage - scrollPreloadDirection
+        val preloadIndexes = (forwardIndexes + oppositeNeighbor)
+            .distinct()
+            .filter { it in vm.pageUrls.indices }
+        coroutineScope {
+            preloadIndexes.map { index ->
+                async {
                     val pageUrl = vm.pageUrls[index]
                     ensureReaderPageFileCached(
                         context = context,
                         url = pageUrl,
                         seriesId = vm.currentSeriesId,
-                        bookId = vm.currentBookId
+                        bookId = vm.currentBookId,
+                        priority = ReaderPageLoadPriority.PREFETCH
                     )
                 }
-            }
+            }.awaitAll()
         }
     }
     DisposableEffect(einkMode, listState) {
@@ -1650,14 +1766,8 @@ fun ScrollReader(
         }
     ) {
         itemsIndexed(vm.pageUrls, key = { _, url -> url }) { index, url ->
-            Box(Modifier.fillMaxWidth().wrapContentHeight(), contentAlignment = Alignment.Center) {
+            BoxWithConstraints(Modifier.fillMaxWidth().wrapContentHeight(), contentAlignment = Alignment.Center) {
                 var retryKey by remember(url) { mutableIntStateOf(0) }
-                val pageRequestState = rememberReaderPageRequest(
-                    url = url,
-                    seriesId = vm.currentSeriesId,
-                    bookId = vm.currentBookId,
-                    retryKey = retryKey
-                )
                 val pageInfo = vm.pageInfo(index)
                 val renderMode = if (pageInfo != null) readerPageRenderMode(pageInfo) else ReaderPageRenderMode.COIL
                 val pageAspectRatio = if (pageInfo != null && pageInfo.width > 0 && pageInfo.height > 0) {
@@ -1665,6 +1775,23 @@ fun ScrollReader(
                 } else {
                     0.7f
                 }
+                val displayWidthPx = constraints.maxWidth.coerceAtLeast(1)
+                val displayHeightPx = (displayWidthPx / pageAspectRatio).roundToInt().coerceAtLeast(1)
+                val pageRequestState = rememberReaderPageRequest(
+                    url = url,
+                    seriesId = vm.currentSeriesId,
+                    bookId = vm.currentBookId,
+                    originalSize = false,
+                    displayWidthPx = displayWidthPx,
+                    displayHeightPx = displayHeightPx,
+                    displayQualityScale = if (index == vm.currentPage) 1.25f else 1f,
+                    displayMaxDecodedBytes = if (index == vm.currentPage) {
+                        scrollRenderMemoryBudget.currentPreviewBytes
+                    } else {
+                        scrollRenderMemoryBudget.adjacentPreviewBytes
+                    },
+                    retryKey = retryKey
+                )
                 var pageImageLoaded by remember(pageRequestState.request) { mutableStateOf(false) }
                 var forceTiledRender by remember(url, renderMode) { mutableStateOf(false) }
                 val effectiveRenderMode = if (forceTiledRender) ReaderPageRenderMode.TILED else renderMode
@@ -1675,6 +1802,13 @@ fun ScrollReader(
                         bookId = vm.currentBookId,
                         retryKey = retryKey,
                         fillWidth = true,
+                        isActive = index == vm.currentPage,
+                        retainPreview = kotlin.math.abs(index - vm.currentPage) <= 1,
+                        previewQualityScale = if (index == vm.currentPage) {
+                            READER_CURRENT_PREVIEW_QUALITY_SCALE
+                        } else {
+                            READER_ADJACENT_PREVIEW_QUALITY_SCALE
+                        },
                         progressListener = pageRequestState.progressState.listener,
                         modifier = Modifier.fillMaxWidth().aspectRatio(pageAspectRatio),
                         loadingContent = {
@@ -1685,6 +1819,7 @@ fun ScrollReader(
                             )
                         },
                         errorContent = { ReaderPageError(onRetry = { retryKey += 1 }) },
+                        tileErrorContent = { retryTiles -> ReaderTileDecodeError(onRetry = retryTiles) },
                         onLoadStart = pageRequestState.progressState::reset,
                         onLoadComplete = pageRequestState.progressState::complete,
                         onImageReady = { pageImageLoaded = true }
@@ -1738,7 +1873,7 @@ fun ScrollReader(
                             else -> {
                                 val success = state as? AsyncImagePainter.State.Success
                                 val drawable = success?.result?.drawable
-                                if (readerBitmapExceedsCanvasSafeSize(drawable?.intrinsicWidth ?: 0, drawable?.intrinsicHeight ?: 0)) {
+                                if (readerDrawableExceedsCanvasSafeSize(drawable)) {
                                     forceTiledRender = true
                                     PageLoadingPlaceholder(
                                         progressState = pageRequestState.progressState,

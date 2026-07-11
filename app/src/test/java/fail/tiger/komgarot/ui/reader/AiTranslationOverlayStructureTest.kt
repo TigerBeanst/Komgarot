@@ -279,7 +279,7 @@ class AiTranslationOverlayStructureTest {
     }
 
     @Test
-    fun readerDisplayAndExportKeepOriginalImageQuality() {
+    fun readerDisplayChoosesDecodeSizeAndExportKeepsOriginalImageQuality() {
         val rememberRequestStart = readerSource.indexOf("private fun rememberReaderPageRequest(")
         val rememberRequestEnd = readerSource.indexOf("private data class ReaderPageImageRequestState", rememberRequestStart)
         val rememberRequestSource = readerSource.substring(rememberRequestStart, rememberRequestEnd)
@@ -287,7 +287,8 @@ class AiTranslationOverlayStructureTest {
         val exportEnd = readerSource.indexOf("val result = imageLoader.execute(req)", exportStart)
         val exportSource = readerSource.substring(exportStart, exportEnd)
 
-        assertTrue(rememberRequestSource.contains("originalSize = true"))
+        assertTrue(rememberRequestSource.contains("originalSize: Boolean"))
+        assertTrue(rememberRequestSource.contains("originalSize = originalSize"))
         assertFalse(readerSource.contains("imageLoader.enqueue("))
         assertTrue(readerSource.contains("ensureReaderPageFileCached("))
         assertTrue(exportSource.contains("originalSize = true"))

@@ -195,6 +195,7 @@
     <string name="reader_retry">重试</string>
     <string name="reader_no_pages">没有可显示的页面</string>
     <string name="reader_image_load_failed">图片加载失败</string>
+    <string name="reader_detail_load_failed">高清区域加载失败</string>
     <string name="reader_boundary_opening_next">正在打开下一本</string>
     <string name="reader_boundary_opening_previous">正在打开上一本</string>
     <string name="reader_boundary_finished">本书已看完</string>

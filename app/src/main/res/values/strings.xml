@@ -198,6 +198,7 @@
     <string name="reader_retry">Retry</string>
     <string name="reader_no_pages">No pages to display</string>
     <string name="reader_image_load_failed">Image loading failed</string>
+    <string name="reader_detail_load_failed">High-resolution detail loading failed</string>
     <string name="reader_boundary_opening_next">Opening next book</string>
     <string name="reader_boundary_opening_previous">Opening previous book</string>
     <string name="reader_boundary_finished">Book finished</string>
