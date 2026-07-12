@@ -32,7 +32,7 @@ class AiFeatureNavigationStructureTest {
         assertTrue(end > start)
         val openSeriesSource = source.substring(start, end)
 
-        assertTrue(openSeriesSource.contains("navController.navigate(Screen.Books.go(seriesId))"))
+        assertTrue(openSeriesSource.contains("navController.navigate(Screen.Books.go(seriesId, bookCount))"))
         assertTrue(openSeriesSource.contains("launchSingleTop = true"))
         assertFalse(openSeriesSource.contains("getBooks(seriesId, 0)"))
     }
@@ -46,7 +46,7 @@ class AiFeatureNavigationStructureTest {
         val booksSource = source.substring(booksStart, booksEnd)
 
         assertTrue(booksSource.contains("onBookClick = { id, name, pages, isOneShot ->"))
-        assertTrue(booksSource.contains("if (isOneShot)"))
-        assertTrue(booksSource.contains("popUpTo(Screen.Books.go(seriesId)) { inclusive = true }"))
+        assertTrue(booksSource.contains("if (isOneShot || bookCount == 1)"))
+        assertTrue(booksSource.contains("popUpTo(Screen.Books.go(seriesId, bookCount)) { inclusive = true }"))
     }
 }

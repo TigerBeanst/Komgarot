@@ -30,8 +30,8 @@ sealed class Screen(val route: String) {
             return if (params.isEmpty()) base else "$base?${params.joinToString("&")}"
         }
     }
-    object Books : Screen("books/{seriesId}") {
-        fun go(id: String) = "books/${encodeArg(id)}"
+    object Books : Screen("books/{seriesId}?bookCount={bookCount}") {
+        fun go(id: String, bookCount: Int) = "books/${encodeArg(id)}?bookCount=$bookCount"
     }
     object BookDetail : Screen("bookdetail/{bookId}/{bookName}/{seriesName}/{pageCount}/{isOneShot}") {
         fun go(id: String, name: String, seriesName: String, pageCount: Int, isOneShot: Boolean = false) =

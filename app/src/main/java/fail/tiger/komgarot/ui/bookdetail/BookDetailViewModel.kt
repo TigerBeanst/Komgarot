@@ -94,8 +94,6 @@ class BookDetailViewModel(
 
     fun refresh() {
         imageCacheInvalidator.invalidateBook(currentBookId, book?.seriesId)
-        book = null
-        metadata = null
         load(currentBookId, currentServerUrl)
     }
 

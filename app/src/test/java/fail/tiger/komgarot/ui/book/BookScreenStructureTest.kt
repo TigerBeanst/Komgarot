@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.ui.book
 
 import java.io.File
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,9 +27,18 @@ class BookScreenStructureTest {
     }
 
     @Test
-    fun initialSeriesBooksLoadShowsProgressIndicator() {
-        assertTrue(source.contains("if (vm.loading && vm.series == null && vm.error == null)"))
-        assertTrue(source.contains("contentAlignment = Alignment.Center"))
-        assertTrue(source.contains("CircularProgressIndicator()"))
+    fun initialSeriesBooksLoadUsesTargetSkeletonInsidePullToRefresh() {
+        assertTrue(source.contains("initialBookCount: Int"))
+        assertTrue(source.contains("val initialLoading = !vm.hasLoadedOnce && vm.books.isEmpty()"))
+        assertTrue(source.contains("isRefreshing = vm.loading || initialLoading"))
+        assertTrue(source.contains("initialBookCount == 1 -> BookDetailLoadingSkeleton("))
+        assertTrue(source.contains("initialLoading -> BookGridLoadingSkeleton("))
+        assertTrue(source.contains("PullToRefreshBox("))
+        assertFalse(source.contains("CircularProgressIndicator()"))
+    }
+
+    @Test
+    fun singleBookTransitionKeepsDetailSkeletonUntilNavigation() {
+        assertTrue(source.contains("vm.books.size == 1 && !vm.hasMore -> BookDetailLoadingSkeleton("))
     }
 }
