@@ -63,4 +63,15 @@ class BookDetailActionHierarchyTest {
         assertTrue(source.contains("InfoRow(stringResource(R.string.file_source), book.url ?: unknown)"))
         assertTrue(!source.contains("bookFileSource("))
     }
+
+    @Test
+    fun initialLoadUsesDetailSkeletonInsidePullToRefresh() {
+        val refreshStart = source.indexOf("PullToRefreshBox(")
+        val skeletonBranch = source.indexOf("initialLoading -> BookDetailLoadingSkeleton(")
+
+        assertTrue(refreshStart >= 0)
+        assertTrue(skeletonBranch > refreshStart)
+        assertTrue(source.contains("val initialLoading = book == null && vm.error == null"))
+        assertTrue(source.contains("isRefreshing = vm.loading || initialLoading"))
+    }
 }

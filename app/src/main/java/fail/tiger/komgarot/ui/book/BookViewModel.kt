@@ -35,6 +35,7 @@ class BookViewModel(
     val hasMore: Boolean get() = paging.hasMore
     val loading: Boolean get() = paging.loading
     val error: String? get() = paging.error
+    val hasLoadedOnce: Boolean get() = paging.hasLoadedOnce
     private var seriesId: String = ""
     private var initialized = false
 
@@ -57,9 +58,10 @@ class BookViewModel(
 
     fun refresh() {
         imageCacheInvalidator.invalidateSeries(seriesId, books.map { it.id })
-        paging.reset()
         refreshAllKnownBookThumbnails()
-        loadMore()
+        viewModelScope.launch {
+            paging.refresh { bookRepo.getBooks(seriesId, 0) }
+        }
     }
 
     fun loadMore() {

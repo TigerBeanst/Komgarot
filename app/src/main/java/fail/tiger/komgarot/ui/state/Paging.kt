@@ -22,6 +22,8 @@ internal class PagedListState<T, K>(
         private set
     var error by mutableStateOf<String?>(null)
         private set
+    var hasLoadedOnce by mutableStateOf(false)
+        private set
     private var page = 0
 
     fun reset() {
@@ -30,6 +32,7 @@ internal class PagedListState<T, K>(
         hasMore = true
         loading = false
         error = null
+        hasLoadedOnce = false
     }
 
     suspend fun loadMore(loadPage: suspend (Int) -> PagedDto<T>) {
@@ -48,6 +51,28 @@ internal class PagedListState<T, K>(
                 }
         } finally {
             loading = false
+            hasLoadedOnce = true
+        }
+    }
+
+    suspend fun refresh(loadPage: suspend (Int) -> PagedDto<T>) {
+        if (loading) return
+        loading = true
+        error = null
+        try {
+            runCatching { loadPage(0) }
+                .onSuccess { result ->
+                    items.clear()
+                    items.addAllUniqueBy(result.content, keySelector)
+                    hasMore = result.totalPages > 1
+                    page = 1
+                }
+                .onFailure { throwable ->
+                    error = throwable.message?.takeIf { it.isNotBlank() } ?: fallbackErrorMessage
+                }
+        } finally {
+            loading = false
+            hasLoadedOnce = true
         }
     }
 }

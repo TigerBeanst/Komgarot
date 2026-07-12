@@ -116,8 +116,8 @@ fun AppNavGraph(app: KomgarotApp) {
     }
 
     val slideDistance = rememberSlideDistance()
-    val openSeries: (String, Int) -> Unit = { seriesId, _ ->
-        navController.navigate(Screen.Books.go(seriesId)) {
+    val openSeries: (String, Int) -> Unit = { seriesId, bookCount ->
+        navController.navigate(Screen.Books.go(seriesId, bookCount)) {
             launchSingleTop = true
         }
     }
@@ -346,18 +346,27 @@ fun AppNavGraph(app: KomgarotApp) {
 
         composable(
             Screen.Books.route,
-            arguments = listOf(navArgument("seriesId") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("seriesId") { type = NavType.StringType },
+                navArgument("bookCount") {
+                    type = NavType.IntType
+                    defaultValue = 0
+                }
+            )
         ) { back ->
             val seriesId = back.arguments?.getString("seriesId")?.let { Screen.decodeArg(it) } ?: return@composable
+            val bookCount = back.arguments?.getInt("bookCount") ?: 0
             val vm: BookViewModel = viewModel(
                 factory = BookViewModel.Factory(app.bookRepository, app.seriesRepository, imageCacheInvalidator, textProvider)
             )
             BookScreen(
-                seriesId = seriesId, serverUrl = serverUrl,
+                seriesId = seriesId,
+                initialBookCount = bookCount,
+                serverUrl = serverUrl,
                 onBookClick = { id, name, pages, isOneShot ->
                     navController.navigate(Screen.BookDetail.go(id, name, "", pages, isOneShot)) {
-                        if (isOneShot) {
-                            popUpTo(Screen.Books.go(seriesId)) { inclusive = true }
+                        if (isOneShot || bookCount == 1) {
+                            popUpTo(Screen.Books.go(seriesId, bookCount)) { inclusive = true }
                         }
                         launchSingleTop = true
                     }

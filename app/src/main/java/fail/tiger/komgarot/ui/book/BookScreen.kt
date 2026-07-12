@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.map
 @Composable
 fun BookScreen(
     seriesId: String,
+    initialBookCount: Int,
     serverUrl: String,
     onBookClick: (String, String, Int, Boolean) -> Unit,
     onMetadataClick: (String) -> Unit,
@@ -56,6 +57,7 @@ fun BookScreen(
     val loadBooksFailed = stringResource(R.string.error_load_books_failed)
     val emptyBooksInSeries = stringResource(R.string.empty_books_in_series)
     val copied = stringResource(R.string.copied)
+    val initialLoading = !vm.hasLoadedOnce && vm.books.isEmpty()
 
     LaunchedEffect(seriesId) { vm.init(seriesId) }
 
@@ -65,18 +67,6 @@ fun BookScreen(
             val book = vm.books.first()
             onBookClick(book.id, book.metadata.title.ifEmpty { book.name }, book.media.pagesCount, true)
         }
-    }
-
-    if (vm.books.size == 1 && !vm.hasMore) {
-        Box(Modifier.fillMaxSize())
-        return
-    }
-
-    if (vm.loading && vm.series == null && vm.error == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        return
     }
 
     val listState = rememberLazyGridState()
@@ -95,23 +85,29 @@ fun BookScreen(
     ) { padding ->
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
-            isRefreshing = vm.loading,
+            isRefreshing = vm.loading || initialLoading,
             onRefresh = { vm.refresh() },
             state = pullState,
             indicator = {
                 PullToRefreshDefaults.Indicator(
                     state = pullState,
-                    isRefreshing = vm.loading,
+                    isRefreshing = vm.loading || initialLoading,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
                 )
             },
             modifier = Modifier.fillMaxSize()
         ) {
-            if (vm.books.isEmpty() && !vm.loading && vm.error != null) {
-                ErrorState(message = vm.error ?: loadBooksFailed, onRetry = vm::refresh)
-            } else if (vm.books.isEmpty() && !vm.loading) {
-                EmptyState(message = emptyBooksInSeries)
-            } else {
+            when {
+                vm.books.size == 1 && !vm.hasMore -> BookDetailLoadingSkeleton(onBack = onBack)
+                initialLoading && initialBookCount == 1 -> BookDetailLoadingSkeleton(
+                    onBack = onBack
+                )
+                initialLoading -> BookGridLoadingSkeleton(onBack = onBack)
+                vm.books.isEmpty() && vm.error != null -> {
+                    ErrorState(message = vm.error ?: loadBooksFailed, onRetry = vm::refresh)
+                }
+                vm.books.isEmpty() -> EmptyState(message = emptyBooksInSeries)
+                else -> {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
                     vm.series?.let { series ->
                         val seriesThumbnailVersion = ThumbnailVersion.get(series.id)
@@ -305,6 +301,7 @@ fun BookScreen(
                         }
                     )
                 }
+            }
             }
         }
     }

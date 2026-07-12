@@ -31,6 +31,7 @@ import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.ThumbnailCacheTarget
 import fail.tiger.komgarot.data.local.thumbnailCacheKey
 import fail.tiger.komgarot.data.remote.KomgaUrls
+import fail.tiger.komgarot.ui.book.BookDetailLoadingSkeleton
 import fail.tiger.komgarot.ui.components.ErrorState
 import fail.tiger.komgarot.ui.components.FloatingDetailActions
 import fail.tiger.komgarot.ui.components.FloatingDetailIconButton
@@ -60,6 +61,7 @@ fun BookDetailScreen(
 ) {
     val book = vm.book
     val meta = vm.metadata
+    val initialLoading = book == null && vm.error == null
     val loadBookDetailFailed = stringResource(R.string.error_load_book_detail_failed)
     val editMetadata = stringResource(R.string.edit_metadata)
     val copied = stringResource(R.string.copied)
@@ -82,21 +84,24 @@ fun BookDetailScreen(
         }
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
-            isRefreshing = vm.loading,
+            isRefreshing = vm.loading || initialLoading,
             onRefresh = { vm.refresh() },
             state = pullState,
             indicator = {
                 PullToRefreshDefaults.Indicator(
                     state = pullState,
-                    isRefreshing = vm.loading,
+                    isRefreshing = vm.loading || initialLoading,
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = padding.calculateTopPadding())
                 )
             },
             modifier = Modifier.fillMaxSize()
         ) {
-            if (book == null && !vm.loading && vm.error != null) {
-                ErrorState(message = vm.error ?: loadBookDetailFailed, onRetry = { vm.load(bookId, serverUrl) })
-            } else {
+            when {
+                initialLoading -> BookDetailLoadingSkeleton(onBack = onBack)
+                book == null && vm.error != null -> {
+                    ErrorState(message = vm.error ?: loadBookDetailFailed, onRetry = { vm.load(bookId, serverUrl) })
+                }
+                else -> {
                 val context = LocalContext.current
                 val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
                 ImmersiveDetailScaffold(
@@ -244,6 +249,7 @@ fun BookDetailScreen(
                         }
                     }
                 )
+            }
             }
         }
     }
