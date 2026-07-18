@@ -9,6 +9,7 @@ import org.gradle.api.tasks.Delete
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 val komgarotVersionBase = providers.gradleProperty("komgarotVersionBase")
@@ -195,5 +196,7 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.material.motion.compose.core)
     implementation(libs.security.crypto)
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
     add("fullImplementation", libs.onnxruntime.android)
 }
