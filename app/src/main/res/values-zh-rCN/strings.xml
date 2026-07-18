@@ -69,6 +69,10 @@
     <!-- 首页 -->
     <string name="settings">设置</string>
     <string name="logout">退出登录</string>
+    <string name="session_syncing">正在同步账户</string>
+    <string name="session_syncing_desc">正在检查账户与权限</string>
+    <string name="session_sync_failed">账户同步暂时中断，已保存的会话将自动重试。</string>
+    <string name="session_retry">重试</string>
     <string name="about">关于</string>
     <string name="check_updates">检查更新</string>
     <string name="checking_updates">检查中…</string>

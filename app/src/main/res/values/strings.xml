@@ -69,6 +69,10 @@
     <!-- Home -->
     <string name="settings">Settings</string>
     <string name="logout">Logout</string>
+    <string name="session_syncing">Syncing account</string>
+    <string name="session_syncing_desc">Checking account and permissions</string>
+    <string name="session_sync_failed">Account sync paused. Your saved session will retry automatically.</string>
+    <string name="session_retry">Retry</string>
     <string name="about">About</string>
     <string name="check_updates">Check updates</string>
     <string name="checking_updates">Checking…</string>

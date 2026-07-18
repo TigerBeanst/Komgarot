@@ -36,6 +36,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -98,7 +100,8 @@ fun AppNavGraph(app: KomgarotApp) {
     val serverUrl by app.authPreferences.serverUrl.collectAsStateWithLifecycle()
     val alwaysIncognito by app.authPreferences.alwaysIncognito.collectAsStateWithLifecycle(initialValue = false)
     val einkMode by app.authPreferences.einkMode.collectAsStateWithLifecycle(initialValue = false)
-    val user by sessionVm.user.collectAsStateWithLifecycle()
+    val sessionState by sessionVm.state.collectAsStateWithLifecycle()
+    val user = sessionState.userOrNull
     val canEditMetadata = canEditKomgaMetadata(user)
     val aiTranslationAvailable = BuildConfig.AI_TRANSLATION_AVAILABLE
     val startDest = if (serverUrl.isNotEmpty()) Screen.Library.route else Screen.Login.route
@@ -106,11 +109,23 @@ fun AppNavGraph(app: KomgarotApp) {
 
     LaunchedEffect(serverUrl) {
         if (serverUrl.isNotEmpty()) {
-            sessionVm.refresh()
+            sessionVm.refresh(force = true)
         }
         if (serverUrl.isNotEmpty() && navController.currentDestination?.route != Screen.Library.route) {
             navController.navigate(Screen.Library.route) {
                 popUpTo(Screen.Login.route) { inclusive = true }
+            }
+        }
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (serverUrl.isNotEmpty()) sessionVm.refresh(force = true)
+    }
+
+    LaunchedEffect(sessionState) {
+        if (sessionState is SessionState.AuthenticationRequired && navController.currentDestination?.route != Screen.Login.route) {
+            navController.navigate(Screen.Login.route) {
+                launchSingleTop = true
             }
         }
     }
@@ -508,6 +523,9 @@ fun AppNavGraph(app: KomgarotApp) {
             MeScreen(
                 userEmail = user?.email,
                 isAdmin = canEditMetadata,
+                sessionSyncing = sessionState is SessionState.Initializing,
+                sessionRetryable = sessionState is SessionState.RetryableFailure,
+                onSessionRetry = { sessionVm.refresh(force = true) },
                 aiTranslationAvailable = aiTranslationAvailable,
                 onCachedBooksClick = { navController.navigate(Screen.CachedBooks.route) },
                 onAiTranslationTasksClick = { navController.navigate(Screen.AiTranslationTasks.route) },

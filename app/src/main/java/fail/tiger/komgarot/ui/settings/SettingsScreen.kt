@@ -89,6 +89,9 @@ fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences, aiTranslationAvai
 fun MeScreen(
     userEmail: String?,
     isAdmin: Boolean,
+    sessionSyncing: Boolean,
+    sessionRetryable: Boolean,
+    onSessionRetry: () -> Unit,
     aiTranslationAvailable: Boolean = BuildConfig.AI_TRANSLATION_AVAILABLE,
     onCachedBooksClick: () -> Unit,
     onAiTranslationTasksClick: () -> Unit,
@@ -104,8 +107,29 @@ fun MeScreen(
     ) { padding ->
         Column(Modifier.padding(padding)) {
             ListItem(
-                headlineContent = { Text(userEmail?.takeIf { it.isNotBlank() } ?: stringResource(R.string.unknown)) },
-                supportingContent = { Text(stringResource(if (isAdmin) R.string.admin_admin_role else R.string.user_role)) }
+                headlineContent = {
+                    Text(userEmail?.takeIf { it.isNotBlank() } ?: stringResource(R.string.session_syncing))
+                },
+                supportingContent = {
+                    Text(
+                        stringResource(
+                            when {
+                                sessionRetryable -> R.string.session_sync_failed
+                                sessionSyncing -> R.string.session_syncing_desc
+                                isAdmin -> R.string.admin_admin_role
+                                else -> R.string.user_role
+                            }
+                        )
+                    )
+                },
+                trailingContent = {
+                    when {
+                        sessionRetryable -> TextButton(onClick = onSessionRetry) {
+                            Text(stringResource(R.string.session_retry))
+                        }
+                        sessionSyncing -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    }
+                }
             )
             ListItem(
                 headlineContent = { Text(stringResource(R.string.cached_books)) },
@@ -135,11 +159,13 @@ fun MeScreen(
                 leadingContent = { Icon(Icons.Default.Settings, contentDescription = null) },
                 modifier = Modifier.clickable(onClick = onSettingsClick)
             )
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.logout)) },
-                leadingContent = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null) },
-                modifier = Modifier.clickable(onClick = onLogout)
-            )
+            if (userEmail != null) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.logout)) },
+                    leadingContent = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null) },
+                    modifier = Modifier.clickable(onClick = onLogout)
+                )
+            }
             Spacer(Modifier.weight(1f, fill = true))
             HorizontalDivider()
             AboutSection(appUpdateRepository = appUpdateRepository)
