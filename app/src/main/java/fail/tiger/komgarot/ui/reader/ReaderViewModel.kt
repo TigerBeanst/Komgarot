@@ -515,10 +515,10 @@ class ReaderViewModel(
         val loaded = book ?: return
         aiTranslationJob?.cancel()
         aiTranslationJob = null
-        aiTranslationRepository?.clearBook(loaded.id)
-        aiTranslatedBook = aiTranslationRepository?.readBookState(loaded.id)
         currentAiTranslationDisplayMode = AiTranslationDisplayMode.OFF
         viewModelScope.launch {
+            aiTranslationRepository?.clearBook(loaded.id)
+            aiTranslatedBook = aiTranslationRepository?.readBookState(loaded.id)
             prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.OFF.storedValue)
         }
     }

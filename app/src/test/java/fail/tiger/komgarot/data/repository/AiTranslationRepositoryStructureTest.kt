@@ -103,6 +103,8 @@ class AiTranslationRepositoryStructureTest {
     @Test
     fun bookTranslationRunsThroughGlobalQueueAndUpdatesProgressAfterEachPage() {
         assertTrue(source.contains("private val bookTranslationQueue = Semaphore(1)"))
+        assertTrue(source.contains("launchTrackedBookJob(book.id)"))
+        assertTrue(source.contains("operationGate.trackBookJob(bookId, job)"))
         assertTrue(source.contains("bookTranslationQueue.withPermit"))
         assertTrue(source.contains("AiTranslationTaskStatus.QUEUED"))
         assertTrue(source.contains("updateTask(book, AiTranslationTaskStatus.RUNNING)"))
@@ -125,10 +127,11 @@ class AiTranslationRepositoryStructureTest {
 
     @Test
     fun repositoryCanPurgeMissingCachedTranslationBooks() {
-        assertTrue(source.contains("suspend fun purgeMissingBookTranslations()"))
+        assertTrue(source.contains("suspend fun scanMissingBookTranslations()"))
+        assertTrue(source.contains("suspend fun purgeMissingBookTranslations(candidateBookIds: List<String>)"))
         assertTrue(source.contains("store.listBookIds()"))
-        assertTrue(source.contains("bookRepository.getBookById(bookId).isFailure"))
-        assertTrue(source.contains("clearBook(bookId)"))
+        assertTrue(source.contains("scanAiTranslationPurgeCandidates("))
+        assertTrue(source.contains("AiTranslationPurgeScanResult.Ready"))
     }
 
     @Test

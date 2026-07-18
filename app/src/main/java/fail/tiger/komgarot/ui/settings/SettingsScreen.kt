@@ -62,6 +62,9 @@ import fail.tiger.komgarot.data.local.SecureAiSettings
 import fail.tiger.komgarot.data.local.SecureWebDavSettings
 import fail.tiger.komgarot.data.local.normalizeWebDavUrl
 import fail.tiger.komgarot.data.repository.AiLocalModelTier
+import fail.tiger.komgarot.data.repository.AiTranslationPurgeAbortReason
+import fail.tiger.komgarot.data.repository.AiTranslationPurgeResult
+import fail.tiger.komgarot.data.repository.AiTranslationPurgeScanResult
 import fail.tiger.komgarot.data.repository.AppUpdateRepository
 import fail.tiger.komgarot.data.repository.GithubRelease
 import fail.tiger.komgarot.data.repository.defaultAiLocalModelPlan
@@ -183,6 +186,14 @@ private enum class SettingsPage(val titleRes: Int, val icon: ImageVector) {
 
 private val aiOnlySettingsPages = setOf(SettingsPage.AI)
 
+private fun AiTranslationPurgeAbortReason.purgeMessageRes(): Int = when (this) {
+    AiTranslationPurgeAbortReason.AUTHENTICATION -> R.string.settings_ai_purge_translation_data_aborted_authentication
+    AiTranslationPurgeAbortReason.RATE_LIMIT -> R.string.settings_ai_purge_translation_data_aborted_rate_limit
+    AiTranslationPurgeAbortReason.SERVER -> R.string.settings_ai_purge_translation_data_aborted_server
+    AiTranslationPurgeAbortReason.NETWORK -> R.string.settings_ai_purge_translation_data_aborted_network
+    AiTranslationPurgeAbortReason.UNKNOWN -> R.string.settings_ai_purge_translation_data_aborted_unknown
+}
+
 private data class AiTargetLanguageOption(
     val locale: String,
     val languageNameRes: Int
@@ -275,6 +286,7 @@ private fun SettingsContent(
     var showAiVerticalGlyphSpacingDialog by remember { mutableStateOf(false) }
     var showDeleteLocalModelsDialog by remember { mutableStateOf(false) }
     var purgingAiTranslations by remember { mutableStateOf(false) }
+    var aiTranslationPurgeCandidates by remember { mutableStateOf<List<String>>(emptyList()) }
     var showWebDavUrlDialog by remember { mutableStateOf(false) }
     var showWebDavUsernameDialog by remember { mutableStateOf(false) }
     var showWebDavPasswordDialog by remember { mutableStateOf(false) }
@@ -684,13 +696,27 @@ private fun SettingsContent(
                 modifier = Modifier.clickable(enabled = !purgingAiTranslations) {
                     scope.launch {
                         purgingAiTranslations = true
-                        val removed = app?.aiTranslationRepositoryOrNull?.purgeMissingBookTranslations() ?: 0
+                        val result = app?.aiTranslationRepositoryOrNull?.scanMissingBookTranslations()
                         purgingAiTranslations = false
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.settings_ai_purge_translation_data_done, removed),
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        when (result) {
+                            is AiTranslationPurgeScanResult.Ready -> {
+                                if (result.candidateBookIds.isEmpty()) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.settings_ai_purge_translation_data_done, 0),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    aiTranslationPurgeCandidates = result.candidateBookIds
+                                }
+                            }
+                            is AiTranslationPurgeScanResult.Aborted -> Toast.makeText(
+                                context,
+                                context.getString(result.reason.purgeMessageRes()),
+                                Toast.LENGTH_LONG
+                            ).show()
+                            null -> Unit
+                        }
                     }
                 }
             )
@@ -825,6 +851,48 @@ private fun SettingsContent(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteLocalModelsDialog = false }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
+
+    if (aiTranslationPurgeCandidates.isNotEmpty()) {
+        val candidateCount = aiTranslationPurgeCandidates.size
+        AlertDialog(
+            onDismissRequest = { aiTranslationPurgeCandidates = emptyList() },
+            title = { Text(stringResource(R.string.settings_ai_purge_translation_data_confirm_title)) },
+            text = { Text(stringResource(R.string.settings_ai_purge_translation_data_confirm_message, candidateCount)) },
+            confirmButton = {
+                TextButton(
+                    enabled = !purgingAiTranslations,
+                    onClick = {
+                        val candidates = aiTranslationPurgeCandidates
+                        scope.launch {
+                            purgingAiTranslations = true
+                            val result = app?.aiTranslationRepositoryOrNull?.purgeMissingBookTranslations(candidates)
+                            purgingAiTranslations = false
+                            aiTranslationPurgeCandidates = emptyList()
+                            val message = when (result) {
+                                is AiTranslationPurgeResult.Completed -> context.getString(
+                                    R.string.settings_ai_purge_translation_data_done,
+                                    result.removedCount
+                                )
+                                is AiTranslationPurgeResult.Aborted -> context.getString(result.reason.purgeMessageRes())
+                                null -> context.getString(R.string.operation_failed)
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                ) {
+                    Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !purgingAiTranslations,
+                    onClick = { aiTranslationPurgeCandidates = emptyList() }
+                ) {
+                    Text(stringResource(R.string.cancel))
+                }
             }
         )
     }

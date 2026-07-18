@@ -174,8 +174,10 @@ class BookDetailViewModel(
 
     fun clearAiTranslation() {
         val loaded = book ?: return
-        aiTranslationRepository?.clearBook(loaded.id)
-        refreshAiTranslationState()
+        viewModelScope.launch {
+            aiTranslationRepository?.clearBook(loaded.id)
+            refreshAiTranslationState()
+        }
     }
 
     fun startAiTranslation(serverUrl: String) {

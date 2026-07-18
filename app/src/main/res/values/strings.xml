@@ -274,6 +274,13 @@
     <string name="settings_ai_purge_translation_data">Clean translated data</string>
     <string name="settings_ai_purge_translation_data_desc">Remove cached AI translations for books that no longer exist on the server.</string>
     <string name="settings_ai_purge_translation_data_done">Removed %1$d stale AI translation books</string>
+    <string name="settings_ai_purge_translation_data_confirm_title">Delete stale translations?</string>
+    <string name="settings_ai_purge_translation_data_confirm_message">The server confirmed that %1$d translated books are gone. Their local AI translation data will be deleted.</string>
+    <string name="settings_ai_purge_translation_data_aborted_authentication">Scan stopped because the server requires authentication. Local translations are preserved.</string>
+    <string name="settings_ai_purge_translation_data_aborted_rate_limit">Scan stopped because the server is rate limiting requests. Local translations are preserved.</string>
+    <string name="settings_ai_purge_translation_data_aborted_server">Scan stopped because the server is temporarily unavailable. Local translations are preserved.</string>
+    <string name="settings_ai_purge_translation_data_aborted_network">Scan stopped because the network is unavailable. Local translations are preserved.</string>
+    <string name="settings_ai_purge_translation_data_aborted_unknown">Scan stopped after an unexpected response. Local translations are preserved.</string>
     <string name="settings_section_ai_models">Local AI models</string>
     <string name="settings_ai_model_source">Model source</string>
     <string name="settings_ai_model_source_huggingface">Hugging Face</string>

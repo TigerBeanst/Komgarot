@@ -52,6 +52,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -63,6 +64,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -99,6 +101,7 @@ class AiTranslationRepository(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val bookTranslationQueue = Semaphore(1)
+    private val operationGate = AiTranslationOperationGate()
     private val pageTimingStats = ConcurrentHashMap<String, AiTranslationPageTiming>()
 
     fun readBookState(bookId: String) = store.readBook(bookId)
@@ -106,33 +109,53 @@ class AiTranslationRepository(
     fun readPageTiming(bookId: String, pageIndex: Int): AiTranslationPageTiming? =
         pageTimingStats[aiTranslationTimingKey(bookId, pageIndex)]
 
-    fun clearBook(bookId: String) {
-        store.clearBook(bookId)
-        pageTimingStats.keys.removeAll { it.startsWith("$bookId:") }
+    suspend fun clearBook(bookId: String) {
+        operationGate.clearBook(bookId) {
+            store.clearBook(bookId)
+            pageTimingStats.keys.removeAll { it.startsWith("$bookId:") }
+        }
     }
 
-    fun clearAllTranslations() {
-        store.clearAll()
-        pageTimingStats.clear()
+    suspend fun clearAllTranslations() {
+        operationGate.clearAll {
+            store.clearAll()
+            pageTimingStats.clear()
+        }
     }
 
     fun resetRunningPages(bookId: String, pageIndexes: List<Int>) {
         store.resetRunningPages(bookId, pageIndexes)
     }
 
-    suspend fun purgeMissingBookTranslations(): Int = withContext(Dispatchers.IO) {
-        var removed = 0
-        store.listBookIds().forEach { bookId ->
-            if (bookRepository.getBookById(bookId).isFailure) {
-                clearBook(bookId)
-                removed += 1
+    suspend fun scanMissingBookTranslations(): AiTranslationPurgeScanResult = withContext(Dispatchers.IO) {
+        scanAiTranslationPurgeCandidates(store.listBookIds()) { bookId ->
+            bookRepository.getBookById(bookId)
+        }
+    }
+
+    suspend fun purgeMissingBookTranslations(candidateBookIds: List<String>): AiTranslationPurgeResult =
+        withContext(Dispatchers.IO) {
+            val verified = scanAiTranslationPurgeCandidates(candidateBookIds) { bookId ->
+                bookRepository.getBookById(bookId)
+            }
+            when (verified) {
+                is AiTranslationPurgeScanResult.Aborted -> AiTranslationPurgeResult.Aborted(
+                    checkedCount = verified.checkedCount,
+                    reason = verified.reason,
+                    detail = verified.detail
+                )
+                is AiTranslationPurgeScanResult.Ready -> {
+                    verified.candidateBookIds.forEach { bookId -> clearBook(bookId) }
+                    val existingBookIds = store.listBookIds().toSet()
+                    val state = store.readTaskState()
+                    store.saveTaskState(state.copy(tasks = state.tasks.filter { it.bookId in existingBookIds }))
+                    AiTranslationPurgeResult.Completed(
+                        checkedCount = verified.checkedCount,
+                        removedCount = verified.candidateBookIds.size
+                    )
+                }
             }
         }
-        val existingBookIds = store.listBookIds().toSet()
-        val state = store.readTaskState()
-        store.saveTaskState(state.copy(tasks = state.tasks.filter { it.bookId in existingBookIds }))
-        removed
-    }
 
     fun preferredModeForBook(bookId: String): AiTranslationMode = AiTranslationMode.LOCAL_DETECTION
 
@@ -158,7 +181,7 @@ class AiTranslationRepository(
     }
 
     fun startBookTranslation(book: BookDto, serverUrl: String) {
-        scope.launch {
+        launchTrackedBookJob(book.id) {
             updateTask(book, AiTranslationTaskStatus.QUEUED)
             bookTranslationQueue.withPermit {
                 val pages = bookRepository.getPages(book.id)
@@ -177,7 +200,7 @@ class AiTranslationRepository(
     }
 
     fun retryIncompleteBookTranslation(book: BookDto, serverUrl: String) {
-        scope.launch {
+        launchTrackedBookJob(book.id) {
             updateTask(book, AiTranslationTaskStatus.QUEUED)
             bookTranslationQueue.withPermit {
                 val pages = bookRepository.getPages(book.id)
@@ -203,10 +226,16 @@ class AiTranslationRepository(
     }
 
     fun retryIncompleteBookTranslation(bookId: String, serverUrl: String) {
-        scope.launch {
-            val book = bookRepository.getBookById(bookId).getOrNull() ?: return@launch
+        launchTrackedBookJob(bookId) {
+            val book = bookRepository.getBookById(bookId).getOrNull() ?: return@launchTrackedBookJob
             retryIncompleteBookTranslation(book, serverUrl)
         }
+    }
+
+    private fun launchTrackedBookJob(bookId: String, block: suspend () -> Unit) {
+        val job: Job = scope.launch(start = CoroutineStart.LAZY) { block() }
+        operationGate.trackBookJob(bookId, job)
+        job.start()
     }
 
     suspend fun retryPageTranslation(
@@ -297,7 +326,8 @@ class AiTranslationRepository(
         remotePageConcurrencyCap: Int? = null,
         onPageTranslated: () -> Unit = {},
         onPageUpdated: (AiTranslatedPage) -> Unit = {}
-    ): AiTranslationRunResult = withContext(Dispatchers.IO) {
+    ): AiTranslationRunResult = operationGate.runBookOperation(book.id) { generation ->
+        withContext(Dispatchers.IO) {
         val secure = secureAiSettingsStore.read()
         val settings = AiSettings.defaults(
             targetLocale = prefs.aiTargetLocale.first(),
@@ -377,10 +407,12 @@ class AiTranslationRepository(
             onPageTranslated = onPageTranslated,
             onPageUpdated = onPageUpdated
         )
+        if (!operationGate.isCurrent(book.id, generation)) throw CancellationException("AI translation generation changed")
         val ok = results.all { it.ok }
         val summary = summarizeAiTranslationResults(pending, results)
         updateTask(book, if (ok) AiTranslationTaskStatus.DONE else AiTranslationTaskStatus.FAILED)
         AiTranslationRunResult(ok = ok, summary = summary)
+        }
     }
 
     private suspend fun translatePendingPagesInPageOrder(

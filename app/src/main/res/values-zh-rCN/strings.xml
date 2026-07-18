@@ -271,6 +271,13 @@
     <string name="settings_ai_purge_translation_data">净化已翻译数据</string>
     <string name="settings_ai_purge_translation_data_desc">检查已缓存 AI 翻译的书本是否仍在服务器，移除已不存在的缓存。</string>
     <string name="settings_ai_purge_translation_data_done">已移除 %1$d 本失效 AI 翻译缓存</string>
+    <string name="settings_ai_purge_translation_data_confirm_title">删除失效翻译？</string>
+    <string name="settings_ai_purge_translation_data_confirm_message">服务器已确认 %1$d 本已翻译书本被移除，将删除对应的本地 AI 翻译数据。</string>
+    <string name="settings_ai_purge_translation_data_aborted_authentication">服务器要求重新认证，扫描已中止，本地翻译保持完整。</string>
+    <string name="settings_ai_purge_translation_data_aborted_rate_limit">服务器正在限流，扫描已中止，本地翻译保持完整。</string>
+    <string name="settings_ai_purge_translation_data_aborted_server">服务器暂时不可用，扫描已中止，本地翻译保持完整。</string>
+    <string name="settings_ai_purge_translation_data_aborted_network">当前网络不可用，扫描已中止，本地翻译保持完整。</string>
+    <string name="settings_ai_purge_translation_data_aborted_unknown">服务器响应异常，扫描已中止，本地翻译保持完整。</string>
     <string name="settings_section_ai_models">本地 AI 模型</string>
     <string name="settings_ai_model_source">模型来源</string>
     <string name="settings_ai_model_source_huggingface">Hugging Face</string>
