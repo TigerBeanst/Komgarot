@@ -84,6 +84,12 @@ android {
     }
 }
 
+val releaseDirectory = layout.projectDirectory.dir("release")
+val copyReleaseArtifactsToProjectRelease = tasks.register<Copy>("copyReleaseArtifactsToProjectRelease") {
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    into(releaseDirectory)
+}
+
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
         val variantName = variant.name
@@ -94,7 +100,6 @@ androidComponents {
         val releaseArtifactSuffix = if (edition == "lite") "_lite" else ""
         val outputMetadataFileName = "output-metadata$releaseArtifactSuffix.json"
         val baselineProfilesDirectoryName = "baselineProfiles$releaseArtifactSuffix"
-        val releaseDirectory = layout.projectDirectory.dir("release")
         val releaseApkIncludePattern = if (edition == "lite") "Komgarot_lite_*.apk" else "Komgarot_*.apk"
         val releaseApkExcludePattern = if (edition == "lite") null else "Komgarot_lite_*.apk"
         val deleteExistingProjectReleaseArtifacts = tasks.register<Delete>("delete${capitalizedVariantName}ExistingProjectReleaseArtifacts") {
@@ -104,11 +109,9 @@ androidComponents {
             })
             delete(releaseDirectory.file(outputMetadataFileName))
             delete(releaseDirectory.dir(baselineProfilesDirectoryName))
+            delete(releaseDirectory.dir(requireNotNull(edition)))
         }
-        val copyReleaseArtifactsToProjectRelease = tasks.register<Copy>("copy${capitalizedVariantName}ArtifactsToProjectRelease") {
-            duplicatesStrategy = DuplicatesStrategy.INCLUDE
-            into(releaseDirectory)
-
+        copyReleaseArtifactsToProjectRelease.configure {
             from(projectFlavorReleaseDirectory) {
                 include("*.apk")
             }
