@@ -61,6 +61,7 @@ import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.local.SecureAiSettings
 import fail.tiger.komgarot.data.local.SecureWebDavSettings
 import fail.tiger.komgarot.data.local.normalizeWebDavUrl
+import fail.tiger.komgarot.data.remote.AiServiceTestResult
 import fail.tiger.komgarot.data.repository.AiLocalModelTier
 import fail.tiger.komgarot.data.repository.AiTranslationPurgeAbortReason
 import fail.tiger.komgarot.data.repository.AiTranslationPurgeResult
@@ -279,6 +280,8 @@ private fun SettingsContent(
     var showAiS3PathPrefixDialog by remember { mutableStateOf(false) }
     var showAiS3TtlDialog by remember { mutableStateOf(false) }
     var aiS3Testing by remember { mutableStateOf(false) }
+    var aiServiceTesting by remember { mutableStateOf(false) }
+    var aiServiceTestResult by remember { mutableStateOf<AiServiceTestResult?>(null) }
     var showAiPagesPerRequestDialog by remember { mutableStateOf(false) }
     var showAiConcurrencyDialog by remember { mutableStateOf(false) }
     var showAiMaxImagesPerRequestDialog by remember { mutableStateOf(false) }
@@ -501,6 +504,48 @@ private fun SettingsContent(
                 headlineContent = { Text(stringResource(R.string.settings_ai_model_name)) },
                 supportingContent = { Text(aiModelName.ifBlank { stringResource(R.string.settings_ai_model_requires_vision) }) },
                 modifier = Modifier.clickable { showAiModelDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_test_service)) },
+                supportingContent = {
+                    Text(
+                        stringResource(
+                            if (aiServiceTesting) {
+                                R.string.settings_ai_test_service_testing
+                            } else {
+                                R.string.settings_ai_test_service_desc
+                            }
+                        )
+                    )
+                },
+                modifier = Modifier.clickable(enabled = !aiServiceTesting) {
+                    val missingSettings = buildList {
+                        if (aiBaseUrl.isBlank()) add(context.getString(R.string.settings_ai_base_url))
+                        if (secureAiSettings.apiKey.isBlank()) add(context.getString(R.string.settings_ai_api_key))
+                        if (aiModelName.isBlank()) add(context.getString(R.string.settings_ai_model_name))
+                    }
+                    if (missingSettings.isNotEmpty()) {
+                        aiServiceTestResult = AiServiceTestResult.Failure(
+                            context.getString(
+                                R.string.settings_ai_test_service_config_required,
+                                missingSettings.joinToString()
+                            )
+                        )
+                        return@clickable
+                    }
+                    scope.launch {
+                        aiServiceTesting = true
+                        aiServiceTestResult = app?.aiTranslationClient?.testService(
+                            baseUrl = aiBaseUrl,
+                            apiKey = secureAiSettings.apiKey,
+                            model = aiModelName,
+                            timeoutSeconds = aiTimeoutSeconds
+                        ) ?: AiServiceTestResult.Failure(
+                            context.getString(R.string.settings_ai_test_service_client_unavailable)
+                        )
+                        aiServiceTesting = false
+                    }
+                }
             )
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_ai_target_language)) },
@@ -1387,6 +1432,13 @@ private fun SettingsContent(
             }
         )
     }
+
+    aiServiceTestResult?.let { result ->
+        AiServiceTestResultDialog(
+            result = result,
+            onDismiss = { aiServiceTestResult = null }
+        )
+    }
 }
 
 @Composable
@@ -1493,6 +1545,52 @@ private fun AboutSection(appUpdateRepository: AppUpdateRepository) {
             )
         }
     }
+}
+
+@Composable
+private fun AiServiceTestResultDialog(
+    result: AiServiceTestResult,
+    onDismiss: () -> Unit
+) {
+    val success = result as? AiServiceTestResult.Success
+    val detail = success?.let {
+        stringResource(
+            R.string.settings_ai_test_service_success_detail,
+            it.latencyMs,
+            it.responseBody
+        )
+    } ?: (result as AiServiceTestResult.Failure).detail
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(
+                    if (success != null) {
+                        R.string.settings_ai_test_service_success
+                    } else {
+                        R.string.settings_ai_test_service_failed
+                    }
+                )
+            )
+        },
+        text = {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                SelectionContainer {
+                    Text(detail)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.close))
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalCoilApi::class)

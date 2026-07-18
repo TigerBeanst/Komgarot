@@ -227,6 +227,14 @@
     <string name="settings_ai_base_url_placeholder">https://api.example.com/v1</string>
     <string name="settings_ai_api_key">API Key</string>
     <string name="settings_ai_model_name">Model name</string>
+    <string name="settings_ai_test_service">Test AI service</string>
+    <string name="settings_ai_test_service_desc">Send a minimal text request to check whether the current AI endpoint is available.</string>
+    <string name="settings_ai_test_service_testing">Testing AI service…</string>
+    <string name="settings_ai_test_service_success">AI service is available</string>
+    <string name="settings_ai_test_service_success_detail">Service test passed in %1$d ms.\n\nResponse body:\n%2$s</string>
+    <string name="settings_ai_test_service_failed">AI service test failed</string>
+    <string name="settings_ai_test_service_config_required">Configure these items first: %1$s</string>
+    <string name="settings_ai_test_service_client_unavailable">AI service client is unavailable.</string>
     <string name="settings_ai_model_requires_vision">The selected model must support vision input.</string>
     <string name="settings_ai_target_language">Target language</string>
     <string name="settings_ai_source_text_profile">Source text type</string>

@@ -113,6 +113,22 @@ class SettingsScreenStructureTest {
     }
 
     @Test
+    fun aiServiceTestAppearsDirectlyAfterModelNameAndShowsDetails() {
+        val modelItem = source.indexOf("R.string.settings_ai_model_name")
+        val testItem = source.indexOf("R.string.settings_ai_test_service", modelItem)
+        val targetLanguageItem = source.indexOf("R.string.settings_ai_target_language", modelItem)
+
+        assertTrue(modelItem >= 0)
+        assertTrue(testItem in (modelItem + 1) until targetLanguageItem)
+        assertTrue(source.contains("var aiServiceTesting by remember"))
+        assertTrue(source.contains("var aiServiceTestResult by remember"))
+        assertTrue(source.contains("app?.aiTranslationClient?.testService("))
+        assertTrue(source.contains("R.string.settings_ai_test_service_config_required"))
+        assertTrue(source.contains("AiServiceTestResultDialog("))
+        assertTrue(source.contains("SelectionContainer"))
+    }
+
+    @Test
     fun settingsContentIncludesAiModelManagementOptions() {
         assertTrue(!source.contains("SettingsPage.MODELS"))
         assertTrue(!source.contains("R.string.settings_section_ai_models"))
