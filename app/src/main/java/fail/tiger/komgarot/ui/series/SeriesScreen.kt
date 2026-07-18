@@ -53,7 +53,7 @@ fun SeriesScreen(
     initialSearch: String? = null,
     initialTag: String? = null,
     serverUrl: String,
-    onSeriesClick: (String, Int) -> Unit,
+    onSeriesClick: (String, Int, Boolean) -> Unit,
     onMetadataClick: (String) -> Unit,
     onBack: () -> Unit,
     vm: SeriesViewModel,
@@ -308,7 +308,9 @@ fun SeriesScreen(
                             }
                             Card(
                                 shape = RoundedCornerShape(6.dp),
-                                modifier = Modifier.fillMaxWidth().clickable { onSeriesClick(series.id, series.booksCount) }
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    onSeriesClick(series.id, series.booksCount, series.oneshot)
+                                }
                             ) {
                                 Box(Modifier.fillMaxWidth().aspectRatio(0.7f)) {
                                     ThumbnailImage(

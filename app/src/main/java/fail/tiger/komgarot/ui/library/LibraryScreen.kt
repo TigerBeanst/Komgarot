@@ -37,7 +37,7 @@ import fail.tiger.komgarot.ui.components.topLevelScrollableContentPadding
 fun LibraryScreen(
     onLibraryClick: (String?) -> Unit,
     onBookClick: (BookDto) -> Unit,
-    onSeriesClick: (String, Int) -> Unit,
+    onSeriesClick: (String, Int, Boolean) -> Unit,
     serverUrl: String,
     vm: LibraryViewModel,
     onBottomBarVisibleChange: (Boolean) -> Unit = {}
@@ -177,13 +177,17 @@ private fun SeriesSection(
     title: String,
     series: List<SeriesDto>,
     serverUrl: String,
-    onSeriesClick: (String, Int) -> Unit
+    onSeriesClick: (String, Int, Boolean) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionHeader(title = title)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(series, key = { it.id }) { item ->
-                SeriesPosterCard(item = item, serverUrl = serverUrl, onClick = { onSeriesClick(item.id, item.booksCount) })
+                SeriesPosterCard(
+                    item = item,
+                    serverUrl = serverUrl,
+                    onClick = { onSeriesClick(item.id, item.booksCount, item.oneshot) }
+                )
             }
         }
     }

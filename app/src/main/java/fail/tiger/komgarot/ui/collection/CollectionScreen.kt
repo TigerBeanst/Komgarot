@@ -141,7 +141,7 @@ fun CollectionDetailScreen(
     collectionId: String,
     serverUrl: String,
     vm: CollectionViewModel,
-    onSeriesClick: (String, Int) -> Unit,
+    onSeriesClick: (String, Int, Boolean) -> Unit,
     onBack: () -> Unit
 ) {
     LaunchedEffect(collectionId) { vm.loadCollection(collectionId) }
@@ -220,7 +220,7 @@ fun CollectionDetailScreen(
                                 imageUrl = KomgaUrls.seriesThumbnail(serverUrl, series.id, thumbnailVersion),
                                 imageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Series(series.id)),
                                 badge = if (series.booksUnreadCount > 0) stringResource(R.string.unread_count, series.booksUnreadCount) else null,
-                                onClick = { onSeriesClick(series.id, series.booksCount) }
+                                onClick = { onSeriesClick(series.id, series.booksCount, series.oneshot) }
                             )
                         }
                     }

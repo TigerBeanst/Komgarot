@@ -50,6 +50,7 @@ fun BookDetailScreen(
     bookName: String,
     pageCount: Int,
     isOneShot: Boolean = false,
+    seriesIdToResolve: String? = null,
     onBack: () -> Unit,
     onReadClick: (String, Boolean) -> Unit,
     onMetadataClick: (String) -> Unit,
@@ -61,6 +62,9 @@ fun BookDetailScreen(
 ) {
     val book = vm.book
     val meta = vm.metadata
+    val resolvedBookId = book?.id ?: bookId
+    val resolvedBookName = book?.metadata?.title?.ifEmpty { book.name } ?: bookName
+    val resolvedPageCount = book?.media?.pagesCount ?: pageCount
     val initialLoading = book == null && vm.error == null
     val loadBookDetailFailed = stringResource(R.string.error_load_book_detail_failed)
     val editMetadata = stringResource(R.string.edit_metadata)
@@ -75,12 +79,18 @@ fun BookDetailScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         val serverUrl by prefs.serverUrl.collectAsStateWithLifecycle()
-        LaunchedEffect(bookId, serverUrl) {
-            if (serverUrl.isNotBlank()) vm.load(bookId, serverUrl)
+        LaunchedEffect(bookId, seriesIdToResolve, serverUrl) {
+            if (serverUrl.isNotBlank()) {
+                if (seriesIdToResolve.isNullOrBlank()) {
+                    vm.load(bookId, serverUrl)
+                } else {
+                    vm.loadSingleBookSeries(seriesIdToResolve, serverUrl)
+                }
+            }
         }
-        val thumbnailVersion = ThumbnailVersion.get(bookId)
-        val thumbnailUrl = remember(serverUrl, bookId, thumbnailVersion) {
-            KomgaUrls.bookThumbnail(serverUrl, bookId, thumbnailVersion)
+        val thumbnailVersion = ThumbnailVersion.get(resolvedBookId)
+        val thumbnailUrl = remember(serverUrl, resolvedBookId, thumbnailVersion) {
+            KomgaUrls.bookThumbnail(serverUrl, resolvedBookId, thumbnailVersion)
         }
         val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
@@ -99,17 +109,17 @@ fun BookDetailScreen(
             when {
                 initialLoading -> BookDetailLoadingSkeleton(onBack = onBack)
                 book == null && vm.error != null -> {
-                    ErrorState(message = vm.error ?: loadBookDetailFailed, onRetry = { vm.load(bookId, serverUrl) })
+                    ErrorState(message = vm.error ?: loadBookDetailFailed, onRetry = vm::refresh)
                 }
                 else -> {
                 val context = LocalContext.current
                 val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
                 ImmersiveDetailScaffold(
                     backgroundImageUrl = thumbnailUrl,
-                    backgroundImageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Book(bookId)),
+                    backgroundImageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Book(resolvedBookId)),
                     coverImageUrl = thumbnailUrl,
-                    coverImageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Book(bookId)),
-                    contentDescription = bookName,
+                    coverImageCacheKey = thumbnailCacheKey(ThumbnailCacheTarget.Book(resolvedBookId)),
+                    contentDescription = resolvedBookName,
                     padding = padding,
                     actions = {
                         FloatingDetailActions(
@@ -122,7 +132,7 @@ fun BookDetailScreen(
                                 )
                             },
                             trailingActions = {
-                                FloatingDetailIconButton(onClick = { onMetadataClick(bookId) }) {
+                                FloatingDetailIconButton(onClick = { onMetadataClick(resolvedBookId) }) {
                                     Icon(
                                         Icons.Default.Edit,
                                         contentDescription = editMetadata,
@@ -134,38 +144,38 @@ fun BookDetailScreen(
                     },
                     titleContent = {
                         Text(
-                            book?.metadata?.title?.ifEmpty { bookName } ?: bookName,
+                            resolvedBookName,
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            pluralStringResource(R.plurals.pages_count, pageCount, pageCount),
+                            pluralStringResource(R.plurals.pages_count, resolvedPageCount, resolvedPageCount),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         book?.readProgress?.let { progress ->
-                            if (!progress.completed && progress.page > 0 && pageCount > 0) {
+                            if (!progress.completed && progress.page > 0 && resolvedPageCount > 0) {
                                 Text(
                                     pluralStringResource(
                                         R.plurals.pages_remaining,
-                                        pageCount - progress.page,
-                                        pageCount - progress.page
+                                        resolvedPageCount - progress.page,
+                                        resolvedPageCount - progress.page
                                     ),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 LinearProgressIndicator(
-                                    progress = { progress.page.toFloat() / pageCount },
+                                    progress = { progress.page.toFloat() / resolvedPageCount },
                                     modifier = Modifier.fillMaxWidth().height(3.dp)
                                 )
                             }
                         }
                         Text(
-                            stringResource(R.string.id_format, bookId),
+                            stringResource(R.string.id_format, resolvedBookId),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.clickable {
-                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("id", bookId))
+                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("id", resolvedBookId))
                                 android.widget.Toast.makeText(context, copied, android.widget.Toast.LENGTH_SHORT).show()
                             }
                         )
@@ -173,8 +183,8 @@ fun BookDetailScreen(
                     bodyContent = {
                         BookDetailReadingActions(
                             hasReadProgress = book?.readProgress != null,
-                            onReadClick = { onReadClick(bookId, true) },
-                            onIncognitoReadClick = { onReadClick(bookId, false) }
+                            onReadClick = { onReadClick(resolvedBookId, true) },
+                            onIncognitoReadClick = { onReadClick(resolvedBookId, false) }
                         )
 
                         BookDownloadAction(

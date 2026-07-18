@@ -65,7 +65,7 @@ fun BookScreen(
         if (vm.books.size == 1 && !vm.hasMore && !vm.loading && !hasNavigated) {
             hasNavigated = true
             val book = vm.books.first()
-            onBookClick(book.id, book.metadata.title.ifEmpty { book.name }, book.media.pagesCount, true)
+            onBookClick(book.id, book.metadata.title.ifEmpty { book.name }, book.media.pagesCount, book.oneshot)
         }
     }
 
