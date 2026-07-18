@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Komgarot"
 include(":app")
+include(":baselineprofile")

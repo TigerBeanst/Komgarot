@@ -64,6 +64,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        DebugPerformanceDiagnostics.install()
         authPreferences = AuthPreferences(this)
         secureAiSettingsStore = SecureAiSettingsStore(this)
         secureWebDavSettingsStore = SecureWebDavSettingsStore(this)
