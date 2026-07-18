@@ -37,7 +37,7 @@ class AppFlavorStructureTest {
     }
 
     @Test
-    fun releaseBuildsCopyFullAndLiteArtifactsToProjectReleaseDirectory() {
+    fun releaseBuildsPublishFullAndLiteArtifactsThroughOneFlatDirectoryTask() {
         assertTrue(buildFile.contains("import org.gradle.api.file.DuplicatesStrategy"))
         assertTrue(buildFile.contains("import org.gradle.api.tasks.Copy"))
         assertTrue(buildFile.contains("import org.gradle.api.tasks.Delete"))
@@ -48,6 +48,8 @@ class AppFlavorStructureTest {
         assertTrue(buildFile.contains("val outputMetadataFileName = \"output-metadata${'$'}releaseArtifactSuffix.json\""))
         assertTrue(buildFile.contains("val baselineProfilesDirectoryName = \"baselineProfiles${'$'}releaseArtifactSuffix\""))
         assertTrue(buildFile.contains("val releaseDirectory = layout.projectDirectory.dir(\"release\")"))
+        assertTrue(buildFile.contains("tasks.register<Copy>(\"copyReleaseArtifactsToProjectRelease\")"))
+        assertFalse(buildFile.contains("tasks.register<Copy>(\"copy${'$'}{capitalizedVariantName}ArtifactsToProjectRelease\")"))
         assertTrue(buildFile.contains("val releaseApkIncludePattern = if (edition == \"lite\") \"Komgarot_lite_*.apk\" else \"Komgarot_*.apk\""))
         assertTrue(buildFile.contains("val releaseApkExcludePattern = if (edition == \"lite\") null else \"Komgarot_lite_*.apk\""))
         assertTrue(buildFile.contains("val deleteExistingProjectReleaseArtifacts = tasks.register<Delete>(\"delete${'$'}{capitalizedVariantName}ExistingProjectReleaseArtifacts\")"))
@@ -56,7 +58,7 @@ class AppFlavorStructureTest {
         assertTrue(buildFile.contains("exclude(it)"))
         assertTrue(buildFile.contains("delete(releaseDirectory.file(outputMetadataFileName))"))
         assertTrue(buildFile.contains("delete(releaseDirectory.dir(baselineProfilesDirectoryName))"))
-        assertTrue(buildFile.contains("tasks.register<Copy>(\"copy${'$'}{capitalizedVariantName}ArtifactsToProjectRelease\")"))
+        assertTrue(buildFile.contains("delete(releaseDirectory.dir(requireNotNull(edition)))"))
         assertTrue(buildFile.contains("from(layout.buildDirectory.dir(apkOutputDirectory))"))
         assertTrue(buildFile.contains("from(projectFlavorReleaseDirectory)"))
         assertTrue(buildFile.contains("include(\"*.apk\")"))
