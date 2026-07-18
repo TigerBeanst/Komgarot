@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -120,26 +119,51 @@ fun BookGridLoadingSkeleton(
     modifier: Modifier = Modifier
 ) {
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        BookSkeletonBlock(
+            Modifier
+                .fillMaxWidth()
+                .height(ImmersiveDetailDefaults.HeaderHeight),
+            shape = RoundedCornerShape(0.dp)
+        )
         LazyVerticalGrid(
             columns = GridCells.Adaptive(104.dp),
-            contentPadding = PaddingValues(start = 16.dp, top = 172.dp, end = 16.dp, bottom = 16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    BookSkeletonBlock(Modifier.fillMaxWidth(0.64f).height(28.dp))
-                    BookSkeletonBlock(Modifier.fillMaxWidth(0.38f).height(18.dp))
-                    Spacer(Modifier.height(4.dp))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = ImmersiveDetailDefaults.IdentityTopPadding),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        BookSkeletonBlock(
+                            Modifier
+                                .width(ImmersiveDetailDefaults.CoverWidth)
+                                .aspectRatio(0.7f)
+                        )
+                        Column(
+                            Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            BookSkeletonBlock(Modifier.fillMaxWidth().height(28.dp))
+                            BookSkeletonBlock(Modifier.fillMaxWidth(0.58f).height(18.dp))
+                            BookSkeletonBlock(Modifier.fillMaxWidth(0.42f).height(18.dp))
+                        }
+                    }
+                    BookSkeletonBlock(Modifier.fillMaxWidth(0.36f).height(14.dp))
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 }
             }
             items(8) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    BookSkeletonBlock(Modifier.fillMaxWidth().aspectRatio(0.7f))
-                    BookSkeletonBlock(Modifier.fillMaxWidth(0.82f).height(14.dp))
-                    BookSkeletonBlock(Modifier.fillMaxWidth(0.5f).height(12.dp))
-                }
+                BookGridCardLoadingSkeleton()
             }
         }
         FloatingDetailActions(
@@ -156,6 +180,11 @@ fun BookGridLoadingSkeleton(
             }
         )
     }
+}
+
+@Composable
+private fun BookGridCardLoadingSkeleton() {
+    BookSkeletonBlock(Modifier.fillMaxWidth().aspectRatio(0.7f))
 }
 
 @Composable

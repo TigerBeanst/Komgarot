@@ -70,21 +70,36 @@ class BookDetailViewModel(
     var downloadState by mutableStateOf<BookDownloadState>(BookDownloadState.Idle)
     var aiTranslationState by mutableStateOf(BookAiTranslationUiState())
     private var currentBookId = ""
+    private var currentSeriesId = ""
     private var currentServerUrl = ""
 
     fun load(bookId: String, serverUrl: String) {
         currentBookId = bookId
+        currentSeriesId = ""
         currentServerUrl = serverUrl
         viewModelScope.launch {
             loading = true
             error = null
             bookRepo.getBookById(bookId)
-                .onSuccess {
-                    book = it
-                    metadata = it.metadata
-                    updateDownloadState(serverUrl, it)
-                    refreshAiTranslationState()
+                .onSuccess { applyLoadedBook(serverUrl, it) }
+                .onFailure {
+                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: loadBookDetailFailed
                 }
+            loading = false
+        }
+    }
+
+    fun loadSingleBookSeries(seriesId: String, serverUrl: String) {
+        currentBookId = ""
+        currentSeriesId = seriesId
+        currentServerUrl = serverUrl
+        viewModelScope.launch {
+            loading = true
+            error = null
+            runCatching {
+                bookRepo.getBooks(seriesId, 0).content.firstOrNull()
+                    ?: throw IllegalStateException(loadBookDetailFailed)
+            }.onSuccess { applyLoadedBook(serverUrl, it) }
                 .onFailure {
                     error = it.message?.takeIf { message -> message.isNotBlank() } ?: loadBookDetailFailed
                 }
@@ -93,8 +108,12 @@ class BookDetailViewModel(
     }
 
     fun refresh() {
-        imageCacheInvalidator.invalidateBook(currentBookId, book?.seriesId)
-        load(currentBookId, currentServerUrl)
+        book?.let { imageCacheInvalidator.invalidateBook(it.id, it.seriesId) }
+        if (currentSeriesId.isNotBlank()) {
+            loadSingleBookSeries(currentSeriesId, currentServerUrl)
+        } else {
+            load(currentBookId, currentServerUrl)
+        }
     }
 
     fun markRead() {
@@ -230,6 +249,14 @@ class BookDetailViewModel(
             .onSuccess { progress ->
                 downloadState = bookDownloadStateForCachedPages(progress.completedPages, progress.totalPages)
             }
+    }
+
+    private suspend fun applyLoadedBook(serverUrl: String, loaded: BookDto) {
+        currentBookId = loaded.id
+        book = loaded
+        metadata = loaded.metadata
+        updateDownloadState(serverUrl, loaded)
+        refreshAiTranslationState()
     }
 }
 

@@ -37,6 +37,9 @@ sealed class Screen(val route: String) {
         fun go(id: String, name: String, seriesName: String, pageCount: Int, isOneShot: Boolean = false) =
             "bookdetail/${encodeArg(id)}/${encodeArg(name)}/${encodeArg(seriesName)}/$pageCount/$isOneShot"
     }
+    object BookDetailFromSeries : Screen("bookdetail-series/{seriesId}") {
+        fun go(seriesId: String) = "bookdetail-series/${encodeArg(seriesId)}"
+    }
     object Reader : Screen("reader/{bookId}/{page}?trackProgress={trackProgress}") {
         fun go(id: String, page: Int = 1, trackProgress: Boolean = true) =
             "reader/${encodeArg(id)}/$page?trackProgress=$trackProgress"

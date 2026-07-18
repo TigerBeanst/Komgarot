@@ -31,7 +31,7 @@ class BookScreenStructureTest {
         assertTrue(source.contains("initialBookCount: Int"))
         assertTrue(source.contains("val initialLoading = !vm.hasLoadedOnce && vm.books.isEmpty()"))
         assertTrue(source.contains("isRefreshing = vm.loading || initialLoading"))
-        assertTrue(source.contains("initialBookCount == 1 -> BookDetailLoadingSkeleton("))
+        assertTrue(source.contains("initialLoading && initialBookCount == 1 -> BookDetailLoadingSkeleton("))
         assertTrue(source.contains("initialLoading -> BookGridLoadingSkeleton("))
         assertTrue(source.contains("PullToRefreshBox("))
         assertFalse(source.contains("CircularProgressIndicator()"))

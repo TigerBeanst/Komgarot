@@ -131,9 +131,15 @@ fun AppNavGraph(app: KomgarotApp) {
     }
 
     val slideDistance = rememberSlideDistance()
-    val openSeries: (String, Int) -> Unit = { seriesId, bookCount ->
-        navController.navigate(Screen.Books.go(seriesId, bookCount)) {
-            launchSingleTop = true
+    val openSeries: (String, Int, Boolean) -> Unit = { seriesId, bookCount, oneShot ->
+        if (oneShot || bookCount == 1) {
+            navController.navigate(Screen.BookDetailFromSeries.go(seriesId)) {
+                launchSingleTop = true
+            }
+        } else {
+            navController.navigate(Screen.Books.go(seriesId, bookCount)) {
+                launchSingleTop = true
+            }
         }
     }
 
@@ -389,6 +395,44 @@ fun AppNavGraph(app: KomgarotApp) {
                 onMetadataClick = { navController.navigate(Screen.Metadata.go("series", it)) },
                 onTagClick = { tag -> navController.navigate(Screen.Series.go(id = null, tag = tag)) },
                 onBack = { navController.popBackStack() }, vm = vm
+            )
+        }
+
+        composable(
+            Screen.BookDetailFromSeries.route,
+            arguments = listOf(navArgument("seriesId") { type = NavType.StringType })
+        ) { back ->
+            val seriesId = back.arguments?.getString("seriesId")?.let { Screen.decodeArg(it) } ?: return@composable
+            val vm: BookDetailViewModel = viewModel(
+                factory = BookDetailViewModel.Factory(
+                    app.applicationContext,
+                    app.bookRepository,
+                    app.seriesRepository,
+                    imageCacheInvalidator,
+                    textProvider,
+                    if (aiTranslationAvailable) app.aiTranslationRepositoryOrNull else null
+                )
+            )
+            BookDetailScreen(
+                bookId = "",
+                bookName = "",
+                pageCount = 0,
+                isOneShot = true,
+                seriesIdToResolve = seriesId,
+                onBack = { navController.popBackStack() },
+                onReadClick = { id, trackProgress ->
+                    val effectiveTrack = trackProgress && !alwaysIncognito
+                    val startPage = if (effectiveTrack) vm.book?.readProgress?.page ?: 1 else 1
+                    navController.navigate(Screen.Reader.go(id, startPage, effectiveTrack))
+                },
+                onMetadataClick = { navController.navigate(Screen.Metadata.go("book", it)) },
+                onAuthorClick = { authorName, _ ->
+                    navController.navigate(Screen.Series.go(null, "author:$authorName"))
+                },
+                onTagClick = { tag -> navController.navigate(Screen.Series.go(id = null, tag = tag)) },
+                aiTranslationAvailable = aiTranslationAvailable,
+                vm = vm,
+                prefs = app.authPreferences
             )
         }
 
