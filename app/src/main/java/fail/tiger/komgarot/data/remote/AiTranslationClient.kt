@@ -52,6 +52,15 @@ sealed interface AiTranslationRequestResult {
     data class Failure(val category: AiTranslationErrorCategory, val summary: String) : AiTranslationRequestResult
 }
 
+sealed interface AiServiceTestResult {
+    data class Success(
+        val responseBody: String,
+        val latencyMs: Long
+    ) : AiServiceTestResult
+
+    data class Failure(val detail: String) : AiServiceTestResult
+}
+
 enum class AiTranslationErrorCategory {
     NETWORK_OR_API,
     VISION_UNSUPPORTED,
@@ -114,6 +123,61 @@ class AiTranslationClient(
         }
     }
 
+    suspend fun testService(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        timeoutSeconds: Int = 30
+    ): AiServiceTestResult {
+        val startedAt = System.nanoTime()
+        val responseTimeout = aiResponseTimeoutSeconds(timeoutSeconds)
+        val result = runCatching {
+            val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
+            val body = buildAiServiceTestRequestJson(model)
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url(endpoint)
+                .header("Authorization", "Bearer $apiKey")
+                .header("Content-Type", "application/json")
+                .post(body)
+                .build()
+            val call = httpClient.newBuilder()
+                .connectTimeout(AI_CONNECT_TIMEOUT_SECONDS.toLong(), TimeUnit.SECONDS)
+                .readTimeout(responseTimeout.toLong(), TimeUnit.SECONDS)
+                .writeTimeout(aiWriteTimeoutSeconds(responseTimeout).toLong(), TimeUnit.SECONDS)
+                .build()
+                .newCall(request)
+
+            suspendCancellableCoroutine { continuation ->
+                continuation.invokeOnCancellation { call.cancel() }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (continuation.isActive) {
+                            continuation.resume(
+                                AiServiceTestResult.Failure(aiServiceTestExceptionDetail(e, responseTimeout))
+                            )
+                        }
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        val latencyMs = (System.nanoTime() - startedAt) / 1_000_000L
+                        val responseResult = runCatching {
+                            response.use { handledResponse ->
+                                aiServiceTestResultFromResponse(handledResponse, latencyMs)
+                            }
+                        }.getOrElse { throwable ->
+                            AiServiceTestResult.Failure(aiServiceTestExceptionDetail(throwable, responseTimeout))
+                        }
+                        if (continuation.isActive) continuation.resume(responseResult)
+                    }
+                })
+            }
+        }
+        return result.getOrElse { throwable ->
+            AiServiceTestResult.Failure(aiServiceTestExceptionDetail(throwable, responseTimeout))
+        }
+    }
+
     private fun aiTranslationResultFromResponse(response: Response): AiTranslationRequestResult {
         val responseBody = response.body?.string().orEmpty()
         if (!response.isSuccessful) {
@@ -129,6 +193,19 @@ class AiTranslationClient(
         }
         val json = extractAiTranslationJsonContent(responseBody)
         return AiTranslationRequestResult.Success(json)
+    }
+
+    private fun aiServiceTestResultFromResponse(
+        response: Response,
+        latencyMs: Long
+    ): AiServiceTestResult {
+        val responseBody = response.body?.string().orEmpty()
+        if (!response.isSuccessful) {
+            return AiServiceTestResult.Failure(
+                buildAiServiceTestHttpFailureDetail(response.code, response.message, responseBody)
+            )
+        }
+        return AiServiceTestResult.Success(responseBody = responseBody, latencyMs = latencyMs)
     }
 
     private fun failureResult(throwable: Throwable, responseTimeout: Int): AiTranslationRequestResult =
@@ -162,6 +239,31 @@ fun buildAiHttpFailureSummary(statusCode: Int, statusMessage: String, responseBo
     val status = "HTTP $statusCode $statusMessage".trim()
     val body = responseBody.trim().take(240)
     return if (body.isBlank()) status else "$status: $body"
+}
+
+fun buildAiServiceTestRequestJson(model: String): String {
+    val root = JsonObject().apply {
+        addProperty("model", model)
+        add("messages", JsonArray().apply {
+            add(JsonObject().apply {
+                addProperty("role", "user")
+                addProperty("content", "Reply with OK.")
+            })
+        })
+        addProperty("max_tokens", 1)
+    }
+    return aiClientGson.toJson(root)
+}
+
+fun buildAiServiceTestHttpFailureDetail(statusCode: Int, statusMessage: String, responseBody: String): String {
+    val status = "HTTP $statusCode $statusMessage".trim()
+    val body = responseBody.trim().take(AI_SERVICE_TEST_MAX_BODY_CHARS)
+    return if (body.isBlank()) status else "$status\n\n$body"
+}
+
+private fun aiServiceTestExceptionDetail(throwable: Throwable, responseTimeoutSeconds: Int): String {
+    val type = throwable::class.java.simpleName
+    return "$type: ${aiTranslationFailureSummary(throwable, responseTimeoutSeconds)}"
 }
 
 fun buildAiTranslationChatRequestJson(
@@ -234,5 +336,6 @@ fun extractAiTranslationJsonContent(responseJson: String): String {
 }
 
 private val aiClientGson: Gson = GsonBuilder().disableHtmlEscaping().create()
+private const val AI_SERVICE_TEST_MAX_BODY_CHARS = 4096
 private const val AI_CONNECT_TIMEOUT_SECONDS = 30
 private const val AI_WRITE_TIMEOUT_SECONDS = 120

@@ -224,6 +224,14 @@
     <string name="settings_ai_base_url_placeholder">https://api.example.com/v1</string>
     <string name="settings_ai_api_key">API Key</string>
     <string name="settings_ai_model_name">模型名</string>
+    <string name="settings_ai_test_service">测试AI服务</string>
+    <string name="settings_ai_test_service_desc">发送最小文本请求，检查当前AI接口是否可用。</string>
+    <string name="settings_ai_test_service_testing">正在测试AI服务…</string>
+    <string name="settings_ai_test_service_success">AI服务可用</string>
+    <string name="settings_ai_test_service_success_detail">接口测试已通过，耗时 %1$d 毫秒。\n\n返回体：\n%2$s</string>
+    <string name="settings_ai_test_service_failed">AI服务测试失败</string>
+    <string name="settings_ai_test_service_config_required">请先配置：%1$s</string>
+    <string name="settings_ai_test_service_client_unavailable">AI服务客户端当前不可用。</string>
     <string name="settings_ai_model_requires_vision">选择的模型需要支持视觉输入。</string>
     <string name="settings_ai_target_language">目标语言</string>
     <string name="settings_ai_source_text_profile">原文类型</string>
