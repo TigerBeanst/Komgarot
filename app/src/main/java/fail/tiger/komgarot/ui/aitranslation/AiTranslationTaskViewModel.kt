@@ -60,8 +60,8 @@ class AiTranslationTaskViewModel(
     }
 
     fun clearBookTranslation(bookId: String) {
-        repository?.clearBook(bookId) ?: store.clearBook(bookId)
         viewModelScope.launch {
+            repository?.clearBook(bookId) ?: store.clearBook(bookId)
             val current = store.readTaskState()
             store.saveTaskState(current.copy(tasks = current.tasks.filterNot { it.bookId == bookId }))
             refresh()
@@ -69,8 +69,10 @@ class AiTranslationTaskViewModel(
     }
 
     fun clearAllTranslations() {
-        repository?.clearAllTranslations() ?: store.clearAll()
-        refresh()
+        viewModelScope.launch {
+            repository?.clearAllTranslations() ?: store.clearAll()
+            refresh()
+        }
     }
 
     class Factory(
