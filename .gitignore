@@ -19,6 +19,10 @@ buildSrc/build/
 local.properties
 app/release/
 .claude/
+.trellis/
+.agents/
+.codex/
+AGENTS.md
 .superpower/
 .superpowers/
 docs/superpowers/
