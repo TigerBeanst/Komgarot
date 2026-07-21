@@ -58,6 +58,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
     val aiTranslationRepository: AiTranslationRepository?
         get() = aiTranslationRepositoryOrNull
     lateinit var aiLocalModelRepository: AiLocalModelRepository
+    private var aiPaddleTextDetector: AiPaddleTextDetector? = null
     var aiTranslationQueueRunner: AiTranslationQueueRunner? = null
         private set
     lateinit var webDavBackupRepository: WebDavBackupRepository
@@ -96,6 +97,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         appUpdateRepository = AppUpdateRepository()
         aiLocalModelRepository = AiLocalModelRepository(filesDir)
         if (BuildConfig.AI_TRANSLATION_AVAILABLE) {
+            aiPaddleTextDetector = AiPaddleTextDetector(applicationContext, aiLocalModelRepository)
             aiTranslationRepositoryOrNull = AiTranslationRepository(
                 context = applicationContext,
                 bookRepository = bookRepository,
@@ -104,14 +106,12 @@ class KomgarotApp : Application(), ImageLoaderFactory {
                 store = aiTranslationStore,
                 komgaHttpClient = okHttpClient,
                 localTextDetector = AiLocalTextDetector(
-                    paddleTextDetector = AiPaddleTextDetector(applicationContext, aiLocalModelRepository)
+                    paddleTextDetector = aiPaddleTextDetector
                 ),
                 aiClient = aiTranslationClient
             )
             aiTranslationQueueRunner = AiTranslationQueueRunner(
-                repository = requireNotNull(aiTranslationRepositoryOrNull),
-                store = aiTranslationStore,
-                prefs = authPreferences
+                store = aiTranslationStore
             )
         }
         webDavBackupRepository = WebDavBackupRepository(
@@ -121,6 +121,12 @@ class KomgarotApp : Application(), ImageLoaderFactory {
             aiTranslationStore = aiTranslationStore
         )
         aiTranslationQueueRunner?.restoreRunningTasks()
+    }
+
+    override fun onTerminate() {
+        aiPaddleTextDetector?.close()
+        aiPaddleTextDetector = null
+        super.onTerminate()
     }
 
     override fun newImageLoader() = ImageLoader.Builder(this)

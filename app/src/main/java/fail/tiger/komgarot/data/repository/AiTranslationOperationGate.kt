@@ -94,6 +94,13 @@ internal class AiTranslationOperationGate {
     fun isCurrent(bookId: String, generation: Long): Boolean =
         states.getOrPut(bookId) { BookState() }.generation.get() == generation
 
+    fun hasActiveJobs(bookId: String): Boolean {
+        val state = states[bookId] ?: return false
+        return synchronized(monitor) {
+            state.operationJobs.any { it.isActive } || state.trackedJobs.any { it.isActive }
+        }
+    }
+
     fun trackBookJob(bookId: String, job: Job) {
         val state = states.getOrPut(bookId) { BookState() }
         val blocked = synchronized(monitor) {

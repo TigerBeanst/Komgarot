@@ -7,6 +7,7 @@ import fail.tiger.komgarot.data.local.AiTranslationBlock
 import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiSettings
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
+import fail.tiger.komgarot.data.local.usesHorizontalComicRules
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
 import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
@@ -21,12 +22,14 @@ class AiLocalTextDetector(
     private val paddleTextDetector: AiPaddleTextDetector? = null,
     private val maxEdge: Int = 2048,
     private val maxRegions: Int = 64
-) {
+) : AutoCloseable {
     fun detect(
         file: File,
         pageIndex: Int,
         settings: AiSettings? = null,
-        onTimingStep: (String, Long) -> Unit = { _, _ -> }
+        sourceLanguageTag: String = "",
+        onTimingStep: (String, Long) -> Unit = { _, _ -> },
+        onDetectionStats: (AiLocalDetectionStats) -> Unit = {}
     ): AiTranslationLocalPageContext {
         val decoded = decodeForDetection(file)
         val bitmap = decoded.bitmap
@@ -34,7 +37,7 @@ class AiLocalTextDetector(
             val pixels = IntArray(bitmap.width * bitmap.height)
             bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
             val sourceTextProfile = settings?.sourceTextProfile ?: AiSourceTextProfile.AUTO
-            val paddleRegions = if (settings != null) {
+            val paddleOutput = if (settings != null) {
                 timedLocalDetectionStep(AI_TIMING_PADDLE_OCR, onTimingStep) {
                     paddleTextDetector?.detect(
                         bitmap = bitmap,
@@ -43,14 +46,15 @@ class AiLocalTextDetector(
                         sourceWidth = decoded.sourceWidth,
                         sourceHeight = decoded.sourceHeight,
                         settings = settings,
+                        sourceLanguageTag = sourceLanguageTag,
                         maxRegions = maxRegions
-                    ).orEmpty()
+                    ) ?: AiPaddleDetectionOutput.EMPTY
                 }
             } else {
-                emptyList()
+                AiPaddleDetectionOutput.EMPTY
             }
             val regions = selectLocalTextDetectionRegions(
-                paddleRegions = paddleRegions,
+                paddleRegions = paddleOutput.regions,
                 heuristicRegions = {
                     timedLocalDetectionStep(AI_TIMING_HEURISTIC_FALLBACK, onTimingStep) {
                         val components = findInkComponents(
@@ -73,6 +77,15 @@ class AiLocalTextDetector(
                 sourceTextProfile = sourceTextProfile,
                 maxRegions = maxRegions
             )
+            paddleOutput.stats?.let { stats ->
+                onTimingStep(
+                    if (stats.sessionWasReused) AI_TIMING_PADDLE_SESSION_HOT else AI_TIMING_PADDLE_SESSION_COLD,
+                    stats.sessionAcquireMs
+                )
+                onTimingStep(AI_TIMING_PADDLE_INFERENCE, stats.inferenceMs)
+                onTimingStep(AI_TIMING_PADDLE_POST_PROCESS, stats.postProcessMs)
+                onDetectionStats(stats.copy(regionCount = regions.size))
+            }
             AiTranslationLocalPageContext(
                 pageIndex = pageIndex,
                 imageWidth = decoded.sourceWidth,
@@ -82,6 +95,10 @@ class AiLocalTextDetector(
         } finally {
             bitmap.recycle()
         }
+    }
+
+    override fun close() {
+        paddleTextDetector?.close()
     }
 
     private fun detectWithHeuristic(
@@ -126,6 +143,26 @@ class AiLocalTextDetector(
             sourceWidth = bounds.outWidth.takeIf { it > 0 } ?: bitmap.width,
             sourceHeight = bounds.outHeight.takeIf { it > 0 } ?: bitmap.height
         )
+    }
+}
+
+data class AiLocalDetectionStats(
+    val sessionWasReused: Boolean,
+    val sessionAcquireMs: Long,
+    val preprocessMs: Long,
+    val inferenceMs: Long,
+    val postProcessMs: Long,
+    val estimatedPeakWorkingSetBytes: Long,
+    val regionCount: Int,
+    val executionProvider: String
+)
+
+internal data class AiPaddleDetectionOutput(
+    val regions: List<AiTranslationLocalTextRegion>,
+    val stats: AiLocalDetectionStats?
+) {
+    companion object {
+        val EMPTY = AiPaddleDetectionOutput(emptyList(), null)
     }
 }
 
@@ -188,6 +225,10 @@ internal data class AiTextBlockCandidate(
 )
 
 private const val AI_TIMING_PADDLE_OCR = "paddle_ocr"
+private const val AI_TIMING_PADDLE_SESSION_COLD = "paddle_session_cold"
+private const val AI_TIMING_PADDLE_SESSION_HOT = "paddle_session_hot"
+private const val AI_TIMING_PADDLE_INFERENCE = "paddle_inference"
+private const val AI_TIMING_PADDLE_POST_PROCESS = "paddle_post_process"
 private const val AI_TIMING_HEURISTIC_FALLBACK = "heuristic_fallback"
 
 internal fun mergeLocalTextRegionsIntoTextBoxes(
@@ -236,7 +277,7 @@ private fun usesTextLinePipelineForLocalRegions(
     regions: List<AiTranslationLocalTextRegion>,
     sourceTextProfile: AiSourceTextProfile
 ): Boolean =
-    sourceTextProfile != AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON &&
+    !sourceTextProfile.usesHorizontalComicRules() &&
         regions.any { it.textDirection == AiTranslationTextDirection.VERTICAL }
 
 internal fun detectedTextLinesFromLocalRegions(
@@ -283,7 +324,7 @@ private fun mangaTextLineClustersCanMerge(
     right: List<AiDetectedTextLine>,
     sourceTextProfile: AiSourceTextProfile
 ): Boolean {
-    if (sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON) return false
+    if (sourceTextProfile.usesHorizontalComicRules()) return false
     return left.any { leftLine ->
         right.any { rightLine ->
             mangaTextLinesCanMerge(leftLine, rightLine)
@@ -295,7 +336,7 @@ private fun splitMangaTextLineCluster(
     lines: List<AiDetectedTextLine>,
     sourceTextProfile: AiSourceTextProfile
 ): List<List<AiDetectedTextLine>> {
-    if (sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON || lines.size < 3) return listOf(lines)
+    if (sourceTextProfile.usesHorizontalComicRules() || lines.size < 3) return listOf(lines)
     val direction = lines.detectedLineClusterDirection()
     if (direction != AiTranslationTextDirection.VERTICAL) return listOf(lines)
     val ordered = lines.sortedWith(aiDetectedTextLineReadingOrder(direction))
@@ -470,7 +511,7 @@ private fun verticalTextBoxClustersCanMerge(
 private fun usesJapaneseVerticalTextBoxRules(
     sourceTextProfile: AiSourceTextProfile,
     direction: AiTranslationTextDirection
-): Boolean = sourceTextProfile != AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON &&
+): Boolean = !sourceTextProfile.usesHorizontalComicRules() &&
     direction == AiTranslationTextDirection.VERTICAL
 
 private fun japaneseMangaVerticalTextColumnClustersCanMerge(
@@ -1017,7 +1058,7 @@ internal fun inferTextDirection(
     sourceTextProfile: AiSourceTextProfile = AiSourceTextProfile.AUTO
 ): AiTranslationTextDirection {
     if (
-        sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON &&
+        sourceTextProfile.usesHorizontalComicRules() &&
         cluster.height <= cluster.width * 1.45f
     ) {
         return AiTranslationTextDirection.HORIZONTAL
@@ -1113,7 +1154,7 @@ internal fun detectedTextDirectionForRect(
     sourceTextProfile: AiSourceTextProfile = AiSourceTextProfile.AUTO
 ): AiTranslationTextDirection =
     if (
-        sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON &&
+        sourceTextProfile.usesHorizontalComicRules() &&
         rect.height <= rect.width * 1.35f
     ) {
         AiTranslationTextDirection.HORIZONTAL
@@ -1128,7 +1169,7 @@ internal fun estimatedRegionRotationDegreesForRect(
     direction: AiTranslationTextDirection,
     sourceTextProfile: AiSourceTextProfile
 ): Float {
-    val canUseJapaneseSignHeuristic = sourceTextProfile != AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON
+    val canUseJapaneseSignHeuristic = !sourceTextProfile.usesHorizontalComicRules()
     val looksLikeJapaneseHorizontalSign =
         canUseJapaneseSignHeuristic &&
             direction == AiTranslationTextDirection.HORIZONTAL &&

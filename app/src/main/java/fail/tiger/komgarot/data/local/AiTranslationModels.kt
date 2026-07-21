@@ -25,6 +25,10 @@ data class AiBookTranslationMetadata(
     val model: String = "",
     val mode: String = AiTranslationMode.LOCAL_DETECTION.storedValue,
     val sourceTextProfile: String = AiSourceTextProfile.AUTO.storedValue,
+    val sourceLanguageCode: String = "",
+    val sourceLanguageOrigin: String = AiSourceLanguageOrigin.AI_PENDING.storedValue,
+    val sourceKomgaLanguage: String = "",
+    val sourceReadingDirection: String = AiSourceReadingDirection.UNKNOWN.storedValue,
     val modePinned: Boolean = false
 )
 
@@ -44,6 +48,8 @@ data class AiTranslatedPage(
     val blocks: List<AiTranslationBlock> = emptyList(),
     val errorSummary: String = "",
     val errorCategory: String = "",
+    val errorHttpStatus: Int? = null,
+    val retryAfterMs: Long? = null,
     val mode: String = AiTranslationMode.LOCAL_DETECTION.storedValue
 )
 
@@ -83,6 +89,13 @@ enum class AiTranslationBlockKind {
     OTHER
 }
 
+enum class AiTranslationRegionStatus {
+    PENDING,
+    RUNNING,
+    DONE,
+    FAILED
+}
+
 enum class AiTranslationTextDirection {
     AUTO,
     HORIZONTAL,
@@ -91,6 +104,7 @@ enum class AiTranslationTextDirection {
 
 data class AiTranslationBlock(
     val localRegionId: String = "",
+    val regionStatus: AiTranslationRegionStatus = AiTranslationRegionStatus.DONE,
     val kind: AiTranslationBlockKind = AiTranslationBlockKind.OTHER,
     val sourceText: String = "",
     val translatedLines: List<String> = emptyList(),
@@ -117,6 +131,44 @@ data class AiTranslationBlock(
         confidence = confidence.coerceIn(0f, 1f)
     )
 }
+
+internal fun AiTranslatedPage.pausedForRegionResume(): AiTranslatedPage {
+    val pausedBlocks = blocks.map { block ->
+        if (block.regionStatus == AiTranslationRegionStatus.RUNNING) {
+            block.copy(regionStatus = AiTranslationRegionStatus.PENDING)
+        } else {
+            block
+        }
+    }
+    val allDone = pausedBlocks.isNotEmpty() && pausedBlocks.all { it.regionStatus == AiTranslationRegionStatus.DONE }
+    return copy(
+        status = if (allDone) AiTranslationPageStatus.DONE else AiTranslationPageStatus.PENDING,
+        blocks = pausedBlocks,
+        errorSummary = "",
+        errorCategory = "",
+        errorHttpStatus = null,
+        retryAfterMs = null,
+        updatedAt = System.currentTimeMillis()
+    )
+}
+
+internal fun AiTranslatedPage.runningForRegionResume(mode: AiTranslationMode): AiTranslatedPage =
+    copy(
+        status = AiTranslationPageStatus.RUNNING,
+        blocks = blocks.map { block ->
+            if (block.regionStatus == AiTranslationRegionStatus.DONE) {
+                block
+            } else {
+                block.copy(regionStatus = AiTranslationRegionStatus.PENDING)
+            }
+        },
+        errorSummary = "",
+        errorCategory = "",
+        errorHttpStatus = null,
+        retryAfterMs = null,
+        mode = mode.storedValue,
+        updatedAt = System.currentTimeMillis()
+    )
 
 data class AiTranslationRect(
     val x: Float = 0f,

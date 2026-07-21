@@ -7,12 +7,16 @@ import com.google.gson.JsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import fail.tiger.komgarot.data.local.AiImageTransport
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -48,8 +52,29 @@ data class AiTranslationImageInput(
 }
 
 sealed interface AiTranslationRequestResult {
-    data class Success(val normalizedJson: String) : AiTranslationRequestResult
-    data class Failure(val category: AiTranslationErrorCategory, val summary: String) : AiTranslationRequestResult
+    data class Success(
+        val normalizedJson: String,
+        val usage: AiTranslationUsage = AiTranslationUsage()
+    ) : AiTranslationRequestResult
+
+    data class Failure(
+        val category: AiTranslationErrorCategory,
+        val summary: String,
+        val httpStatusCode: Int? = null,
+        val retryAfterMs: Long? = null
+    ) : AiTranslationRequestResult
+}
+
+data class AiTranslationUsage(
+    val promptTokens: Long = 0L,
+    val completionTokens: Long = 0L,
+    val totalTokens: Long = 0L
+) {
+    operator fun plus(other: AiTranslationUsage): AiTranslationUsage = AiTranslationUsage(
+        promptTokens = promptTokens + other.promptTokens,
+        completionTokens = completionTokens + other.completionTokens,
+        totalTokens = totalTokens + other.totalTokens
+    )
 }
 
 sealed interface AiServiceTestResult {
@@ -58,19 +83,27 @@ sealed interface AiServiceTestResult {
         val latencyMs: Long
     ) : AiServiceTestResult
 
-    data class Failure(val detail: String) : AiServiceTestResult
+    data class Failure(
+        val detail: String,
+        val category: AiTranslationErrorCategory = AiTranslationErrorCategory.NETWORK_OR_API,
+        val httpStatusCode: Int? = null
+    ) : AiServiceTestResult
 }
 
 enum class AiTranslationErrorCategory {
     NETWORK_OR_API,
+    AUTHENTICATION,
+    MODEL_CONFIGURATION,
+    RATE_LIMITED,
+    SERVER_TEMPORARY,
     VISION_UNSUPPORTED,
     NON_JSON_RESPONSE,
     JSON_VALIDATION_FAILED
 }
 
-class AiTranslationClient(
-    private val httpClient: OkHttpClient = OkHttpClient()
-) {
+class AiTranslationClient(httpClient: OkHttpClient = OkHttpClient()) {
+    private val httpClient = aiTranslationHttpClient(httpClient)
+
     suspend fun translate(
         baseUrl: String,
         apiKey: String,
@@ -82,21 +115,28 @@ class AiTranslationClient(
     ): AiTranslationRequestResult {
         val responseTimeout = aiResponseTimeoutSeconds(timeoutSeconds)
         val writeTimeout = aiWriteTimeoutSeconds(responseTimeout)
-        val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
-        val body = buildAiTranslationChatRequestJson(model, systemPrompt, userPrompt, images)
-            .toRequestBody("application/json; charset=utf-8".toMediaType())
-        val request = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .post(body)
-            .build()
-        val call = httpClient.newBuilder()
-            .connectTimeout(AI_CONNECT_TIMEOUT_SECONDS.toLong(), TimeUnit.SECONDS)
-            .readTimeout(responseTimeout.toLong(), TimeUnit.SECONDS)
-            .writeTimeout(writeTimeout.toLong(), TimeUnit.SECONDS)
-            .build()
-            .newCall(request)
+        val call = try {
+            val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
+            val body = buildAiTranslationChatRequestJson(model, systemPrompt, userPrompt, images)
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url(endpoint)
+                .header("Authorization", "Bearer $apiKey")
+                .header("Content-Type", "application/json")
+                .post(body)
+                .build()
+            httpClient.newBuilder()
+                .connectTimeout(AI_CONNECT_TIMEOUT_SECONDS.toLong(), TimeUnit.SECONDS)
+                .readTimeout(responseTimeout.toLong(), TimeUnit.SECONDS)
+                .writeTimeout(writeTimeout.toLong(), TimeUnit.SECONDS)
+                .build()
+                .newCall(request)
+        } catch (throwable: IllegalArgumentException) {
+            return AiTranslationRequestResult.Failure(
+                category = AiTranslationErrorCategory.MODEL_CONFIGURATION,
+                summary = throwable.message.orEmpty().ifBlank { "AI service URL is invalid." }
+            )
+        }
 
         return suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { call.cancel() }
@@ -154,7 +194,10 @@ class AiTranslationClient(
                     override fun onFailure(call: Call, e: IOException) {
                         if (continuation.isActive) {
                             continuation.resume(
-                                AiServiceTestResult.Failure(aiServiceTestExceptionDetail(e, responseTimeout))
+                                AiServiceTestResult.Failure(
+                                    detail = aiServiceTestExceptionDetail(e, responseTimeout),
+                                    category = AiTranslationErrorCategory.NETWORK_OR_API
+                                )
                             )
                         }
                     }
@@ -174,25 +217,32 @@ class AiTranslationClient(
             }
         }
         return result.getOrElse { throwable ->
-            AiServiceTestResult.Failure(aiServiceTestExceptionDetail(throwable, responseTimeout))
+            AiServiceTestResult.Failure(
+                detail = aiServiceTestExceptionDetail(throwable, responseTimeout),
+                category = if (throwable is IllegalArgumentException) {
+                    AiTranslationErrorCategory.MODEL_CONFIGURATION
+                } else {
+                    AiTranslationErrorCategory.NETWORK_OR_API
+                }
+            )
         }
     }
 
     private fun aiTranslationResultFromResponse(response: Response): AiTranslationRequestResult {
         val responseBody = response.body?.string().orEmpty()
         if (!response.isSuccessful) {
-            val category = if (response.code == 400 || response.code == 404) {
-                AiTranslationErrorCategory.VISION_UNSUPPORTED
-            } else {
-                AiTranslationErrorCategory.NETWORK_OR_API
-            }
             return AiTranslationRequestResult.Failure(
-                category,
-                buildAiHttpFailureSummary(response.code, response.message, responseBody)
+                category = aiHttpErrorCategory(response.code, responseBody),
+                summary = buildAiHttpFailureSummary(response.code, response.message, responseBody),
+                httpStatusCode = response.code,
+                retryAfterMs = parseAiRetryAfterMillis(response.header("Retry-After"))
             )
         }
         val json = extractAiTranslationJsonContent(responseBody)
-        return AiTranslationRequestResult.Success(json)
+        return AiTranslationRequestResult.Success(
+            normalizedJson = json,
+            usage = parseAiTranslationUsage(responseBody)
+        )
     }
 
     private fun aiServiceTestResultFromResponse(
@@ -202,7 +252,25 @@ class AiTranslationClient(
         val responseBody = response.body?.string().orEmpty()
         if (!response.isSuccessful) {
             return AiServiceTestResult.Failure(
-                buildAiServiceTestHttpFailureDetail(response.code, response.message, responseBody)
+                detail = buildAiServiceTestHttpFailureDetail(response.code, response.message, responseBody),
+                category = aiHttpErrorCategory(response.code, responseBody),
+                httpStatusCode = response.code
+            )
+        }
+        val structuredContent = runCatching { extractAiTranslationJsonContent(responseBody) }
+            .getOrElse { throwable ->
+                return AiServiceTestResult.Failure(
+                    detail = aiTranslationFailureSummary(throwable, 0),
+                    category = AiTranslationErrorCategory.NON_JSON_RESPONSE,
+                    httpStatusCode = response.code
+                )
+            }
+        val structuredObject = runCatching { aiClientGson.fromJson(structuredContent, JsonObject::class.java) }.getOrNull()
+        if (structuredObject == null) {
+            return AiServiceTestResult.Failure(
+                detail = "AI service returned an invalid structured response.",
+                category = AiTranslationErrorCategory.JSON_VALIDATION_FAILED,
+                httpStatusCode = response.code
             )
         }
         return AiServiceTestResult.Success(responseBody = responseBody, latencyMs = latencyMs)
@@ -218,6 +286,19 @@ class AiTranslationClient(
             summary = aiTranslationFailureSummary(throwable, responseTimeout)
         )
 }
+
+internal fun aiTranslationHttpClient(baseClient: OkHttpClient = OkHttpClient()): OkHttpClient {
+    val dispatcher = Dispatcher().apply {
+        maxRequests = AI_HTTP_MAX_REQUESTS
+        maxRequestsPerHost = AI_HTTP_MAX_REQUESTS_PER_HOST
+    }
+    return baseClient.newBuilder()
+        .dispatcher(dispatcher)
+        .build()
+}
+
+internal const val AI_HTTP_MAX_REQUESTS = 64
+internal const val AI_HTTP_MAX_REQUESTS_PER_HOST = 32
 
 internal fun aiResponseTimeoutSeconds(timeoutSeconds: Int): Int = timeoutSeconds.coerceAtLeast(0)
 
@@ -241,16 +322,86 @@ fun buildAiHttpFailureSummary(statusCode: Int, statusMessage: String, responseBo
     return if (body.isBlank()) status else "$status: $body"
 }
 
+internal fun aiHttpErrorCategory(statusCode: Int, responseBody: String): AiTranslationErrorCategory {
+    val detail = responseBody.lowercase(Locale.ROOT)
+    return when {
+        (statusCode == 400 || statusCode == 403 || statusCode == 404) && detail.containsAnyAiVisionErrorMarker() ->
+            AiTranslationErrorCategory.VISION_UNSUPPORTED
+        statusCode == 401 || statusCode == 403 -> AiTranslationErrorCategory.AUTHENTICATION
+        statusCode == 429 -> AiTranslationErrorCategory.RATE_LIMITED
+        statusCode == 408 || statusCode == 425 || statusCode in 500..599 -> AiTranslationErrorCategory.SERVER_TEMPORARY
+        statusCode == 400 || statusCode == 404 || statusCode == 422 -> AiTranslationErrorCategory.MODEL_CONFIGURATION
+        else -> AiTranslationErrorCategory.NETWORK_OR_API
+    }
+}
+
+private fun String.containsAnyAiVisionErrorMarker(): Boolean =
+    contains("invalid_image") ||
+        contains("image_url") ||
+        contains("vision") ||
+        contains("multimodal") ||
+        contains("image input") ||
+        contains("image content")
+
+internal fun parseAiRetryAfterMillis(
+    value: String?,
+    nowEpochMs: Long = System.currentTimeMillis()
+): Long? {
+    val clean = value.orEmpty().trim()
+    if (clean.isEmpty()) return null
+    clean.toLongOrNull()?.let { seconds ->
+        return seconds.coerceAtLeast(0L).coerceAtMost(AI_MAX_RETRY_AFTER_SECONDS) * 1000L
+    }
+    val parsedDate = runCatching {
+        SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).apply {
+            isLenient = false
+            timeZone = TimeZone.getTimeZone("GMT")
+        }.parse(clean)
+    }.getOrNull() ?: return null
+    return (parsedDate.time - nowEpochMs)
+        .coerceAtLeast(0L)
+        .coerceAtMost(AI_MAX_RETRY_AFTER_SECONDS * 1000L)
+}
+
+internal fun parseAiTranslationUsage(responseJson: String): AiTranslationUsage {
+    val usage = runCatching {
+        aiClientGson.fromJson(responseJson, JsonObject::class.java)
+            ?.getAsJsonObject("usage")
+    }.getOrNull() ?: return AiTranslationUsage()
+    return AiTranslationUsage(
+        promptTokens = usage.longOrZero("prompt_tokens"),
+        completionTokens = usage.longOrZero("completion_tokens"),
+        totalTokens = usage.longOrZero("total_tokens")
+    )
+}
+
+private fun JsonObject.longOrZero(name: String): Long =
+    runCatching { get(name)?.takeIf { it.isJsonPrimitive }?.asLong }.getOrNull() ?: 0L
+
 fun buildAiServiceTestRequestJson(model: String): String {
     val root = JsonObject().apply {
         addProperty("model", model)
         add("messages", JsonArray().apply {
             add(JsonObject().apply {
                 addProperty("role", "user")
-                addProperty("content", "Reply with OK.")
+                add("content", JsonArray().apply {
+                    add(JsonObject().apply {
+                        addProperty("type", "text")
+                        addProperty("text", "Inspect the image and return a JSON object with boolean field ok.")
+                    })
+                    add(JsonObject().apply {
+                        addProperty("type", "image_url")
+                        add("image_url", JsonObject().apply {
+                            addProperty("url", AI_SERVICE_TEST_IMAGE_DATA_URL)
+                        })
+                    })
+                })
             })
         })
-        addProperty("max_tokens", 1)
+        addProperty("max_tokens", 16)
+        add("response_format", JsonObject().apply {
+            addProperty("type", "json_object")
+        })
     }
     return aiClientGson.toJson(root)
 }
@@ -339,3 +490,6 @@ private val aiClientGson: Gson = GsonBuilder().disableHtmlEscaping().create()
 private const val AI_SERVICE_TEST_MAX_BODY_CHARS = 4096
 private const val AI_CONNECT_TIMEOUT_SECONDS = 30
 private const val AI_WRITE_TIMEOUT_SECONDS = 120
+private const val AI_MAX_RETRY_AFTER_SECONDS = 120L
+private const val AI_SERVICE_TEST_IMAGE_DATA_URL =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="

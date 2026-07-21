@@ -45,7 +45,7 @@ data class AiSettings(
             downloadLatestModel = true,
             autoSelectDeviceTier = true,
             imageTransport = AiImageTransport.BASE64,
-            requestMode = AiTranslationRequestMode.SERIAL,
+            requestMode = AiTranslationRequestMode.PARALLEL,
             pagesPerRequest = 10,
             concurrentRequests = 8,
             maxImagesPerRequest = 20,
@@ -57,7 +57,7 @@ data class AiSettings(
         )
 
         fun normalizePagesPerRequest(value: Int): Int = value.coerceAtLeast(1)
-        fun normalizeConcurrentRequests(value: Int): Int = value.coerceIn(1, 8)
+        fun normalizeConcurrentRequests(value: Int): Int = value.coerceIn(1, 32)
         fun normalizeMaxImagesPerRequest(value: Int): Int = value.coerceAtLeast(2)
         fun normalizeTimeoutSeconds(value: Int): Int = value.coerceAtLeast(0)
     }
@@ -75,6 +75,7 @@ enum class AiTranslationMode(val storedValue: String) {
 enum class AiSourceTextProfile(val storedValue: String) {
     AUTO("auto"),
     JAPANESE_MANGA("japanese_manga"),
+    HORIZONTAL_COMIC("horizontal_comic"),
     KOREAN_HORIZONTAL_WEBTOON("korean_horizontal_webtoon");
 
     companion object {
@@ -82,6 +83,9 @@ enum class AiSourceTextProfile(val storedValue: String) {
             entries.firstOrNull { it.storedValue == value } ?: AUTO
     }
 }
+
+fun AiSourceTextProfile.usesHorizontalComicRules(): Boolean =
+    this == AiSourceTextProfile.HORIZONTAL_COMIC || this == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON
 
 enum class AiLocalModelSource(val storedValue: String) {
     HUGGING_FACE("huggingface");
@@ -108,7 +112,7 @@ enum class AiTranslationRequestMode(val storedValue: String) {
 
     companion object {
         fun fromStoredValue(value: String): AiTranslationRequestMode =
-            entries.firstOrNull { it.storedValue == value } ?: SERIAL
+            entries.firstOrNull { it.storedValue == value } ?: PARALLEL
     }
 }
 

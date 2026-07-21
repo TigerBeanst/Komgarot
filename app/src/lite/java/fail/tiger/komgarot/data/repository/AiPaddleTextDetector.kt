@@ -8,14 +8,17 @@ import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
 class AiPaddleTextDetector(
     private val context: Context,
     private val modelRepository: AiLocalModelRepository
-) {
-    fun detect(
+) : AutoCloseable {
+    internal fun detect(
         bitmap: Bitmap,
         pixels: IntArray,
         pageIndex: Int,
         sourceWidth: Int,
         sourceHeight: Int,
         settings: AiSettings,
+        sourceLanguageTag: String,
         maxRegions: Int
-    ): List<AiTranslationLocalTextRegion> = emptyList()
+    ): AiPaddleDetectionOutput = AiPaddleDetectionOutput.EMPTY
+
+    override fun close() = Unit
 }

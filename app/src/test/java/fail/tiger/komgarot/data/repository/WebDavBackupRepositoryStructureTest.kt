@@ -59,6 +59,7 @@ class WebDavBackupRepositoryStructureTest {
         assertTrue(source.contains("aiMaxImagesPerRequest = prefs.aiMaxImagesPerRequest.first()"))
         assertTrue(source.contains("val aiMaxImagesPerRequest: Int = 20"))
         assertTrue(source.contains("aiConcurrentRequests = prefs.aiConcurrentRequests.first()"))
-        assertTrue(source.contains("val aiConcurrentRequests: Int = 8"))
+        assertTrue(source.contains("val aiTranslationRequestMode: String = AiTranslationRequestMode.PARALLEL.storedValue"))
+        assertTrue(source.contains("val aiConcurrentRequests: Int = 2"))
     }
 }
