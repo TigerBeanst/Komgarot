@@ -442,6 +442,12 @@
     <string name="metadata_title">Title</string>
     <string name="metadata_publisher">Publisher</string>
     <string name="metadata_language">Language</string>
+    <string name="metadata_language_unset">Not set · AI auto-detection</string>
+    <string name="metadata_language_english">English</string>
+    <string name="metadata_language_chinese">Chinese</string>
+    <string name="metadata_language_japanese">Japanese</string>
+    <string name="metadata_language_korean">Korean</string>
+    <string name="metadata_language_thai">Thai</string>
     <string name="metadata_age_rating">Age Rating</string>
     <string name="metadata_reading_direction">Reading Direction</string>
     <string name="metadata_status">Status</string>

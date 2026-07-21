@@ -24,6 +24,8 @@ class MetadataViewModel(
 ) : ViewModel() {
     var seriesMeta by mutableStateOf<SeriesMetadataDto?>(null)
     var bookMeta by mutableStateOf<BookMetadataDto?>(null)
+    var seriesLanguages by mutableStateOf<List<String>>(emptyList())
+        private set
     var saving by mutableStateOf(false)
     var saved by mutableStateOf(false)
     var saveError by mutableStateOf<String?>(null)
@@ -31,6 +33,9 @@ class MetadataViewModel(
 
     fun loadSeries(id: String) {
         viewModelScope.launch { runCatching { seriesMeta = repo.getSeriesMetadata(id) } }
+        viewModelScope.launch {
+            seriesLanguages = loadMetadataLanguages { repo.getLanguages() }
+        }
     }
 
     fun loadBook(id: String) {
