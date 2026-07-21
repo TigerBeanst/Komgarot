@@ -53,4 +53,18 @@ class AiFeatureNavigationStructureTest {
         assertTrue(booksSource.contains("if (isOneShot)"))
         assertTrue(booksSource.contains("popUpTo(Screen.Books.go(seriesId, bookCount)) { inclusive = true }"))
     }
+
+    @Test
+    fun loggedInRestoreOnlyRedirectsFromLogin() {
+        val redirectStart = source.indexOf("LaunchedEffect(serverUrl)")
+        val redirectEnd = source.indexOf("LifecycleEventEffect", redirectStart)
+        assertTrue(redirectStart >= 0)
+        assertTrue(redirectEnd > redirectStart)
+        val redirectSource = source.substring(redirectStart, redirectEnd)
+
+        assertTrue(redirectSource.contains("navController.currentDestination?.route == Screen.Login.route"))
+        assertTrue(redirectSource.contains("popUpTo(Screen.Login.route) { inclusive = true }"))
+        assertTrue(redirectSource.contains("launchSingleTop = true"))
+        assertFalse(redirectSource.contains("navController.currentDestination?.route != Screen.Library.route"))
+    }
 }
