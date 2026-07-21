@@ -81,7 +81,7 @@ internal class AiTranslationWindowScheduler(
 
     private val mutex = Mutex()
     private val changes = MutableStateFlow(0L)
-    private val orderedPages = pageIndexes.distinct()
+    private val orderedPages = pageIndexes.distinct().toMutableList()
     private val pageStates = orderedPages.associateWith { PageState() }.toMutableMap()
     private val pageMemoryLimits = mutableMapOf<Int, Int>()
     private val activeByPage = mutableMapOf<Int, Int>()
@@ -116,6 +116,15 @@ internal class AiTranslationWindowScheduler(
             pageStates[pageIndex]?.completed = true
             signalChange()
         }
+    }
+
+    suspend fun prioritizePage(pageIndex: Int): Boolean = mutex.withLock {
+        val state = pageStates[pageIndex]
+        if (state == null || state.completed) return@withLock false
+        orderedPages.remove(pageIndex)
+        orderedPages.add(0, pageIndex)
+        signalChange()
+        true
     }
 
     suspend fun execute(

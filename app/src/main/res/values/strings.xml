@@ -405,6 +405,8 @@
     <string name="reader_ai_failure_retry_after">Suggested wait: %1$d seconds</string>
     <string name="reader_ai_window_page_status">Pages: %1$d done · %2$d running · %3$d failed · %4$d paused</string>
     <string name="reader_ai_window_progress_short">%1$d/%2$d pages</string>
+    <string name="reader_ai_window_active_progress_short">%1$d/%2$d pages · processing %3$s</string>
+    <string name="reader_ai_page_region_progress_short">Page %1$d · %2$s regions</string>
     <string name="reader_ai_window_region_status">Regions: %1$d done · %2$d running · %3$d failed · %4$d paused</string>
     <string name="reader_ai_error_title">AI translation error</string>
     <string name="reader_ai_status_pending">Pending</string>
