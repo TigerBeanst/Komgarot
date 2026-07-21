@@ -132,7 +132,7 @@ fun AppNavGraph(app: KomgarotApp) {
 
     val slideDistance = rememberSlideDistance()
     val openSeries: (String, Int, Boolean) -> Unit = { seriesId, bookCount, oneShot ->
-        if (oneShot || bookCount == 1) {
+        if (oneShot) {
             navController.navigate(Screen.BookDetailFromSeries.go(seriesId)) {
                 launchSingleTop = true
             }
@@ -382,11 +382,10 @@ fun AppNavGraph(app: KomgarotApp) {
             )
             BookScreen(
                 seriesId = seriesId,
-                initialBookCount = bookCount,
                 serverUrl = serverUrl,
                 onBookClick = { id, name, pages, isOneShot ->
                     navController.navigate(Screen.BookDetail.go(id, name, "", pages, isOneShot)) {
-                        if (isOneShot || bookCount == 1) {
+                        if (isOneShot) {
                             popUpTo(Screen.Books.go(seriesId, bookCount)) { inclusive = true }
                         }
                         launchSingleTop = true
@@ -425,7 +424,15 @@ fun AppNavGraph(app: KomgarotApp) {
                     val startPage = if (effectiveTrack) vm.book?.readProgress?.page ?: 1 else 1
                     navController.navigate(Screen.Reader.go(id, startPage, effectiveTrack))
                 },
+                onPageThumbnailClick = { id, page ->
+                    navController.navigate(Screen.Reader.go(id, page, !alwaysIncognito))
+                },
                 onMetadataClick = { navController.navigate(Screen.Metadata.go("book", it)) },
+                onSeriesClick = { id ->
+                    navController.navigate(Screen.Books.go(id, 0)) {
+                        launchSingleTop = true
+                    }
+                },
                 onAuthorClick = { authorName, _ ->
                     navController.navigate(Screen.Series.go(null, "author:$authorName"))
                 },
@@ -478,7 +485,15 @@ fun AppNavGraph(app: KomgarotApp) {
                     val startPage = if (effectiveTrack) vm.book?.readProgress?.page ?: 1 else 1
                     navController.navigate(Screen.Reader.go(id, startPage, effectiveTrack))
                 },
+                onPageThumbnailClick = { id, page ->
+                    navController.navigate(Screen.Reader.go(id, page, !alwaysIncognito))
+                },
                 onMetadataClick = { navController.navigate(Screen.Metadata.go("book", it)) },
+                onSeriesClick = { id ->
+                    navController.navigate(Screen.Books.go(id, 0)) {
+                        launchSingleTop = true
+                    }
+                },
                 onAuthorClick = { authorName, _ ->
                     navController.navigate(Screen.Series.go(null, "author:$authorName"))
                 },
@@ -614,7 +629,20 @@ fun AppNavGraph(app: KomgarotApp) {
                 )
                 AiTranslationTaskScreen(
                     vm = vm,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onOpenTask = { bookId, page ->
+                        navController.navigate(Screen.Reader.go(bookId, page))
+                    },
+                    onOpenBook = { task ->
+                        navController.navigate(
+                            Screen.BookDetail.go(
+                                task.bookId,
+                                task.title.ifBlank { task.bookId },
+                                "",
+                                task.pageCount
+                            )
+                        )
+                    }
                 )
             }
         }

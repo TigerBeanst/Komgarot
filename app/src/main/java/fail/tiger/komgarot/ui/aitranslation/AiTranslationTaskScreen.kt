@@ -1,6 +1,8 @@
 package fail.tiger.komgarot.ui.aitranslation
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,7 +43,9 @@ import kotlinx.coroutines.delay
 @Composable
 fun AiTranslationTaskScreen(
     vm: AiTranslationTaskViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenTask: (bookId: String, page: Int) -> Unit,
+    onOpenBook: (AiTranslationTaskSummary) -> Unit
 ) {
     var showTaskActionMenu by remember { mutableStateOf<AiTranslationTaskSummary?>(null) }
     var deleteFirstConfirmation by remember { mutableStateOf<AiTranslationTaskSummary?>(null) }
@@ -92,25 +96,29 @@ fun AiTranslationTaskScreen(
             if (vm.state.tasks.isEmpty()) {
                 Text(stringResource(R.string.ai_translation_no_tasks), modifier = Modifier.padding(16.dp))
             } else {
-                AiTranslationTaskOverview(vm.state.tasks)
-                sortedTasks.forEach { task ->
-                    ListItem(
-                        headlineContent = { Text(task.title.ifBlank { task.bookId }) },
-                        supportingContent = {
-                            Column {
-                                Text(stringResource(taskStatusLabelRes(task.status)))
-                                Text(stringResource(R.string.ai_translate_progress, task.completedPages, task.pageCount, task.failedPages))
-                                aiTranslationFailureCategorySummary(task).takeIf { it.isNotBlank() }?.let { categories ->
-                                    Text(stringResource(R.string.ai_translation_failure_categories, categories))
+                LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+                    item(key = "overview") {
+                        AiTranslationTaskOverview(vm.state.tasks)
+                    }
+                    items(sortedTasks, key = { task -> task.bookId }) { task ->
+                        ListItem(
+                            headlineContent = { Text(task.title.ifBlank { task.bookId }) },
+                            supportingContent = {
+                                Column {
+                                    Text(stringResource(taskStatusLabelRes(task.status)))
+                                    Text(stringResource(R.string.ai_translate_progress, task.completedPages, task.pageCount, task.failedPages))
+                                    aiTranslationFailureCategorySummary(task).takeIf { it.isNotBlank() }?.let { categories ->
+                                        Text(stringResource(R.string.ai_translation_failure_categories, categories))
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { aiTranslationTaskProgress(task) },
+                                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                                    )
                                 }
-                                LinearProgressIndicator(
-                                    progress = { aiTranslationTaskProgress(task) },
-                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
-                                )
-                            }
-                        },
-                        modifier = Modifier.clickable { showTaskActionMenu = task }
-                    )
+                            },
+                            modifier = Modifier.clickable { showTaskActionMenu = task }
+                        )
+                    }
                 }
             }
         }
@@ -119,8 +127,17 @@ fun AiTranslationTaskScreen(
     showTaskActionMenu?.let { task ->
         AiTranslationTaskActionMenu(
             onDismiss = { showTaskActionMenu = null },
+            hasFailedPages = task.failedPages > 0,
+            onOpen = {
+                onOpenTask(task.bookId, vm.navigationPageFor(task))
+                showTaskActionMenu = null
+            },
+            onOpenBook = {
+                onOpenBook(task)
+                showTaskActionMenu = null
+            },
             onRetryIncomplete = {
-                vm.retryIncompletePages(task.bookId)
+                vm.retryIncompletePages(task)
                 showTaskActionMenu = null
             },
             onDelete = {
@@ -302,6 +319,9 @@ private fun taskStatusLabelRes(status: AiTranslationTaskStatus): Int = when (sta
 @Composable
 private fun AiTranslationTaskActionMenu(
     onDismiss: () -> Unit,
+    hasFailedPages: Boolean,
+    onOpen: () -> Unit,
+    onOpenBook: () -> Unit,
     onRetryIncomplete: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -310,6 +330,20 @@ private fun AiTranslationTaskActionMenu(
         title = { Text(stringResource(R.string.ai_translation_tasks)) },
         text = {
             Column {
+                TextButton(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        stringResource(
+                            if (hasFailedPages) {
+                                R.string.ai_translation_open_failed_page
+                            } else {
+                                R.string.ai_translation_open_book
+                            }
+                        )
+                    )
+                }
+                TextButton(onClick = onOpenBook, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.ai_translation_open_book_detail))
+                }
                 TextButton(onClick = onRetryIncomplete, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.ai_translate_retry_incomplete_pages))
                 }

@@ -62,6 +62,7 @@ import fail.tiger.komgarot.data.local.SecureAiSettings
 import fail.tiger.komgarot.data.local.SecureWebDavSettings
 import fail.tiger.komgarot.data.local.normalizeWebDavUrl
 import fail.tiger.komgarot.data.remote.AiServiceTestResult
+import fail.tiger.komgarot.data.remote.AiTranslationErrorCategory
 import fail.tiger.komgarot.data.repository.AiLocalModelTier
 import fail.tiger.komgarot.data.repository.AiTranslationPurgeAbortReason
 import fail.tiger.komgarot.data.repository.AiTranslationPurgeResult
@@ -240,6 +241,7 @@ private fun SettingsContent(
     val keepScreenOn by prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
     val einkMode by prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val tapPageTurn by prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
+    val showBookThumbnails by prefs.showBookThumbnails.collectAsStateWithLifecycle(initialValue = true)
     val coverCacheSizeMb by prefs.coverCacheSizeMb.collectAsStateWithLifecycle(initialValue = CacheSizeOption.default.sizeMb)
     val readerCacheSizeMb by prefs.readerCacheSizeMb.collectAsStateWithLifecycle(initialValue = CacheSizeOption.default.sizeMb)
     val clearCacheOnStartup by prefs.clearCacheOnStartup.collectAsStateWithLifecycle(initialValue = false)
@@ -442,6 +444,19 @@ private fun SettingsContent(
                 modifier = Modifier.clickable { scope.launch { prefs.setAlwaysIncognito(!alwaysIncognito) } }
             )
             ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_show_book_thumbnails)) },
+                supportingContent = { Text(stringResource(R.string.settings_show_book_thumbnails_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = showBookThumbnails,
+                        onCheckedChange = { scope.launch { prefs.setShowBookThumbnails(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setShowBookThumbnails(!showBookThumbnails) }
+                }
+            )
+            ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_preload_pages)) },
                 supportingContent = { Text(stringResource(R.string.settings_preload_pages_desc, preloadPages)) },
                 modifier = Modifier.clickable { showPreloadDialog = true }
@@ -505,6 +520,17 @@ private fun SettingsContent(
                 supportingContent = { Text(aiModelName.ifBlank { stringResource(R.string.settings_ai_model_requires_vision) }) },
                 modifier = Modifier.clickable { showAiModelDialog = true }
             )
+            val missingAiSettings = buildList {
+                if (aiBaseUrl.isBlank()) add(stringResource(R.string.settings_ai_base_url))
+                if (secureAiSettings.apiKey.isBlank()) add(stringResource(R.string.settings_ai_api_key))
+                if (aiModelName.isBlank()) add(stringResource(R.string.settings_ai_model_name))
+            }
+            val aiTestConfigRequiredMessage = stringResource(
+                R.string.settings_ai_test_service_config_required,
+                missingAiSettings.joinToString()
+            )
+            val aiTestLocalModelRequiredMessage = stringResource(R.string.settings_ai_test_service_local_model_required)
+            val aiTestClientUnavailableMessage = stringResource(R.string.settings_ai_test_service_client_unavailable)
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_ai_test_service)) },
                 supportingContent = {
@@ -519,17 +545,17 @@ private fun SettingsContent(
                     )
                 },
                 modifier = Modifier.clickable(enabled = !aiServiceTesting) {
-                    val missingSettings = buildList {
-                        if (aiBaseUrl.isBlank()) add(context.getString(R.string.settings_ai_base_url))
-                        if (secureAiSettings.apiKey.isBlank()) add(context.getString(R.string.settings_ai_api_key))
-                        if (aiModelName.isBlank()) add(context.getString(R.string.settings_ai_model_name))
-                    }
-                    if (missingSettings.isNotEmpty()) {
+                    if (missingAiSettings.isNotEmpty()) {
                         aiServiceTestResult = AiServiceTestResult.Failure(
-                            context.getString(
-                                R.string.settings_ai_test_service_config_required,
-                                missingSettings.joinToString()
-                            )
+                            detail = aiTestConfigRequiredMessage,
+                            category = AiTranslationErrorCategory.MODEL_CONFIGURATION
+                        )
+                        return@clickable
+                    }
+                    if (!localModelsInstalled) {
+                        aiServiceTestResult = AiServiceTestResult.Failure(
+                            detail = aiTestLocalModelRequiredMessage,
+                            category = AiTranslationErrorCategory.MODEL_CONFIGURATION
                         )
                         return@clickable
                     }
@@ -541,7 +567,7 @@ private fun SettingsContent(
                             model = aiModelName,
                             timeoutSeconds = aiTimeoutSeconds
                         ) ?: AiServiceTestResult.Failure(
-                            context.getString(R.string.settings_ai_test_service_client_unavailable)
+                            aiTestClientUnavailableMessage
                         )
                         aiServiceTesting = false
                     }
@@ -1553,13 +1579,18 @@ private fun AiServiceTestResultDialog(
     onDismiss: () -> Unit
 ) {
     val success = result as? AiServiceTestResult.Success
-    val detail = success?.let {
+    val failure = result as? AiServiceTestResult.Failure
+    val successDetail = success?.let {
         stringResource(
             R.string.settings_ai_test_service_success_detail,
             it.latencyMs,
             it.responseBody
         )
-    } ?: (result as AiServiceTestResult.Failure).detail
+    }
+    val failureCategory = failure?.let { stringResource(aiServiceTestFailureCategoryLabelRes(it.category)) }
+    val detail = successDetail ?: listOfNotNull(failureCategory, failure?.detail)
+        .filter { it.isNotBlank() }
+        .joinToString("\n\n")
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -1591,6 +1622,17 @@ private fun AiServiceTestResultDialog(
             }
         }
     )
+}
+
+private fun aiServiceTestFailureCategoryLabelRes(category: AiTranslationErrorCategory): Int = when (category) {
+    AiTranslationErrorCategory.NETWORK_OR_API,
+    AiTranslationErrorCategory.RATE_LIMITED,
+    AiTranslationErrorCategory.SERVER_TEMPORARY -> R.string.settings_ai_test_service_category_network
+    AiTranslationErrorCategory.AUTHENTICATION -> R.string.settings_ai_test_service_category_authentication
+    AiTranslationErrorCategory.MODEL_CONFIGURATION -> R.string.settings_ai_test_service_category_model
+    AiTranslationErrorCategory.VISION_UNSUPPORTED -> R.string.settings_ai_test_service_category_vision
+    AiTranslationErrorCategory.NON_JSON_RESPONSE,
+    AiTranslationErrorCategory.JSON_VALIDATION_FAILED -> R.string.settings_ai_test_service_category_response
 }
 
 @OptIn(ExperimentalCoilApi::class)

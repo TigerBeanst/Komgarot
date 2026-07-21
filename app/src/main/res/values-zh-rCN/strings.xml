@@ -211,6 +211,7 @@
     <string name="reader_page_description">第 %d 页</string>
     <string name="reader_action_save">保存</string>
     <string name="reader_action_share">分享</string>
+    <string name="reader_action_cache_status">页面加载</string>
     <string name="reader_action_set_book_cover">设为书籍封面</string>
     <string name="reader_action_set_series_cover">设为系列封面</string>
     <string name="reader_action_saved_to_gallery">已保存到相册</string>
@@ -225,13 +226,19 @@
     <string name="settings_ai_api_key">API Key</string>
     <string name="settings_ai_model_name">模型名</string>
     <string name="settings_ai_test_service">测试AI服务</string>
-    <string name="settings_ai_test_service_desc">发送最小文本请求，检查当前AI接口是否可用。</string>
+    <string name="settings_ai_test_service_desc">检查本地模型、视觉输入和结构化响应能力。</string>
     <string name="settings_ai_test_service_testing">正在测试AI服务…</string>
     <string name="settings_ai_test_service_success">AI服务可用</string>
     <string name="settings_ai_test_service_success_detail">接口测试已通过，耗时 %1$d 毫秒。\n\n返回体：\n%2$s</string>
     <string name="settings_ai_test_service_failed">AI服务测试失败</string>
     <string name="settings_ai_test_service_config_required">请先配置：%1$s</string>
     <string name="settings_ai_test_service_client_unavailable">AI服务客户端当前不可用。</string>
+    <string name="settings_ai_test_service_local_model_required">请先下载本地文字检测模型。</string>
+    <string name="settings_ai_test_service_category_network">定位：网络、限流或服务端状态</string>
+    <string name="settings_ai_test_service_category_authentication">定位：API Key 或访问权限</string>
+    <string name="settings_ai_test_service_category_model">定位：模型名、本地模型或接口配置</string>
+    <string name="settings_ai_test_service_category_vision">定位：模型视觉输入能力</string>
+    <string name="settings_ai_test_service_category_response">定位：结构化响应契约</string>
     <string name="settings_ai_model_requires_vision">选择的模型需要支持视觉输入。</string>
     <string name="settings_ai_target_language">目标语言</string>
     <string name="settings_ai_source_text_profile">原文类型</string>
@@ -341,6 +348,9 @@
     <string name="ai_translate_clear_all_message_final">此操作无法撤回。重新翻译会再次调用模型并消耗额度或 token。</string>
     <string name="ai_translate_clear_all_confirm">全部清空</string>
     <string name="ai_translate_retry_incomplete_pages">重试未完成/失败的页面</string>
+    <string name="ai_translation_open_failed_page">打开首个失败页</string>
+    <string name="ai_translation_open_book">打开任务页面</string>
+    <string name="ai_translation_open_book_detail">打开书本页</string>
     <string name="ai_translate_delete_book_translation">删除本书 AI 翻译</string>
     <string name="reader_ai_translation">AI 翻译</string>
     <string name="reader_ai_translation_icon_text">文</string>
@@ -361,6 +371,18 @@
     <string name="reader_ai_page_timing_step_ai_request">AI 接口请求</string>
     <string name="reader_ai_page_timing_step_ai_response_parse">AI 响应解析</string>
     <string name="reader_ai_page_timing_step_save_and_verify">保存与校验</string>
+    <string name="reader_ai_page_timing_local_session">本地检测 Session：%1$s · %2$s · 获取 %3$d ms</string>
+    <string name="reader_ai_page_timing_session_hot">热复用</string>
+    <string name="reader_ai_page_timing_session_cold">冷启动</string>
+    <string name="reader_ai_page_timing_local_inference">本地检测：预处理 %1$d ms · 推理 %2$d ms · 后处理 %3$d ms · 峰值约 %4$d MiB</string>
+    <string name="reader_ai_page_timing_requests">远端请求：%1$d 区域 · %2$d 次请求 · %3$d 次重试</string>
+    <string name="reader_ai_page_timing_concurrency">并发：配置 %1$d · 初始 %2$d · 峰值 %3$d · 降档 %4$d 次 · 跨页 %5$s</string>
+    <string name="reader_ai_page_timing_cross_page_active">已启动</string>
+    <string name="reader_ai_page_timing_cross_page_waiting">等待中</string>
+    <string name="reader_ai_page_timing_first_region">首块可见：%1$d ms · 整页：%2$d ms</string>
+    <string name="reader_ai_page_timing_context">页面上下文：%1$s · %2$d KiB</string>
+    <string name="reader_ai_page_timing_usage">接口 usage：输入 %1$d · 输出 %2$d · 合计 %3$d tokens</string>
+    <string name="reader_ai_page_timing_usage_fallback">成本依据：%1$d 页 · %2$d 区域 · %3$d 次请求</string>
     <string name="reader_ai_delete_current_page">删除本页翻译</string>
     <string name="reader_ai_test_started">已开始测试 AI 翻译</string>
     <string name="reader_ai_test_success">AI 翻译测试通过</string>
@@ -376,6 +398,11 @@
     <string name="reader_ai_failure_reason">失败原因</string>
     <string name="reader_ai_failure_reason_title">AI 翻译失败原因</string>
     <string name="reader_ai_failure_reason_empty">本页暂无已保存的失败原因。</string>
+    <string name="reader_ai_failure_http_status">HTTP 状态码：%1$d</string>
+    <string name="reader_ai_failure_retry_after">建议等待：%1$d 秒</string>
+    <string name="reader_ai_window_page_status">页：完成 %1$d · 处理中 %2$d · 失败 %3$d · 暂停 %4$d</string>
+    <string name="reader_ai_window_progress_short">%1$d/%2$d 页</string>
+    <string name="reader_ai_window_region_status">区域：完成 %1$d · 处理中 %2$d · 失败 %3$d · 暂停 %4$d</string>
     <string name="reader_ai_error_title">AI 翻译错误</string>
     <string name="reader_ai_status_pending">待翻译</string>
     <string name="reader_ai_status_running">翻译中</string>
@@ -427,6 +454,8 @@
     <!-- 元数据 -->
     <string name="metadata_book_title">书籍元数据</string>
     <string name="metadata_series_title">系列元数据</string>
+    <string name="book_page_preview">页面预览</string>
+    <string name="book_belongs_to_series">所属系列</string>
     <string name="metadata_admin_required">需要 Komga 管理员权限才能编辑元数据。</string>
     <string name="metadata_refresh">刷新元数据</string>
     <string name="metadata_save">保存元数据</string>
@@ -499,6 +528,8 @@
     <string name="settings_tap_page_turn_desc">点击阅读器左侧或右侧切换页面</string>
     <string name="settings_always_incognito">始终无痕</string>
     <string name="settings_always_incognito_desc">阅读和继续阅读均不记录进度</string>
+    <string name="settings_show_book_thumbnails">展示缩略图</string>
+    <string name="settings_show_book_thumbnails_desc">在书本详情中按需加载页面预览</string>
     <string name="settings_preload_pages">预加载页数</string>
     <string name="settings_preload_pages_desc">阅读时向后预加载 %d 页</string>
     <string name="settings_reading_direction">阅读方向</string>

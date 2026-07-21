@@ -27,18 +27,17 @@ class BookScreenStructureTest {
     }
 
     @Test
-    fun initialSeriesBooksLoadUsesTargetSkeletonInsidePullToRefresh() {
-        assertTrue(source.contains("initialBookCount: Int"))
+    fun initialSeriesBooksLoadUsesGridSkeletonInsidePullToRefresh() {
         assertTrue(source.contains("val initialLoading = !vm.hasLoadedOnce && vm.books.isEmpty()"))
         assertTrue(source.contains("isRefreshing = vm.loading || initialLoading"))
-        assertTrue(source.contains("initialLoading && initialBookCount == 1 -> BookDetailLoadingSkeleton("))
         assertTrue(source.contains("initialLoading -> BookGridLoadingSkeleton("))
         assertTrue(source.contains("PullToRefreshBox("))
         assertFalse(source.contains("CircularProgressIndicator()"))
     }
 
     @Test
-    fun singleBookTransitionKeepsDetailSkeletonUntilNavigation() {
-        assertTrue(source.contains("vm.books.size == 1 && !vm.hasMore -> BookDetailLoadingSkeleton("))
+    fun onlyOneShotBookTransitionsDirectlyToDetail() {
+        assertTrue(source.contains("vm.books.singleOrNull()?.oneshot == true"))
+        assertFalse(source.contains("vm.books.size == 1 && !vm.hasMore"))
     }
 }

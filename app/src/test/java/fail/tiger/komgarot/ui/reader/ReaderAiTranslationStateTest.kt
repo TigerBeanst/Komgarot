@@ -4,6 +4,8 @@ import fail.tiger.komgarot.data.local.AiTranslatedBook
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationBlock
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
+import fail.tiger.komgarot.data.local.AiTranslationRegionStatus
+import fail.tiger.komgarot.data.local.pausedForRegionResume
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -92,7 +94,10 @@ class ReaderAiTranslationStateTest {
             status = AiTranslationPageStatus.RUNNING,
             blocks = listOf(
                 AiTranslationBlock(localRegionId = "p0-r1", translatedLines = listOf("已完成")),
-                AiTranslationBlock(localRegionId = "p0-r2"),
+                AiTranslationBlock(
+                    localRegionId = "p0-r2",
+                    regionStatus = AiTranslationRegionStatus.RUNNING
+                ),
                 AiTranslationBlock(localRegionId = "p0-r3", translatedLines = listOf("done"))
             )
         )
@@ -127,6 +132,85 @@ class ReaderAiTranslationStateTest {
     }
 
     @Test
+    fun staleRunningUpdateCannotDowngradeCompletedRegion() {
+        val current = AiTranslatedBook(
+            bookId = "book-1",
+            pageCount = 1,
+            pages = listOf(
+                AiTranslatedPage(
+                    pageIndex = 0,
+                    status = AiTranslationPageStatus.RUNNING,
+                    blocks = listOf(
+                        AiTranslationBlock(
+                            localRegionId = "p0-r1",
+                            regionStatus = AiTranslationRegionStatus.DONE,
+                            translatedLines = listOf("完成")
+                        ),
+                        AiTranslationBlock(
+                            localRegionId = "p0-r2",
+                            regionStatus = AiTranslationRegionStatus.RUNNING
+                        )
+                    )
+                )
+            )
+        )
+        val stale = AiTranslatedPage(
+            pageIndex = 0,
+            status = AiTranslationPageStatus.RUNNING,
+            blocks = listOf(
+                AiTranslationBlock(
+                    localRegionId = "p0-r1",
+                    regionStatus = AiTranslationRegionStatus.RUNNING
+                ),
+                AiTranslationBlock(
+                    localRegionId = "p0-r2",
+                    regionStatus = AiTranslationRegionStatus.RUNNING
+                )
+            )
+        )
+
+        val page = mergeAiTranslationPageUpdate(current, stale)?.pages?.single()
+
+        assertEquals(AiTranslationRegionStatus.DONE, page?.blocks?.first()?.regionStatus)
+        assertEquals(listOf("完成"), page?.blocks?.first()?.translatedLines)
+    }
+
+    @Test
+    fun pausedPageIgnoresLateRunningUpdate() {
+        val current = AiTranslatedBook(
+            bookId = "book-1",
+            pageCount = 1,
+            pages = listOf(
+                AiTranslatedPage(
+                    pageIndex = 0,
+                    status = AiTranslationPageStatus.PENDING,
+                    blocks = listOf(
+                        AiTranslationBlock(
+                            localRegionId = "p0-r1",
+                            regionStatus = AiTranslationRegionStatus.PENDING
+                        )
+                    )
+                )
+            )
+        )
+        val lateRunning = AiTranslatedPage(
+            pageIndex = 0,
+            status = AiTranslationPageStatus.RUNNING,
+            blocks = listOf(
+                AiTranslationBlock(
+                    localRegionId = "p0-r1",
+                    regionStatus = AiTranslationRegionStatus.RUNNING
+                )
+            )
+        )
+
+        val page = mergeAiTranslationPageUpdate(current, lateRunning)?.pages?.single()
+
+        assertEquals(AiTranslationPageStatus.PENDING, page?.status)
+        assertEquals(AiTranslationRegionStatus.PENDING, page?.blocks?.single()?.regionStatus)
+    }
+
+    @Test
     fun readerReceivesPartialAiTranslationPageUpdatesDuringRetry() {
         assertTrue(viewModelSource.contains("onPageUpdated = { page ->"))
         assertTrue(viewModelSource.contains("mergeAiTranslationPageUpdate(aiTranslatedBook, page)"))
@@ -157,7 +241,7 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("readerAiTranslationPageRange("))
         assertTrue(viewModelSource.contains("?.status != AiTranslationPageStatus.DONE"))
         assertTrue(viewModelSource.contains("if (pageIndexes.isEmpty())"))
-        assertTrue(viewModelSource.contains("repository.retryPagesTranslation("))
+        assertTrue(viewModelSource.contains("repository.resumePagesTranslation("))
         assertTrue(viewModelSource.contains("pageIndexes = batchPageIndexes"))
     }
 
@@ -188,12 +272,14 @@ class ReaderAiTranslationStateTest {
 
         assertTrue(startSource.contains("prioritizeAiTranslationPageIndexes(pageIndexes)"))
         assertTrue(startSource.contains("nextAiTranslationPageBatch("))
-        assertTrue(startSource.contains("repository.retryPagesTranslation("))
+        assertTrue(startSource.contains("repository.resumePagesTranslation("))
         assertTrue(startSource.contains("pageIndexes = batchPageIndexes"))
-        assertTrue(startSource.contains("remotePageConcurrencyCap = 1"))
+        assertTrue(startSource.contains("remotePageConcurrencyCap = 2"))
         assertTrue(startSource.contains("batchPageIndexes.forEach { pageIndex ->"))
         assertTrue(startSource.contains("onPageUpdated = { page ->\n                            launch { applyAiTranslationPageUpdate(page) }"))
         assertFalse(startSource.contains("repository.retryPageTranslation("))
+        assertFalse(startSource.contains("repository.retryPagesTranslation("))
+        assertTrue(repositorySource.contains("suspend fun resumePagesTranslation("))
         assertTrue(repositorySource.contains("suspend fun retryPagesTranslation("))
         assertTrue(repositorySource.contains("translatePages("))
     }
@@ -246,8 +332,34 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("currentAiTranslationDisplayMode = AiTranslationDisplayMode.OFF"))
         assertTrue(viewModelSource.contains("prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.OFF.storedValue)"))
         assertTrue(viewModelSource.contains("clearRunningAiTranslationState()"))
-        assertTrue(viewModelSource.contains("status = AiTranslationPageStatus.PENDING"))
-        assertTrue(viewModelSource.contains("blocks = emptyList()"))
+        assertTrue(viewModelSource.contains("page.pausedForRegionResume()"))
+        assertFalse(viewModelSource.contains("blocks = emptyList()"))
+    }
+
+    @Test
+    fun pausingRunningPageKeepsDoneRegionAndResetsActiveRegion() {
+        val paused = AiTranslatedPage(
+            pageIndex = 0,
+            status = AiTranslationPageStatus.RUNNING,
+            blocks = listOf(
+                AiTranslationBlock(
+                    localRegionId = "p0-r1",
+                    regionStatus = AiTranslationRegionStatus.DONE,
+                    translatedLines = listOf("完成")
+                ),
+                AiTranslationBlock(
+                    localRegionId = "p0-r2",
+                    regionStatus = AiTranslationRegionStatus.RUNNING
+                )
+            )
+        ).pausedForRegionResume()
+
+        assertEquals(AiTranslationPageStatus.PENDING, paused.status)
+        assertEquals(
+            listOf(AiTranslationRegionStatus.DONE, AiTranslationRegionStatus.PENDING),
+            paused.blocks.map { it.regionStatus }
+        )
+        assertEquals(listOf("完成"), paused.blocks.first().translatedLines)
     }
 
     @Test
@@ -260,6 +372,7 @@ class ReaderAiTranslationStateTest {
 
         assertTrue(handlerSource.contains("val showedCachedCurrentPage = showCachedCurrentAiTranslationIfAvailable()"))
         assertTrue(handlerSource.contains("hasPendingAiTranslationPages(preloadPages)"))
+        assertTrue(handlerSource.indexOf("showCachedCurrentAiTranslationIfAvailable()") < handlerSource.indexOf("canStartAiTranslationWithLocalModel()"))
         assertTrue(handlerSource.contains("startCurrentAndPreloadedAiTranslation(preloadPages)"))
         assertTrue(viewModelSource.contains("private fun hasPendingAiTranslationPages(preloadPages: Int): Boolean"))
         assertTrue(viewModelSource.contains("readerAiTranslationPageRange(currentPage, pageUrls.size, preloadPages)"))
@@ -297,8 +410,10 @@ class ReaderAiTranslationStateTest {
         val zhStrings = File("src/main/res/values-zh-rCN/strings.xml").readText()
 
         assertTrue(screenSource.contains("var readerAiFailureDialog by remember { mutableStateOf<String?>(null) }"))
-        assertTrue(screenSource.contains("val currentAiFailureSummary = vm.currentAiTranslatedPage(vm.currentPage)?.errorSummary?.takeIf { it.isNotBlank() }"))
-        assertTrue(screenSource.contains("readerAiFailureDialog = currentAiFailureSummary ?: context.getString(R.string.reader_ai_failure_reason_empty)"))
+        assertTrue(screenSource.contains("val currentAiFailureDetails = readerAiFailureDiagnostic(vm.currentAiTranslatedPage(vm.currentPage))"))
+        assertTrue(screenSource.contains("readerAiFailureDialog = currentAiFailureDetails"))
+        assertTrue(screenSource.contains("R.string.reader_ai_failure_http_status"))
+        assertTrue(screenSource.contains("R.string.reader_ai_failure_retry_after"))
         assertTrue(screenSource.contains("Text(stringResource(R.string.reader_ai_failure_reason))"))
         assertTrue(screenSource.contains("title = { Text(stringResource(R.string.reader_ai_failure_reason_title)) }"))
         assertTrue(defaultStrings.contains("<string name=\"reader_ai_failure_reason\">Failure reason</string>"))
@@ -319,12 +434,11 @@ class ReaderAiTranslationStateTest {
         val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
 
         assertTrue(screenSource.contains("aiTranslationAvailable: Boolean"))
-        assertTrue(screenSource.contains("if (aiTranslationAvailable && aiTranslationEnabled)"))
-        assertTrue(screenSource.contains("AiTranslationFloatingButton"))
-        assertTrue(screenSource.contains("readerAiStatusLabel"))
+        assertTrue(screenSource.contains("aiTranslationControlsVisible"))
+        assertTrue(screenSource.contains("ReaderAiTranslationProgressControl"))
         assertTrue(!screenSource.contains("aiTestModeEnabled ="))
         assertTrue(!screenSource.contains("R.string.reader_ai_test_current_page"))
-        assertTrue(screenSource.contains("onClick = { vm.handleAiTranslationButtonClick(memoryAwarePreloadPages) }"))
+        assertTrue(screenSource.contains("onClick = { vm.handleAiTranslationButtonClick(preloadPages) }"))
     }
 
     @Test
@@ -353,14 +467,18 @@ class ReaderAiTranslationStateTest {
     }
 
     @Test
-    fun aiButtonVisualStateFollowsReaderDisplayModeAcrossPages() {
+    fun aiBottomControlVisualStateFollowsReaderDisplayModeAcrossPages() {
         val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
-        val buttonStart = screenSource.indexOf("AiTranslationFloatingButton(")
-        assertTrue(buttonStart >= 0)
-        val buttonSource = screenSource.substring(buttonStart, screenSource.indexOf(")", buttonStart) + 1)
+        val controlStart = screenSource.indexOf("private fun ReaderAiTranslationProgressControl(")
+        val controlEnd = screenSource.indexOf("private fun ReaderQuickChipLabel(", controlStart)
+        assertTrue(controlStart >= 0)
+        val controlSource = screenSource.substring(controlStart, controlEnd)
 
-        assertTrue(buttonSource.contains("mode = vm.currentAiTranslationDisplayMode"))
-        assertTrue(buttonSource.contains("pageStatus = floatingStatus"))
+        assertTrue(controlSource.contains("vm.currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON"))
+        assertTrue(controlSource.contains("page?.status == AiTranslationPageStatus.RUNNING"))
+        assertTrue(controlSource.contains("windowStatus.runningPages > 0"))
+        assertTrue(controlSource.contains("border = if (active)"))
+        assertTrue(controlSource.contains("BorderStroke("))
     }
 
     @Test
@@ -387,8 +505,80 @@ class ReaderAiTranslationStateTest {
         assertTrue(handlerSource.contains("showAiLocalModelRequiredDialog = true"))
         assertTrue(handlerSource.contains("return@launch"))
         assertTrue(viewModelSource.contains("fun downloadRequiredAiLocalModel()"))
+        assertTrue(viewModelSource.contains("continuePendingAiTranslationAction()"))
+        assertTrue(viewModelSource.contains("PendingAiTranslationAction.TranslateWindow"))
+        assertTrue(viewModelSource.contains("PendingAiTranslationAction.RetryPage"))
+        assertTrue(viewModelSource.contains("fun dismissAiLocalModelRequiredDialog()"))
         assertTrue(screenSource.contains("if (aiTranslationAvailable && aiTranslationEnabled && vm.showAiLocalModelRequiredDialog)"))
         assertTrue(screenSource.contains("R.string.reader_ai_local_model_required_title"))
         assertTrue(screenSource.contains("R.string.reader_ai_local_model_download"))
+    }
+
+    @Test
+    fun translationButtonHidesActiveDisplayBeforeModelReadinessCheck() {
+        val handlerStart = viewModelSource.indexOf("fun handleAiTranslationButtonClick(preloadPages: Int)")
+        val handlerEnd = viewModelSource.indexOf("private suspend fun canStartAiTranslationWithLocalModel()", handlerStart)
+        val handler = viewModelSource.substring(handlerStart, handlerEnd)
+
+        assertTrue(handler.indexOf("currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON") >= 0)
+        assertTrue(handler.indexOf("cycleAiTranslationDisplayMode()") < handler.indexOf("canStartAiTranslationWithLocalModel()"))
+    }
+
+    @Test
+    fun windowStatusAggregatesPageAndRegionLifecycle() {
+        val pages = listOf(
+            AiTranslatedPage(
+                pageIndex = 3,
+                status = AiTranslationPageStatus.DONE,
+                blocks = listOf(AiTranslationBlock(localRegionId = "p3-r1", regionStatus = AiTranslationRegionStatus.DONE))
+            ),
+            AiTranslatedPage(
+                pageIndex = 4,
+                status = AiTranslationPageStatus.RUNNING,
+                blocks = listOf(
+                    AiTranslationBlock(localRegionId = "p4-r1", regionStatus = AiTranslationRegionStatus.DONE),
+                    AiTranslationBlock(localRegionId = "p4-r2", regionStatus = AiTranslationRegionStatus.PENDING),
+                    AiTranslationBlock(localRegionId = "p4-r3", regionStatus = AiTranslationRegionStatus.RUNNING)
+                )
+            ),
+            AiTranslatedPage(
+                pageIndex = 5,
+                status = AiTranslationPageStatus.FAILED,
+                blocks = listOf(
+                    AiTranslationBlock(localRegionId = "p5-r1", regionStatus = AiTranslationRegionStatus.DONE),
+                    AiTranslationBlock(localRegionId = "p5-r2", regionStatus = AiTranslationRegionStatus.FAILED)
+                )
+            ),
+            AiTranslatedPage(
+                pageIndex = 6,
+                status = AiTranslationPageStatus.PENDING,
+                blocks = listOf(AiTranslationBlock(localRegionId = "p6-r1", regionStatus = AiTranslationRegionStatus.PENDING))
+            )
+        )
+
+        val status = readerAiTranslationWindowStatus(listOf(3, 4, 5, 6), pages)
+
+        assertEquals(4, status.totalPages)
+        assertEquals(1, status.completedPages)
+        assertEquals(1, status.runningPages)
+        assertEquals(1, status.failedPages)
+        assertEquals(1, status.pausedPages)
+        assertEquals(3, status.completedRegions)
+        assertEquals(2, status.runningRegions)
+        assertEquals(1, status.failedRegions)
+        assertEquals(1, status.pausedRegions)
+    }
+
+    @Test
+    fun readerShowsFailureStateInBottomControlAndKeepsDetailedPerformanceDiagnostics() {
+        val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+
+        assertTrue(screenSource.contains("failed -> MaterialTheme.colorScheme.errorContainer"))
+        assertTrue(screenSource.contains("vm.showAiTranslationPageActions = true"))
+        assertTrue(screenSource.contains("vm.retryCurrentAiTranslationPage()"))
+        assertFalse(screenSource.contains("ReaderAiTranslationWindowCard("))
+        assertTrue(screenSource.contains("timing.localDetectionStats"))
+        assertTrue(screenSource.contains("requestStats.usage"))
+        assertTrue(screenSource.contains("R.string.reader_ai_page_timing_usage_fallback"))
     }
 }

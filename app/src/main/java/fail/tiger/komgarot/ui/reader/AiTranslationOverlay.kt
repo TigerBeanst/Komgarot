@@ -1,9 +1,6 @@
 package fail.tiger.komgarot.ui.reader
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -19,21 +16,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
@@ -50,6 +39,7 @@ import fail.tiger.komgarot.data.local.AiTranslationBlock
 import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
+import fail.tiger.komgarot.data.local.AiTranslationRegionStatus
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
 import kotlin.math.abs
@@ -89,6 +79,10 @@ fun AiTranslationOverlay(
         displayBlocks.forEach { block ->
             val safe = block.renderSafe()
             val hasTranslatedText = safe.translatedLines.any { it.isNotBlank() }
+            val showProcessingPlaceholder = page.status == AiTranslationPageStatus.RUNNING &&
+                (safe.regionStatus == AiTranslationRegionStatus.PENDING ||
+                    safe.regionStatus == AiTranslationRegionStatus.RUNNING)
+            if (!hasTranslatedText && !showProcessingPlaceholder) return@forEach
             val sourceMaskPlacements = aiTranslationSourceMaskRects(
                 block = safe,
                 pageWidthDp = bounds.width.value,
@@ -1247,82 +1241,6 @@ private fun imageContentBounds(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun AiTranslationFloatingButton(
-    mode: AiTranslationDisplayMode,
-    pageStatus: AiTranslationPageStatus?,
-    progressLabel: String? = null,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val active = mode == AiTranslationDisplayMode.ON
-    val running = pageStatus == AiTranslationPageStatus.RUNNING
-    val interactionSource = remember { MutableInteractionSource() }
-    Surface(
-        shape = CircleShape,
-        color = if (active || running) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        contentColor = if (active || running) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        tonalElevation = 6.dp,
-        shadowElevation = 6.dp,
-        modifier = modifier
-            .size(56.dp)
-            .clip(CircleShape)
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = ripple(bounded = false, radius = 28.dp),
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            if (!progressLabel.isNullOrBlank()) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Translate,
-                        contentDescription = stringResource(R.string.reader_ai_translation),
-                        modifier = Modifier
-                            .size(18.dp)
-                            .alpha(if (active || running) 1f else 0.72f)
-                    )
-                    Text(
-                        text = progressLabel,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 10.sp,
-                            lineHeight = 10.sp,
-                            platformStyle = PlatformTextStyle(includeFontPadding = false)
-                        ),
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Translate,
-                    contentDescription = stringResource(R.string.reader_ai_translation),
-                    modifier = Modifier.alpha(if (active || running) 1f else 0.72f)
-                )
-            }
-            Text(
-                text = stringResource(R.string.reader_ai_translation_icon_text),
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.alpha(0f)
-            )
-        }
-    }
-}
-
 fun readerAiStatusStringRes(status: AiTranslationPageStatus?): Int =
     when (status) {
         AiTranslationPageStatus.RUNNING -> R.string.reader_ai_status_running
@@ -1335,12 +1253,9 @@ internal fun readerAiTranslationProgressText(page: AiTranslatedPage?): String? {
     if (page?.status != AiTranslationPageStatus.RUNNING) return null
     val total = page.blocks.size
     if (total <= 0) return null
-    val translated = page.blocks.count { block -> block.translatedLines.any { it.isNotBlank() } }
+    val translated = page.blocks.count { block -> block.regionStatus == AiTranslationRegionStatus.DONE }
     return "$translated/$total"
 }
-
-fun readerAiModeShortStringRes(mode: String?): Int =
-    R.string.ai_translation_mode_local_detection_short
 
 private fun parseAiColor(value: String): Color =
     runCatching { Color(android.graphics.Color.parseColor(value)) }.getOrDefault(Color.White)

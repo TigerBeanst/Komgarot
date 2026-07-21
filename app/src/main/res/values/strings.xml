@@ -214,6 +214,7 @@
     <string name="reader_page_description">Page %d</string>
     <string name="reader_action_save">Save</string>
     <string name="reader_action_share">Share</string>
+    <string name="reader_action_cache_status">Page loading</string>
     <string name="reader_action_set_book_cover">Set as book cover</string>
     <string name="reader_action_set_series_cover">Set as series cover</string>
     <string name="reader_action_saved_to_gallery">Saved to gallery</string>
@@ -228,13 +229,19 @@
     <string name="settings_ai_api_key">API Key</string>
     <string name="settings_ai_model_name">Model name</string>
     <string name="settings_ai_test_service">Test AI service</string>
-    <string name="settings_ai_test_service_desc">Send a minimal text request to check whether the current AI endpoint is available.</string>
+    <string name="settings_ai_test_service_desc">Check local models, vision input, and structured response support.</string>
     <string name="settings_ai_test_service_testing">Testing AI service…</string>
     <string name="settings_ai_test_service_success">AI service is available</string>
     <string name="settings_ai_test_service_success_detail">Service test passed in %1$d ms.\n\nResponse body:\n%2$s</string>
     <string name="settings_ai_test_service_failed">AI service test failed</string>
     <string name="settings_ai_test_service_config_required">Configure these items first: %1$s</string>
     <string name="settings_ai_test_service_client_unavailable">AI service client is unavailable.</string>
+    <string name="settings_ai_test_service_local_model_required">Download the local text detection models first.</string>
+    <string name="settings_ai_test_service_category_network">Area: network, rate limit, or service status</string>
+    <string name="settings_ai_test_service_category_authentication">Area: API key or access permission</string>
+    <string name="settings_ai_test_service_category_model">Area: model name, local model, or endpoint configuration</string>
+    <string name="settings_ai_test_service_category_vision">Area: model vision input capability</string>
+    <string name="settings_ai_test_service_category_response">Area: structured response contract</string>
     <string name="settings_ai_model_requires_vision">The selected model must support vision input.</string>
     <string name="settings_ai_target_language">Target language</string>
     <string name="settings_ai_source_text_profile">Source text type</string>
@@ -344,6 +351,9 @@
     <string name="ai_translate_clear_all_message_final">This action cannot be undone. Translating again will call the model again and spend quota or tokens.</string>
     <string name="ai_translate_clear_all_confirm">Clear all</string>
     <string name="ai_translate_retry_incomplete_pages">Retry incomplete/failed pages</string>
+    <string name="ai_translation_open_failed_page">Open first failed page</string>
+    <string name="ai_translation_open_book">Open task page</string>
+    <string name="ai_translation_open_book_detail">Open book page</string>
     <string name="ai_translate_delete_book_translation">Delete book AI translation</string>
     <string name="reader_ai_translation">AI translation</string>
     <string name="reader_ai_translation_icon_text">文</string>
@@ -364,6 +374,18 @@
     <string name="reader_ai_page_timing_step_ai_request">AI request</string>
     <string name="reader_ai_page_timing_step_ai_response_parse">AI response parse</string>
     <string name="reader_ai_page_timing_step_save_and_verify">Save and verify</string>
+    <string name="reader_ai_page_timing_local_session">Local session: %1$s · %2$s · acquire %3$d ms</string>
+    <string name="reader_ai_page_timing_session_hot">hot reuse</string>
+    <string name="reader_ai_page_timing_session_cold">cold start</string>
+    <string name="reader_ai_page_timing_local_inference">Local detection: preprocess %1$d ms · inference %2$d ms · postprocess %3$d ms · peak ~%4$d MiB</string>
+    <string name="reader_ai_page_timing_requests">Remote requests: %1$d regions · %2$d requests · %3$d retries</string>
+    <string name="reader_ai_page_timing_concurrency">Concurrency: configured %1$d · initial %2$d · peak %3$d · downshifts %4$d · cross-page %5$s</string>
+    <string name="reader_ai_page_timing_cross_page_active">active</string>
+    <string name="reader_ai_page_timing_cross_page_waiting">waiting</string>
+    <string name="reader_ai_page_timing_first_region">First region: %1$d ms · full page: %2$d ms</string>
+    <string name="reader_ai_page_timing_context">Page context: %1$s · %2$d KiB</string>
+    <string name="reader_ai_page_timing_usage">API usage: input %1$d · output %2$d · total %3$d tokens</string>
+    <string name="reader_ai_page_timing_usage_fallback">Cost basis: %1$d page · %2$d regions · %3$d requests</string>
     <string name="reader_ai_delete_current_page">Delete this page translation</string>
     <string name="reader_ai_test_started">AI translation test started</string>
     <string name="reader_ai_test_success">AI translation test passed</string>
@@ -379,6 +401,11 @@
     <string name="reader_ai_failure_reason">Failure reason</string>
     <string name="reader_ai_failure_reason_title">AI translation failure reason</string>
     <string name="reader_ai_failure_reason_empty">No saved failure reason for this page.</string>
+    <string name="reader_ai_failure_http_status">HTTP status: %1$d</string>
+    <string name="reader_ai_failure_retry_after">Suggested wait: %1$d seconds</string>
+    <string name="reader_ai_window_page_status">Pages: %1$d done · %2$d running · %3$d failed · %4$d paused</string>
+    <string name="reader_ai_window_progress_short">%1$d/%2$d pages</string>
+    <string name="reader_ai_window_region_status">Regions: %1$d done · %2$d running · %3$d failed · %4$d paused</string>
     <string name="reader_ai_error_title">AI translation error</string>
     <string name="reader_ai_status_pending">Pending</string>
     <string name="reader_ai_status_running">Translating</string>
@@ -430,6 +457,8 @@
     <!-- Metadata -->
     <string name="metadata_book_title">Book Metadata</string>
     <string name="metadata_series_title">Series Metadata</string>
+    <string name="book_page_preview">Page preview</string>
+    <string name="book_belongs_to_series">Part of series</string>
     <string name="metadata_admin_required">Komga admin permission is required to edit metadata.</string>
     <string name="metadata_refresh">Refresh metadata</string>
     <string name="metadata_save">Save metadata</string>
@@ -502,6 +531,8 @@
     <string name="settings_tap_page_turn_desc">Tap the left or right side of the reader to move between pages</string>
     <string name="settings_always_incognito">Always incognito</string>
     <string name="settings_always_incognito_desc">Reading and continue reading never record progress</string>
+    <string name="settings_show_book_thumbnails">Show thumbnails</string>
+    <string name="settings_show_book_thumbnails_desc">Show lazily loaded page previews on book details</string>
     <string name="settings_preload_pages">Preload pages</string>
     <string name="settings_preload_pages_desc">Preload %d pages ahead while reading</string>
     <string name="settings_reading_direction">Reading direction</string>

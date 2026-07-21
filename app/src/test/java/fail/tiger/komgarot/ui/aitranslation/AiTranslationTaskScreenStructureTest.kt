@@ -14,6 +14,8 @@ class AiTranslationTaskScreenStructureTest {
         assertTrue(source.contains("AiTranslationTaskActionMenu"))
         assertTrue(source.contains("modifier = Modifier.clickable"))
         assertTrue(source.contains("R.string.ai_translate_retry_incomplete_pages"))
+        assertTrue(source.contains("R.string.ai_translation_open_failed_page"))
+        assertTrue(source.contains("onOpenTask(task.bookId, vm.navigationPageFor(task))"))
         assertTrue(source.contains("R.string.ai_translate_delete_book_translation"))
     }
 
@@ -34,6 +36,8 @@ class AiTranslationTaskScreenStructureTest {
         assertTrue(source.contains("R.string.ai_translation_task_overview"))
         assertTrue(source.contains("activeAiTranslationTaskCount"))
         assertTrue(source.contains("failedAiTranslationPageCount"))
+        assertTrue(source.contains("LazyColumn("))
+        assertTrue(source.contains("items(sortedTasks"))
     }
 
     @Test
@@ -49,6 +53,18 @@ class AiTranslationTaskScreenStructureTest {
         assertTrue(viewModelSource.contains("clearBookTranslation"))
         assertTrue(viewModelSource.contains("clearAllTranslations"))
         assertTrue(viewModelSource.contains("AiTranslationRepository"))
+        assertTrue(viewModelSource.contains("retryTaskTranslation(task.bookId, serverUrl, task.targetPageIndexes)"))
+        assertTrue(viewModelSource.contains("status = if (state.paused) AiTranslationTaskStatus.PAUSED else AiTranslationTaskStatus.QUEUED"))
+        assertTrue(viewModelSource.contains("store.saveTaskState(state)"))
+        assertTrue(viewModelSource.contains("fun navigationPageFor(task: AiTranslationTaskSummary)"))
+    }
+
+    @Test
+    fun recoveredTasksRestartExactTargetPagesWhileLivePausedJobsResumeInPlace() {
+        assertTrue(viewModelSource.contains("task.status == AiTranslationTaskStatus.PAUSED && task.recoveryRequired"))
+        assertTrue(viewModelSource.contains("repository?.resumeTaskTranslation(task.bookId, serverUrl, task.targetPageIndexes)"))
+        assertTrue(viewModelSource.contains("status = if (task.recoveryRequired)"))
+        assertTrue(viewModelSource.contains("recoveryRequired = false"))
     }
 
     @Test

@@ -29,4 +29,7 @@ object KomgaUrls {
 
     fun page(serverUrl: String, bookId: String, pageNumber: Int): String =
         "${serverUrl.trimEnd('/')}/api/v1/books/$bookId/pages/$pageNumber"
+
+    fun pageThumbnail(serverUrl: String, bookId: String, pageNumber: Int): String =
+        "${serverUrl.trimEnd('/')}/api/v1/books/$bookId/pages/$pageNumber/thumbnail"
 }

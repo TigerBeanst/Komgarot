@@ -1,8 +1,11 @@
 package fail.tiger.komgarot.ui.bookdetail
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -19,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -36,6 +40,7 @@ import fail.tiger.komgarot.ui.components.ErrorState
 import fail.tiger.komgarot.ui.components.FloatingDetailActions
 import fail.tiger.komgarot.ui.components.FloatingDetailIconButton
 import fail.tiger.komgarot.ui.components.ImmersiveDetailScaffold
+import fail.tiger.komgarot.ui.components.ThumbnailImage
 import fail.tiger.komgarot.ui.metadata.normalizeExternalUrl
 import fail.tiger.komgarot.ui.metadata.openExternalUrl
 import java.time.Instant
@@ -53,7 +58,9 @@ fun BookDetailScreen(
     seriesIdToResolve: String? = null,
     onBack: () -> Unit,
     onReadClick: (String, Boolean) -> Unit,
+    onPageThumbnailClick: (String, Int) -> Unit,
     onMetadataClick: (String) -> Unit,
+    onSeriesClick: (String) -> Unit,
     onAuthorClick: (String, String) -> Unit = { _, _ -> },
     onTagClick: (String) -> Unit = {},
     aiTranslationAvailable: Boolean = BuildConfig.AI_TRANSLATION_AVAILABLE,
@@ -71,6 +78,7 @@ fun BookDetailScreen(
     val copied = stringResource(R.string.copied)
     val unknown = stringResource(R.string.unknown)
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    val showBookThumbnails by prefs.showBookThumbnails.collectAsStateWithLifecycle(initialValue = true)
 
     BackHandler { onBack() }
 
@@ -207,6 +215,17 @@ fun BookDetailScreen(
 
                         HorizontalDivider()
 
+                        if (book != null && !book.oneshot && book.seriesId.isNotBlank()) {
+                            val seriesTitle = book.seriesTitle?.takeIf { it.isNotBlank() }
+                                ?: stringResource(R.string.series)
+                            MetadataChipRows(
+                                title = stringResource(R.string.book_belongs_to_series),
+                                items = listOf(
+                                    seriesTitle to { onSeriesClick(book.seriesId) }
+                                )
+                            )
+                        }
+
                         if (!meta?.authors.isNullOrEmpty()) {
                             meta!!.authors.forEach { author ->
                                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -244,6 +263,11 @@ fun BookDetailScreen(
                             }
                         }
 
+                        if (meta != null && meta.summary.isNotEmpty()) {
+                            Text(stringResource(R.string.summary), style = MaterialTheme.typography.titleMedium)
+                            Text(meta.summary, style = MaterialTheme.typography.bodyMedium)
+                        }
+
                         HorizontalDivider()
 
                         if (book != null) {
@@ -253,9 +277,32 @@ fun BookDetailScreen(
                             if (book.created != null) InfoRow(stringResource(R.string.created_at), formatDateTime(book.created))
                             if (book.fileLastModified != null) InfoRow(stringResource(R.string.last_modified), formatDateTime(book.fileLastModified))
                         }
-                        if (meta != null && meta.summary.isNotEmpty()) {
-                            Text(stringResource(R.string.summary), style = MaterialTheme.typography.titleMedium)
-                            Text(meta.summary, style = MaterialTheme.typography.bodyMedium)
+                    },
+                    gridContent = {
+                        if (showBookThumbnails && resolvedBookId.isNotBlank() && resolvedPageCount > 0) {
+                            item(
+                                key = "page-preview-title",
+                                span = { GridItemSpan(maxLineSpan) }
+                            ) {
+                                Text(
+                                    stringResource(R.string.book_page_preview),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
+                            }
+                            items(
+                                count = resolvedPageCount,
+                                key = { pageIndex -> "$resolvedBookId-page-${pageIndex + 1}" },
+                                contentType = { "book-page-thumbnail" }
+                            ) { pageIndex ->
+                                val pageNumber = pageIndex + 1
+                                BookPageThumbnail(
+                                    serverUrl = serverUrl,
+                                    bookId = resolvedBookId,
+                                    pageNumber = pageNumber,
+                                    onClick = { onPageThumbnailClick(resolvedBookId, pageNumber) }
+                                )
+                            }
                         }
                     }
                 )
@@ -285,6 +332,41 @@ fun BookDetailScreen(
         )
     }
 
+}
+
+@Composable
+private fun BookPageThumbnail(
+    serverUrl: String,
+    bookId: String,
+    pageNumber: Int,
+    onClick: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Card(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth().aspectRatio(0.67f),
+            shape = RoundedCornerShape(6.dp)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                ThumbnailImage(
+                    url = KomgaUrls.pageThumbnail(serverUrl, bookId, pageNumber),
+                    cacheKey = "book-page-thumbnail:$bookId:$pageNumber",
+                    contentDescription = stringResource(R.string.reader_page_description, pageNumber),
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+        Text(
+            text = pageNumber.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 @Composable
