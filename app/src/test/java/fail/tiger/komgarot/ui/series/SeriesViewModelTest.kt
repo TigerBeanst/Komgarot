@@ -72,4 +72,24 @@ class SeriesViewModelTest {
             seriesDisplayTitle(series, mapOf("series-1" to "Book Title"))
         )
     }
+
+    @Test
+    fun scrollRestorationWaitsUntilSavedItemIsLoaded() {
+        assertEquals(
+            null,
+            restoredSeriesScrollPosition(savedIndex = 35, savedOffset = 12, itemCount = 20, hasMore = true)
+        )
+        assertEquals(
+            SeriesScrollPosition(index = 35, offset = 12),
+            restoredSeriesScrollPosition(savedIndex = 35, savedOffset = 12, itemCount = 40, hasMore = true)
+        )
+    }
+
+    @Test
+    fun scrollRestorationClampsToLastItemAtEndOfSeries() {
+        assertEquals(
+            SeriesScrollPosition(index = 19, offset = 0),
+            restoredSeriesScrollPosition(savedIndex = 35, savedOffset = 12, itemCount = 20, hasMore = false)
+        )
+    }
 }
