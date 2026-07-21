@@ -7,8 +7,10 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -47,7 +49,8 @@ class SeriesViewModel(
     private val repo: SeriesRepository,
     private val bookRepo: BookRepository,
     private val sortStore: SeriesSortStore,
-    fallbackErrorMessage: String
+    fallbackErrorMessage: String,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle()
 ) : ViewModel() {
     private val paging = PagedListState<SeriesDto, String>(
         keySelector = { it.id },
@@ -66,6 +69,7 @@ class SeriesViewModel(
     val activeFilterCount: Int get() = filters.activeCount
     private var libraryId: String? = null
     private var initialized = false
+    private var scrollRestorationPending = savedScrollIndex > 0 || savedScrollOffset > 0
     private val oneShotTitleOverrides = mutableStateMapOf<String, String>()
     private val requestedOneShotTitles = mutableSetOf<String>()
 
@@ -140,7 +144,36 @@ class SeriesViewModel(
                 repo.getSeries(libraryId, page, searchQuery.ifEmpty { null }, currentSort, filters)
                     .also { pageResult -> requestOneShotTitles(pageResult.content) }
             }
+            if (scrollRestorationPending && series.size <= savedScrollIndex && hasMore) {
+                loadMore()
+            }
         }
+    }
+
+    val savedScrollIndex: Int
+        get() = savedStateHandle[SERIES_SCROLL_INDEX_KEY] ?: 0
+
+    val savedScrollOffset: Int
+        get() = savedStateHandle[SERIES_SCROLL_OFFSET_KEY] ?: 0
+
+    internal fun pendingScrollRestoration(): SeriesScrollPosition? {
+        if (!scrollRestorationPending) return null
+        return restoredSeriesScrollPosition(
+            savedIndex = savedScrollIndex,
+            savedOffset = savedScrollOffset,
+            itemCount = series.size,
+            hasMore = hasMore
+        )
+    }
+
+    fun markScrollRestored() {
+        scrollRestorationPending = false
+    }
+
+    fun updateScrollPosition(index: Int, offset: Int) {
+        if (scrollRestorationPending) return
+        savedStateHandle[SERIES_SCROLL_INDEX_KEY] = index.coerceAtLeast(0)
+        savedStateHandle[SERIES_SCROLL_OFFSET_KEY] = offset.coerceAtLeast(0)
     }
 
     fun displayTitle(series: SeriesDto): String =
@@ -185,11 +218,38 @@ class SeriesViewModel(
         sortStore: SeriesSortStore,
         textProvider: UiTextProvider
     ) : ViewModelProvider.Factory by viewModelFactory({
-        initializer { SeriesViewModel(repo, bookRepo, sortStore, textProvider.get(R.string.error_load_series_failed)) }
+        initializer {
+            SeriesViewModel(
+                repo,
+                bookRepo,
+                sortStore,
+                textProvider.get(R.string.error_load_series_failed),
+                createSavedStateHandle()
+            )
+        }
     })
 }
 
 private const val DEFAULT_SERIES_SORT = "metadata.titleSort,asc"
+private const val SERIES_SCROLL_INDEX_KEY = "series_scroll_index"
+private const val SERIES_SCROLL_OFFSET_KEY = "series_scroll_offset"
+
+internal data class SeriesScrollPosition(val index: Int, val offset: Int)
+
+internal fun restoredSeriesScrollPosition(
+    savedIndex: Int,
+    savedOffset: Int,
+    itemCount: Int,
+    hasMore: Boolean
+): SeriesScrollPosition? {
+    if (itemCount <= 0) return null
+    val normalizedIndex = savedIndex.coerceAtLeast(0)
+    if (normalizedIndex < itemCount) {
+        return SeriesScrollPosition(normalizedIndex, savedOffset.coerceAtLeast(0))
+    }
+    if (hasMore) return null
+    return SeriesScrollPosition(itemCount - 1, 0)
+}
 
 internal fun seriesDisplayTitle(series: SeriesDto, oneShotTitleOverrides: Map<String, String>): String {
     val oneShotTitle = if (series.shouldResolveOneShotBookTitle()) {

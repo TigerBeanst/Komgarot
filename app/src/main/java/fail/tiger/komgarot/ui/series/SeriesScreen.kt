@@ -78,7 +78,22 @@ fun SeriesScreen(
     val sortField = vm.currentSort.substringBefore(",")
     val sortDirection = vm.currentSort.substringAfter(",")
 
-    val listState = rememberLazyGridState()
+    val listState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = vm.savedScrollIndex,
+        initialFirstVisibleItemScrollOffset = vm.savedScrollOffset
+    )
+    val pendingScrollRestoration = vm.pendingScrollRestoration()
+    LaunchedEffect(pendingScrollRestoration, listState) {
+        pendingScrollRestoration?.let { position ->
+            listState.scrollToItem(position.index, position.offset)
+            vm.markScrollRestored()
+        }
+    }
+    LaunchedEffect(listState, vm) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged()
+            .collect { (index, offset) -> vm.updateScrollPosition(index, offset) }
+    }
     AutoHideBottomBarOnLazyGridScroll(listState, onBottomBarVisibleChange)
     LaunchedEffect(listState, vm) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
