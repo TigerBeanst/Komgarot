@@ -92,6 +92,7 @@ import fail.tiger.komgarot.ui.cover.scaleCoverBitmapForUpload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 @Composable
 fun MetadataScreen(
@@ -167,6 +168,7 @@ fun SeriesMetadataContent(
     var titleLock by remember(meta) { mutableStateOf(meta?.titleLock ?: false) }
     var summaryLock by remember(meta) { mutableStateOf(meta?.summaryLock ?: false) }
     var publisherLock by remember(meta) { mutableStateOf(meta?.publisherLock ?: false) }
+    var languageLock by remember(meta) { mutableStateOf(meta?.languageLock ?: false) }
     var tagsLock by remember(meta) { mutableStateOf(meta?.tagsLock ?: false) }
     var genresLock by remember(meta) { mutableStateOf(meta?.genresLock ?: false) }
     var linksLock by remember(meta) { mutableStateOf(meta?.linksLock ?: false) }
@@ -208,7 +210,7 @@ fun SeriesMetadataContent(
                     summaryLock = summaryLock,
                     publisherLock = publisherLock,
                     ageRatingLock = meta?.ageRatingLock ?: false,
-                    languageLock = meta?.languageLock ?: false,
+                    languageLock = languageLock,
                     readingDirectionLock = meta?.readingDirectionLock ?: false,
                     alternateTitlesLock = meta?.alternateTitlesLock ?: false,
                     genresLock = genresLock,
@@ -246,7 +248,15 @@ fun SeriesMetadataContent(
                 MetadataSection(stringResource(R.string.metadata_basic_info)) {
                     MetaField(stringResource(R.string.metadata_title), title, editing) { title = it }
                     MetaField(stringResource(R.string.metadata_publisher), publisher, editing) { publisher = it }
-                    MetaField(stringResource(R.string.metadata_language), language, editing) { language = it }
+                    MetadataLanguageField(
+                        language = language,
+                        serverLanguages = vm.seriesLanguages,
+                        editing = editing,
+                        onChange = {
+                            language = it
+                            languageLock = true
+                        }
+                    )
                     MetaField(stringResource(R.string.metadata_age_rating), ageRating, editing) { ageRating = it.filter(Char::isDigit) }
                     MetaField(stringResource(R.string.metadata_reading_direction), readingDirection, editing) { readingDirection = it }
                     SeriesStatusField(status = status, editing = editing, onChange = { status = it })
@@ -270,6 +280,7 @@ fun SeriesMetadataContent(
                         LockSwitch(stringResource(R.string.metadata_title), titleLock) { titleLock = it }
                         LockSwitch(stringResource(R.string.summary), summaryLock) { summaryLock = it }
                         LockSwitch(stringResource(R.string.metadata_publisher), publisherLock) { publisherLock = it }
+                        LockSwitch(stringResource(R.string.metadata_language), languageLock) { languageLock = it }
                         LockSwitch(stringResource(R.string.metadata_genres), genresLock) { genresLock = it }
                         LockSwitch(stringResource(R.string.metadata_label), tagsLock) { tagsLock = it }
                         LockSwitch(stringResource(R.string.metadata_links), linksLock) { linksLock = it }
@@ -626,6 +637,68 @@ private fun SeriesStatusField(status: String, editing: Boolean, onChange: (Strin
     } else {
         MetaField(stringResource(R.string.metadata_status), status, false)
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MetadataLanguageField(
+    language: String,
+    serverLanguages: List<String>,
+    editing: Boolean,
+    onChange: (String) -> Unit
+) {
+    val options = remember(language, serverLanguages) {
+        buildMetadataLanguageOptions(language, serverLanguages)
+    }
+    val selected = options.firstOrNull { it.tag.equals(language, ignoreCase = true) }
+        ?: MetadataLanguageOption(language, MetadataLanguageName.Dynamic)
+    val selectedLabel = metadataLanguageOptionLabel(selected)
+
+    if (editing) {
+        var expanded by remember { mutableStateOf(false) }
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+            OutlinedTextField(
+                value = selectedLabel,
+                onValueChange = {},
+                label = { Text(stringResource(R.string.metadata_language)) },
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(metadataLanguageOptionLabel(option)) },
+                        onClick = {
+                            onChange(option.tag)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+    } else {
+        MetaField(stringResource(R.string.metadata_language), selectedLabel, false)
+    }
+}
+
+@Composable
+private fun metadataLanguageOptionLabel(option: MetadataLanguageOption): String {
+    val name = when (option.name) {
+        MetadataLanguageName.Unset -> stringResource(R.string.metadata_language_unset)
+        MetadataLanguageName.English -> stringResource(R.string.metadata_language_english)
+        MetadataLanguageName.Chinese -> stringResource(R.string.metadata_language_chinese)
+        MetadataLanguageName.Japanese -> stringResource(R.string.metadata_language_japanese)
+        MetadataLanguageName.Korean -> stringResource(R.string.metadata_language_korean)
+        MetadataLanguageName.Thai -> stringResource(R.string.metadata_language_thai)
+        MetadataLanguageName.Dynamic -> remember(option.tag) {
+            Locale.forLanguageTag(option.tag)
+                .getDisplayName(Locale.getDefault())
+                .takeIf(String::isNotBlank)
+                ?: option.tag
+        }
+    }
+    return option.tag.takeIf(String::isNotBlank)?.let { "$name ($it)" } ?: name
 }
 
 @Composable

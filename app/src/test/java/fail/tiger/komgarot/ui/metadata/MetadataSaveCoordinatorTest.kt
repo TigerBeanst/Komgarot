@@ -56,15 +56,40 @@ class MetadataSaveCoordinatorTest {
     @Test
     fun seriesSaveSuccessReturnsUpdatedMetadata() = runBlocking {
         var savedTitle = ""
+        var savedLanguage = ""
+        var savedLanguageLock = false
 
         val result = saveSeriesMetadata(
-            meta = SeriesMetadataDto(title = "Updated"),
+            meta = SeriesMetadataDto(title = "Updated", language = "ko", languageLock = true),
             fallbackErrorMessage = "Save failed",
             forbiddenErrorMessage = "Komga admin permission is required",
-            update = { body -> savedTitle = body.title }
+            update = { body ->
+                savedTitle = body.title
+                savedLanguage = body.language
+                savedLanguageLock = body.languageLock
+            }
         )
 
         assertEquals("Updated", savedTitle)
-        assertEquals(SeriesMetadataDto(title = "Updated"), (result as MetadataSaveResult.Success).metadata)
+        assertEquals("ko", savedLanguage)
+        assertTrue(savedLanguageLock)
+        assertEquals(
+            SeriesMetadataDto(title = "Updated", language = "ko", languageLock = true),
+            (result as MetadataSaveResult.Success).metadata
+        )
+    }
+
+    @Test
+    fun seriesSaveCanClearLanguage() = runBlocking {
+        var savedLanguage = "unchanged"
+
+        saveSeriesMetadata(
+            meta = SeriesMetadataDto(title = "Updated", language = ""),
+            fallbackErrorMessage = "Save failed",
+            forbiddenErrorMessage = "Komga admin permission is required",
+            update = { body -> savedLanguage = body.language }
+        )
+
+        assertEquals("", savedLanguage)
     }
 }
