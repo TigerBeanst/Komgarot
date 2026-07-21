@@ -22,6 +22,10 @@ class AiFeatureNavigationStructureTest {
         assertTrue(source.contains("aiTranslationAvailable = aiTranslationAvailable"))
         assertTrue(source.contains("if (aiTranslationAvailable) app.aiTranslationRepositoryOrNull else null"))
         assertTrue(source.contains("AiTranslationTaskViewModel.Factory(app.aiTranslationStore, app.aiTranslationRepositoryOrNull, serverUrl)"))
+        assertTrue(source.contains("onOpenTask = { bookId, page ->"))
+        assertTrue(source.contains("navController.navigate(Screen.Reader.go(bookId, page))"))
+        assertTrue(source.contains("onOpenBook = { task ->"))
+        assertTrue(source.contains("Screen.BookDetail.go("))
     }
 
     @Test
@@ -46,7 +50,7 @@ class AiFeatureNavigationStructureTest {
         val booksSource = source.substring(booksStart, booksEnd)
 
         assertTrue(booksSource.contains("onBookClick = { id, name, pages, isOneShot ->"))
-        assertTrue(booksSource.contains("if (isOneShot || bookCount == 1)"))
+        assertTrue(booksSource.contains("if (isOneShot)"))
         assertTrue(booksSource.contains("popUpTo(Screen.Books.go(seriesId, bookCount)) { inclusive = true }"))
     }
 }

@@ -84,12 +84,12 @@ class ReaderImageQualityStructureTest {
     }
 
     @Test
-    fun readerQuickSettingsChipsUseExplicitHighContrastColors() {
+    fun readerCompactControlsUseExplicitHighContrastColors() {
         assertTrue(source.contains("ReaderQuickChipLabel("))
         assertTrue(source.contains("readerQuickAssistChipColors()"))
-        assertTrue(source.contains("readerQuickFilterChipColors()"))
         assertTrue(source.contains("ReaderQuickChipContainerColor"))
         assertTrue(source.contains("ReaderQuickChipTextColor"))
+        assertTrue(source.contains("ReaderAiTranslationProgressControl("))
     }
 
     @Test

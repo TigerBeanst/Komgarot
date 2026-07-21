@@ -44,7 +44,6 @@ import kotlinx.coroutines.flow.map
 @Composable
 fun BookScreen(
     seriesId: String,
-    initialBookCount: Int,
     serverUrl: String,
     onBookClick: (String, String, Int, Boolean) -> Unit,
     onMetadataClick: (String) -> Unit,
@@ -61,8 +60,8 @@ fun BookScreen(
 
     LaunchedEffect(seriesId) { vm.init(seriesId) }
 
-    LaunchedEffect(vm.books.size, vm.loading, hasNavigated) {
-        if (vm.books.size == 1 && !vm.hasMore && !vm.loading && !hasNavigated) {
+    LaunchedEffect(vm.books, vm.loading, hasNavigated) {
+        if (vm.books.singleOrNull()?.oneshot == true && !vm.hasMore && !vm.loading && !hasNavigated) {
             hasNavigated = true
             val book = vm.books.first()
             onBookClick(book.id, book.metadata.title.ifEmpty { book.name }, book.media.pagesCount, book.oneshot)
@@ -98,10 +97,7 @@ fun BookScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             when {
-                vm.books.size == 1 && !vm.hasMore -> BookDetailLoadingSkeleton(onBack = onBack)
-                initialLoading && initialBookCount == 1 -> BookDetailLoadingSkeleton(
-                    onBack = onBack
-                )
+                vm.books.singleOrNull()?.oneshot == true && !vm.hasMore -> BookDetailLoadingSkeleton(onBack = onBack)
                 initialLoading -> BookGridLoadingSkeleton(onBack = onBack)
                 vm.books.isEmpty() && vm.error != null -> {
                     ErrorState(message = vm.error ?: loadBooksFailed, onRetry = vm::refresh)

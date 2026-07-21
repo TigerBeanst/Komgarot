@@ -17,9 +17,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
@@ -54,7 +56,8 @@ fun ImmersiveDetailScaffold(
     topOverlap: Dp = ImmersiveDetailDefaults.IdentityTopPadding,
     actions: @Composable BoxScope.() -> Unit,
     titleContent: @Composable () -> Unit,
-    bodyContent: @Composable () -> Unit
+    bodyContent: @Composable () -> Unit,
+    gridContent: LazyGridScope.() -> Unit = {}
 ) {
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         ImmersiveDetailBackground(
@@ -62,21 +65,26 @@ fun ImmersiveDetailScaffold(
             imageCacheKey = backgroundImageCacheKey,
             headerHeight = headerHeight
         )
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(top = topOverlap, start = 16.dp, end = 16.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(104.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = topOverlap, start = 16.dp, end = 16.dp, bottom = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            ImmersiveDetailIdentityRow(
-                coverImageUrl = coverImageUrl,
-                coverImageCacheKey = coverImageCacheKey,
-                contentDescription = contentDescription,
-                coverWidth = coverWidth,
-                titleContent = titleContent
-            )
-            bodyContent()
+            item(key = "detail", span = { GridItemSpan(maxLineSpan) }) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ImmersiveDetailIdentityRow(
+                        coverImageUrl = coverImageUrl,
+                        coverImageCacheKey = coverImageCacheKey,
+                        contentDescription = contentDescription,
+                        coverWidth = coverWidth,
+                        titleContent = titleContent
+                    )
+                    bodyContent()
+                }
+            }
+            gridContent()
         }
         Box(
             Modifier

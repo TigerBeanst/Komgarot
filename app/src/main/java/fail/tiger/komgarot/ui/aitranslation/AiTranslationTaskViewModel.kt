@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import fail.tiger.komgarot.data.local.AiTranslationStore
+import fail.tiger.komgarot.data.local.AiTranslationPageStatus
+import fail.tiger.komgarot.data.local.AiTranslationTaskSummary
 import fail.tiger.komgarot.data.local.AiTranslationTaskState
 import fail.tiger.komgarot.data.local.AiTranslationTaskStatus
 import fail.tiger.komgarot.data.repository.AiTranslationRepository
@@ -41,22 +43,57 @@ class AiTranslationTaskViewModel(
     }
 
     fun resumeAll() {
+        val recoveredTasks = state.tasks.filter { task ->
+            task.status == AiTranslationTaskStatus.PAUSED && task.recoveryRequired
+        }
         state = state.copy(
             paused = false,
             tasks = state.tasks.map { task ->
                 if (task.status == AiTranslationTaskStatus.PAUSED) {
-                    task.copy(status = AiTranslationTaskStatus.RUNNING)
+                    task.copy(
+                        status = if (task.recoveryRequired) {
+                            AiTranslationTaskStatus.QUEUED
+                        } else {
+                            AiTranslationTaskStatus.RUNNING
+                        },
+                        recoveryRequired = false
+                    )
                 } else {
                     task
                 }
             }
         )
         store.saveTaskState(state)
+        recoveredTasks.forEach { task ->
+            repository?.resumeTaskTranslation(task.bookId, serverUrl, task.targetPageIndexes)
+        }
     }
 
-    fun retryIncompletePages(bookId: String) {
-        repository?.retryIncompleteBookTranslation(bookId, serverUrl)
-        refresh()
+    fun retryIncompletePages(task: AiTranslationTaskSummary) {
+        state = state.copy(
+            tasks = state.tasks.map { current ->
+                if (current.bookId == task.bookId) {
+                    current.copy(
+                        status = if (state.paused) AiTranslationTaskStatus.PAUSED else AiTranslationTaskStatus.QUEUED,
+                        recoveryRequired = false
+                    )
+                } else {
+                    current
+                }
+            }
+        )
+        store.saveTaskState(state)
+        repository?.retryTaskTranslation(task.bookId, serverUrl, task.targetPageIndexes)
+    }
+
+    fun navigationPageFor(task: AiTranslationTaskSummary): Int {
+        val targetSet = task.targetPageIndexes.toSet()
+        val storedPages = store.readBook(task.bookId)?.pages.orEmpty()
+        val failedPage = storedPages.firstOrNull { page ->
+            page.status == AiTranslationPageStatus.FAILED &&
+                (targetSet.isEmpty() || page.pageIndex in targetSet)
+        }
+        return ((failedPage?.pageIndex ?: task.targetPageIndexes.minOrNull() ?: 0) + 1).coerceAtLeast(1)
     }
 
     fun clearBookTranslation(bookId: String) {

@@ -13,7 +13,7 @@ class AiTranslationOverlayStructureTest {
     @Test
     fun overlayDefinesBinaryIconModes() {
         assertTrue(overlaySource.contains("AiTranslationDisplayMode.OFF"))
-        assertTrue(overlaySource.contains("AiTranslationDisplayMode.ON"))
+        assertTrue(readerSource.contains("AiTranslationDisplayMode.ON"))
         assertTrue(!overlaySource.contains("AiTranslationDisplayMode.PAGE"))
         assertTrue(!overlaySource.contains("AiTranslationDisplayMode.ALL"))
         assertTrue(!overlaySource.contains("\"∞\""))
@@ -21,58 +21,54 @@ class AiTranslationOverlayStructureTest {
     }
 
     @Test
-    fun floatingButtonUsesCircularRippleBounds() {
-        val buttonStart = overlaySource.indexOf("fun AiTranslationFloatingButton(")
-        assertTrue(buttonStart >= 0)
-        val buttonSource = overlaySource.substring(buttonStart)
+    fun readerBottomControlsUseTwoCompactRows() {
+        val controlsStart = readerSource.indexOf("private fun ReaderBottomControls(")
+        val controlsEnd = readerSource.indexOf("private fun ReaderAiTranslationProgressControl(", controlsStart)
+        val controlsSource = readerSource.substring(controlsStart, controlsEnd)
 
-        assertTrue(buttonSource.contains(".clip(CircleShape)"))
-        assertTrue(buttonSource.contains("ripple(bounded = false, radius = 28.dp)"))
-        assertTrue(buttonSource.contains("MutableInteractionSource()"))
-        assertTrue(buttonSource.indexOf(".clip(CircleShape)") < buttonSource.indexOf(".combinedClickable("))
+        assertTrue(controlsSource.contains("Slider("))
+        assertTrue(controlsSource.contains("text = \"${'$'}{vm.currentPage + 1}/${'$'}{vm.pageUrls.size}\""))
+        assertTrue(controlsSource.contains("R.string.reader_quick_preload"))
+        assertTrue(controlsSource.contains("ReaderAiTranslationProgressControl("))
+        assertFalse(controlsSource.contains("ReaderQuickSettingsRow("))
     }
 
     @Test
-    fun floatingButtonKeepsSingleMaterialIconToggleVisualStateWhileRunning() {
-        val buttonStart = overlaySource.indexOf("fun AiTranslationFloatingButton(")
-        assertTrue(buttonStart >= 0)
-        val buttonSource = overlaySource.substring(buttonStart)
+    fun bottomAiControlKeepsProgressAndLongPressActions() {
+        val controlStart = readerSource.indexOf("private fun ReaderAiTranslationProgressControl(")
+        val controlEnd = readerSource.indexOf("private fun ReaderQuickChipLabel(", controlStart)
+        val controlSource = readerSource.substring(controlStart, controlEnd)
 
-        assertTrue(buttonSource.contains("progressLabel: String?"))
-        assertTrue(buttonSource.contains("!progressLabel.isNullOrBlank()"))
-        assertTrue(buttonSource.contains("text = progressLabel"))
-        assertTrue(buttonSource.contains("val running = pageStatus == AiTranslationPageStatus.RUNNING"))
-        assertTrue(buttonSource.contains("Surface("))
-        assertTrue(buttonSource.contains("color = if (active || running)"))
-        assertTrue(buttonSource.contains("contentColor = if (active || running)"))
-        assertTrue(buttonSource.contains("tonalElevation = 6.dp"))
-        assertTrue(buttonSource.contains("shadowElevation = 6.dp"))
-        assertTrue(buttonSource.contains("Icon("))
-        assertTrue(buttonSource.contains("Icons.Default.Translate"))
-        assertTrue(buttonSource.contains("combinedClickable"))
-        assertTrue(buttonSource.contains("MutableInteractionSource()"))
-        assertTrue(buttonSource.contains("ripple(bounded = false"))
-        assertTrue(!buttonSource.contains("CircularProgressIndicator("))
-        assertTrue(!buttonSource.contains("rememberInfiniteTransition"))
-        assertTrue(!buttonSource.contains("Icons.Default.Stop"))
-        assertTrue(!buttonSource.contains("Icons.Default.Visibility"))
-        assertTrue(!buttonSource.contains("Icons.Default.VisibilityOff"))
-        assertTrue(!buttonSource.contains("FloatingActionButton("))
+        assertTrue(controlSource.contains("readerAiTranslationProgressText(page)"))
+        assertTrue(controlSource.contains("R.string.reader_ai_window_progress_short"))
+        assertTrue(controlSource.contains("vm.handleAiTranslationButtonClick(preloadPages)"))
+        assertTrue(controlSource.contains("vm.showAiTranslationPageActions = true"))
+        assertTrue(controlSource.contains("Icons.Default.Translate"))
+        assertTrue(controlSource.contains("combinedClickable"))
+        assertTrue(controlSource.contains("failed -> MaterialTheme.colorScheme.errorContainer"))
+        assertFalse(readerSource.contains("AiTranslationFloatingButton("))
     }
 
     @Test
     fun readerRendersAiOverlayInPagerAndScrollModes() {
         assertTrue(readerSource.contains("AiTranslationOverlay"))
-        assertTrue(readerSource.contains("AiTranslationFloatingButton"))
+        assertTrue(readerSource.contains("ReaderAiTranslationProgressControl"))
         assertTrue(readerSource.contains("readerAiStatusStringRes"))
-        assertTrue(readerSource.contains("progressLabel = readerAiTranslationProgressText(vm.currentAiTranslatedPage(vm.currentPage))"))
+        assertTrue(readerSource.contains("readerAiTranslationProgressText(page)"))
     }
 
     @Test
-    fun readerStatusUsesCurrentBookAiTranslationModeWhenPageHasNoSavedMode() {
+    fun overlayUsesRegionStateForResumeProgressAndPlaceholderVisibility() {
+        assertTrue(overlaySource.contains("block.regionStatus == AiTranslationRegionStatus.DONE"))
+        assertTrue(overlaySource.contains("safe.regionStatus == AiTranslationRegionStatus.PENDING"))
+        assertTrue(overlaySource.contains("safe.regionStatus == AiTranslationRegionStatus.RUNNING"))
+        assertTrue(overlaySource.contains("if (!hasTranslatedText && !showProcessingPlaceholder) return@forEach"))
+    }
+
+    @Test
+    fun readerTracksCurrentBookAiTranslationModeWhenPageHasNoSavedMode() {
         assertTrue(readerViewModelSource.contains("var currentAiTranslationMode by mutableStateOf(AiTranslationMode.LOCAL_DETECTION)"))
         assertTrue(readerViewModelSource.contains("fun currentAiTranslationModeForPage(pageIndex: Int): String"))
-        assertTrue(readerSource.contains("readerAiModeShortStringRes(vm.currentAiTranslationModeForPage(vm.currentPage))"))
     }
 
     @Test
@@ -225,11 +221,38 @@ class AiTranslationOverlayStructureTest {
     }
 
     @Test
+    fun pageContextMenuOwnsReaderSettingsRemovedFromBottomControls() {
+        val menuStart = readerSource.indexOf("private fun PageContextMenu(")
+        val menuEnd = readerSource.indexOf("private fun saveBitmapToGallery(", menuStart)
+        val menuSource = readerSource.substring(menuStart, menuEnd)
+
+        assertTrue(menuSource.contains("vm.prefs.pageFit.collectAsStateWithLifecycle"))
+        assertTrue(menuSource.contains("vm.prefs.readingDirection.collectAsStateWithLifecycle"))
+        assertTrue(menuSource.contains("vm.prefs.tapPageTurn.collectAsStateWithLifecycle"))
+        assertTrue(menuSource.contains("vm.prefs.setPageFit("))
+        assertTrue(menuSource.contains("vm.prefs.setReadingDirection("))
+        assertTrue(menuSource.contains("vm.prefs.setTapPageTurn("))
+        assertTrue(menuSource.contains("R.string.reader_action_cache_status"))
+        assertTrue(menuSource.contains("ReaderPageCache.hasCachedFile("))
+        assertTrue(menuSource.contains(".verticalScroll(rememberScrollState())"))
+    }
+
+    @Test
+    fun scrollReaderOpensTheSamePageContextMenuOnLongPress() {
+        val scrollStart = readerSource.indexOf("fun ScrollReader(")
+        val scrollSource = readerSource.substring(scrollStart)
+
+        assertTrue(scrollSource.contains("var longPressUrl by remember"))
+        assertTrue(scrollSource.contains("onLongClick = { longPressUrl = url }"))
+        assertTrue(scrollSource.contains("PageContextMenu("))
+    }
+
+    @Test
     fun readerShowsAiTranslationErrorsInCopyableDialog() {
         assertTrue(readerSource.contains("aiTranslationMessageNonce"))
         assertTrue(readerSource.contains("aiTranslationMessageRes"))
         assertTrue(readerSource.contains("aiTranslationMessageText"))
-        assertTrue(readerSource.contains("vm.aiTranslationMessageText.takeIf { it.isNotBlank() } ?: context.getString(messageRes)"))
+        assertTrue(readerSource.contains("vm.aiTranslationMessageText.takeIf { it.isNotBlank() } ?: aiTranslationMessageFallback"))
         assertTrue(readerSource.contains("aiTranslationErrorDialogMessage = message"))
         assertTrue(readerSource.contains("AlertDialog("))
         assertTrue(readerSource.contains("SelectionContainer"))
@@ -245,7 +268,8 @@ class AiTranslationOverlayStructureTest {
         assertTrue(readerViewModelSource.contains("private var currentPages: List<PageDto> = emptyList()"))
         assertTrue(readerViewModelSource.contains("currentPages = pages"))
         assertTrue(readerViewModelSource.contains("viewModelScope.launch"))
-        assertTrue(readerViewModelSource.contains("val pageIndex = currentPage"))
+        assertTrue(readerViewModelSource.contains("startCurrentAiTranslationPageRetry(loaded, repository, currentPage)"))
+        assertTrue(readerViewModelSource.contains("pageIndex: Int"))
         assertTrue(readerViewModelSource.contains("updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING)"))
         assertTrue(readerViewModelSource.contains("currentAiTranslationDisplayMode = AiTranslationDisplayMode.ON"))
         assertTrue(readerViewModelSource.contains("AiTranslationDisplayMode.OFF -> AiTranslationDisplayMode.ON"))

@@ -15,21 +15,22 @@ import android.view.KeyEvent
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -56,6 +57,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -336,6 +338,11 @@ fun ReaderScreen(
     var readerAiFailureDialog by remember { mutableStateOf<String?>(null) }
     var readerAiDeleteFirstConfirmation by remember { mutableStateOf(false) }
     var readerAiDeleteFinalConfirmation by remember { mutableStateOf(false) }
+    val aiTranslationMessageFallback = if (vm.aiTranslationMessageRes != 0) {
+        stringResource(vm.aiTranslationMessageRes)
+    } else {
+        ""
+    }
 
     LaunchedEffect(
         vm.currentBookId,
@@ -351,10 +358,10 @@ fun ReaderScreen(
         }
     }
 
-    LaunchedEffect(vm.aiTranslationMessageNonce) {
+    LaunchedEffect(vm.aiTranslationMessageNonce, aiTranslationMessageFallback) {
         val messageRes = vm.aiTranslationMessageRes
         if (messageRes != 0) {
-            val message = vm.aiTranslationMessageText.takeIf { it.isNotBlank() } ?: context.getString(messageRes)
+            val message = vm.aiTranslationMessageText.takeIf { it.isNotBlank() } ?: aiTranslationMessageFallback
             if (isAiTranslationErrorMessage(messageRes)) {
                 aiTranslationErrorDialogMessage = message
             } else {
@@ -415,6 +422,9 @@ fun ReaderScreen(
                 )
                 ReadingMode.SCROLL -> ScrollReader(
                     vm,
+                    onSetBookCover = onSetBookCover,
+                    onSetSeriesCover = onSetSeriesCover,
+                    canEditMetadata = canEditMetadata,
                     aiTranslationAvailable = aiTranslationControlsVisible,
                     verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier
                 )
@@ -478,21 +488,12 @@ fun ReaderScreen(
             }
         }
 
-        // 页面指示器独立于工具栏显示，并在工具栏显示时抬高。
-        if (vm.pageUrls.isNotEmpty()) {
-            val animatedIndicatorAlpha by animateFloatAsState(
-                targetValue = if (vm.showControls) 0.85f else 0.45f,
-                label = "page_indicator_alpha"
-            )
-            val indicatorAlpha = if (einkMode) {
-                if (vm.showControls) 0.9f else 0.55f
-            } else {
-                animatedIndicatorAlpha
-            }
+        if (vm.pageUrls.isNotEmpty() && !vm.showControls) {
+            val indicatorAlpha = if (einkMode) 0.55f else 0.45f
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = readerPageIndicatorBottomPadding(vm.showControls).dp)
+                    .padding(bottom = readerPageIndicatorBottomPadding(showControls = false).dp)
                     .alpha(indicatorAlpha)
                     .background(
                         color = Color.Black.copy(alpha = 0.5f),
@@ -508,30 +509,11 @@ fun ReaderScreen(
             }
         }
 
-        if (aiTranslationAvailable && aiTranslationEnabled) {
-            val rangeStatus = readerAiTranslationPageRange(vm.currentPage, vm.pageUrls.size, memoryAwarePreloadPages)
-                .mapNotNull { vm.currentAiTranslatedPage(it)?.status }
-            val floatingStatus = if (rangeStatus.any { it == AiTranslationPageStatus.RUNNING }) {
-                AiTranslationPageStatus.RUNNING
-            } else {
-                vm.currentAiTranslatedPage(vm.currentPage)?.status
-            }
-            AiTranslationFloatingButton(
-                mode = vm.currentAiTranslationDisplayMode,
-                pageStatus = floatingStatus,
-                progressLabel = readerAiTranslationProgressText(vm.currentAiTranslatedPage(vm.currentPage)),
-                onClick = { vm.handleAiTranslationButtonClick(memoryAwarePreloadPages) },
-                onLongClick = { vm.showAiTranslationPageActions = true },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .windowInsetsPadding(WindowInsets.systemBars)
-                    .padding(end = 16.dp, bottom = 72.dp)
-            )
-        }
     }
 
     if (aiTranslationAvailable && aiTranslationEnabled && vm.showAiTranslationPageActions) {
-        val currentAiFailureSummary = vm.currentAiTranslatedPage(vm.currentPage)?.errorSummary?.takeIf { it.isNotBlank() }
+        val currentAiFailureDetails = readerAiFailureDiagnostic(vm.currentAiTranslatedPage(vm.currentPage))
+        val currentAiTimingText = readerAiTimingDiagnostic(vm.currentAiTranslationTiming())
         AlertDialog(
             onDismissRequest = { vm.showAiTranslationPageActions = false },
             title = { Text(stringResource(R.string.reader_ai_translation)) },
@@ -548,24 +530,7 @@ fun ReaderScreen(
                     }
                     TextButton(
                         onClick = {
-                            val timing = vm.currentAiTranslationTiming()
-                            readerAiTimingDialog = if (timing == null) {
-                                context.getString(R.string.reader_ai_page_timing_empty)
-                            } else {
-                                buildString {
-                                    append(context.getString(R.string.reader_ai_page_timing_total, timing.totalMs))
-                                    timing.steps.forEach { step ->
-                                        append('\n')
-                                        append(
-                                            context.getString(
-                                                R.string.reader_ai_page_timing_step,
-                                                readerAiTimingStepLabel(context, step.label),
-                                                step.durationMs
-                                            )
-                                        )
-                                    }
-                                }
-                            }
+                            readerAiTimingDialog = currentAiTimingText
                             vm.showAiTranslationPageActions = false
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -574,7 +539,7 @@ fun ReaderScreen(
                     }
                     TextButton(
                         onClick = {
-                            readerAiFailureDialog = currentAiFailureSummary ?: context.getString(R.string.reader_ai_failure_reason_empty)
+                            readerAiFailureDialog = currentAiFailureDetails
                             vm.showAiTranslationPageActions = false
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -639,7 +604,7 @@ fun ReaderScreen(
 
     if (aiTranslationAvailable && aiTranslationEnabled && vm.showAiLocalModelRequiredDialog) {
         AlertDialog(
-            onDismissRequest = { if (!vm.aiLocalModelDownloading) vm.showAiLocalModelRequiredDialog = false },
+            onDismissRequest = vm::dismissAiLocalModelRequiredDialog,
             title = { Text(stringResource(R.string.reader_ai_local_model_required_title)) },
             text = { Text(stringResource(R.string.reader_ai_local_model_required_message)) },
             confirmButton = {
@@ -657,7 +622,7 @@ fun ReaderScreen(
             dismissButton = {
                 TextButton(
                     enabled = !vm.aiLocalModelDownloading,
-                    onClick = { vm.showAiLocalModelRequiredDialog = false }
+                    onClick = vm::dismissAiLocalModelRequiredDialog
                 ) {
                     Text(stringResource(R.string.cancel))
                 }
@@ -705,6 +670,7 @@ fun ReaderScreen(
 
     if (aiTranslationAvailable) aiTranslationErrorDialogMessage?.let { message ->
         val clipboard = context.getSystemService(ClipboardManager::class.java)
+        val copiedMessage = stringResource(R.string.copied)
         AlertDialog(
             onDismissRequest = { aiTranslationErrorDialogMessage = null },
             title = { Text(stringResource(R.string.reader_ai_error_title)) },
@@ -717,7 +683,7 @@ fun ReaderScreen(
                 TextButton(
                     onClick = {
                         clipboard?.setPrimaryClip(ClipData.newPlainText("ai_translation_error", message))
-                        Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
                     }
                 ) {
                     Text(stringResource(R.string.copy))
@@ -736,18 +702,101 @@ private fun isAiTranslationErrorMessage(messageRes: Int): Boolean =
     messageRes == R.string.ai_translate_config_required ||
         messageRes == R.string.reader_ai_test_failed
 
-private fun readerAiTimingStepLabel(context: Context, key: String): String = when (key) {
-    "page_image_cache" -> context.getString(R.string.reader_ai_page_timing_step_page_image_cache)
-    "local_detection_cache" -> context.getString(R.string.reader_ai_page_timing_step_local_detection_cache)
-    "paddle_ocr" -> context.getString(R.string.reader_ai_page_timing_step_paddle_ocr)
-    "heuristic_fallback" -> context.getString(R.string.reader_ai_page_timing_step_heuristic_fallback)
-    "page_image_input" -> context.getString(R.string.reader_ai_page_timing_step_page_image_input)
-    "region_crop_images" -> context.getString(R.string.reader_ai_page_timing_step_region_crop_images)
-    "ai_request_batch" -> context.getString(R.string.reader_ai_page_timing_step_ai_request_batch)
-    "ai_request" -> context.getString(R.string.reader_ai_page_timing_step_ai_request)
-    "ai_response_parse" -> context.getString(R.string.reader_ai_page_timing_step_ai_response_parse)
-    "save_and_verify" -> context.getString(R.string.reader_ai_page_timing_step_save_and_verify)
+@Composable
+private fun readerAiTimingStepLabel(key: String): String = when (key) {
+    "page_image_cache" -> stringResource(R.string.reader_ai_page_timing_step_page_image_cache)
+    "local_detection_cache" -> stringResource(R.string.reader_ai_page_timing_step_local_detection_cache)
+    "paddle_ocr" -> stringResource(R.string.reader_ai_page_timing_step_paddle_ocr)
+    "heuristic_fallback" -> stringResource(R.string.reader_ai_page_timing_step_heuristic_fallback)
+    "page_image_input" -> stringResource(R.string.reader_ai_page_timing_step_page_image_input)
+    "region_crop_images" -> stringResource(R.string.reader_ai_page_timing_step_region_crop_images)
+    "ai_request_batch" -> stringResource(R.string.reader_ai_page_timing_step_ai_request_batch)
+    "ai_request" -> stringResource(R.string.reader_ai_page_timing_step_ai_request)
+    "ai_response_parse" -> stringResource(R.string.reader_ai_page_timing_step_ai_response_parse)
+    "save_and_verify" -> stringResource(R.string.reader_ai_page_timing_step_save_and_verify)
     else -> key
+}
+
+@Composable
+private fun readerAiTimingDiagnostic(timing: fail.tiger.komgarot.data.repository.AiTranslationPageTiming?): String {
+    if (timing == null) return stringResource(R.string.reader_ai_page_timing_empty)
+    val lines = mutableListOf(stringResource(R.string.reader_ai_page_timing_total, timing.totalMs))
+    for (step in timing.steps) {
+        lines += stringResource(
+            R.string.reader_ai_page_timing_step,
+            readerAiTimingStepLabel(step.label),
+            step.durationMs
+        )
+    }
+    timing.localDetectionStats?.let { stats ->
+        lines += stringResource(
+            R.string.reader_ai_page_timing_local_session,
+            if (stats.sessionWasReused) {
+                stringResource(R.string.reader_ai_page_timing_session_hot)
+            } else {
+                stringResource(R.string.reader_ai_page_timing_session_cold)
+            },
+            stats.executionProvider,
+            stats.sessionAcquireMs
+        )
+        lines += stringResource(
+            R.string.reader_ai_page_timing_local_inference,
+            stats.preprocessMs,
+            stats.inferenceMs,
+            stats.postProcessMs,
+            stats.estimatedPeakWorkingSetBytes / (1024L * 1024L)
+        )
+    }
+    val requestStats = timing.requestStats
+    lines += stringResource(
+        R.string.reader_ai_page_timing_requests,
+        requestStats.regionCount,
+        requestStats.requestCount,
+        requestStats.retryCount
+    )
+    lines += stringResource(
+        R.string.reader_ai_page_timing_concurrency,
+        requestStats.configuredConcurrency,
+        requestStats.initialConcurrency,
+        requestStats.peakConcurrency,
+        requestStats.concurrencyDownshiftCount,
+        stringResource(
+            if (requestStats.crossPageConcurrencyStarted) {
+                R.string.reader_ai_page_timing_cross_page_active
+            } else {
+                R.string.reader_ai_page_timing_cross_page_waiting
+            }
+        )
+    )
+    requestStats.firstRegionVisibleMs?.let { firstRegionVisibleMs ->
+        lines += stringResource(
+            R.string.reader_ai_page_timing_first_region,
+            firstRegionVisibleMs,
+            requestStats.pageCompletedMs
+        )
+    }
+    lines += stringResource(
+        R.string.reader_ai_page_timing_context,
+        requestStats.pageContextStrategy.ifBlank { "-" },
+        requestStats.pageContextBytes / 1024L
+    )
+    val usage = requestStats.usage
+    lines += if (usage.totalTokens > 0L) {
+        stringResource(
+            R.string.reader_ai_page_timing_usage,
+            usage.promptTokens,
+            usage.completionTokens,
+            usage.totalTokens
+        )
+    } else {
+        stringResource(
+            R.string.reader_ai_page_timing_usage_fallback,
+            1,
+            requestStats.regionCount,
+            requestStats.requestCount
+        )
+    }
+    return lines.joinToString("\n")
 }
 
 @Composable
@@ -780,6 +829,7 @@ private fun ReaderTopControls(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ReaderBottomControls(
     vm: ReaderViewModel,
@@ -790,15 +840,8 @@ private fun ReaderBottomControls(
     Surface(color = Color.Black.copy(alpha = containerAlpha), modifier = modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             if (vm.pageUrls.isNotEmpty()) {
-                val context = LocalContext.current
                 val scope = rememberCoroutineScope()
                 val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
-                val readingDirection by vm.prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
-                val pageFit by vm.prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
-                val tapPageTurn by vm.prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
-                val currentPageUrl = vm.pageUrls.getOrNull(vm.currentPage)
-                val currentPageCached = currentPageUrl != null &&
-                    ReaderPageCache.hasCachedFile(context, vm.currentSeriesId, vm.currentBookId, currentPageUrl)
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -817,6 +860,11 @@ private fun ReaderBottomControls(
                         steps = 0,
                         modifier = Modifier.weight(1f)
                     )
+                    Text(
+                        text = "${vm.currentPage + 1}/${vm.pageUrls.size}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium
+                    )
                     IconButton(
                         onClick = { if (vm.currentPage < vm.pageUrls.size - 1) vm.goToPage(vm.currentPage + 1) },
                         enabled = vm.currentPage < vm.pageUrls.size - 1
@@ -824,82 +872,105 @@ private fun ReaderBottomControls(
                         Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = stringResource(R.string.reader_next), tint = Color.White)
                     }
                 }
-                ReaderQuickSettingsRow(
-                    pageFit = pageFit,
-                    readingDirection = readingDirection,
-                    preloadPages = preloadPages,
-                    tapPageTurn = tapPageTurn,
-                    onToggleFit = {
-                        scope.launch { vm.prefs.setPageFit(if (pageFit == "WIDTH") "FIT" else "WIDTH") }
-                    },
-                    onToggleDirection = {
-                        scope.launch { vm.prefs.setReadingDirection(if (readingDirection == "RTL") "LTR" else "RTL") }
-                    },
-                    onCyclePreload = {
-                        scope.launch { vm.prefs.setPreloadPages(readerNextQuickPreloadPages(preloadPages)) }
-                    },
-                    onToggleTapPageTurn = {
-                        scope.launch { vm.prefs.setTapPageTurn(!tapPageTurn) }
-                    }
-                )
-                Text(
-                    text = stringResource(
-                        R.string.reader_status_format,
-                        vm.currentPage + 1,
-                        vm.pageUrls.size,
-                        preloadPages,
-                        stringResource(if (currentPageCached) R.string.reader_cached else R.string.reader_network_loading) +
-                            " · " +
-                            readerAiStatusLabel(vm, aiTranslationAvailable)
-                    ),
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AssistChip(
+                        onClick = {
+                            scope.launch { vm.prefs.setPreloadPages(readerNextQuickPreloadPages(preloadPages)) }
+                        },
+                        colors = readerQuickAssistChipColors(),
+                        label = {
+                            ReaderQuickChipLabel(stringResource(R.string.reader_quick_preload, preloadPages))
+                        }
+                    )
+                    ReaderAiTranslationProgressControl(
+                        vm = vm,
+                        aiTranslationAvailable = aiTranslationAvailable,
+                        preloadPages = readerMemoryAwarePreloadPages(preloadPages),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ReaderQuickSettingsRow(
-    pageFit: String,
-    readingDirection: String,
+private fun ReaderAiTranslationProgressControl(
+    vm: ReaderViewModel,
+    aiTranslationAvailable: Boolean,
     preloadPages: Int,
-    tapPageTurn: Boolean,
-    onToggleFit: () -> Unit,
-    onToggleDirection: () -> Unit,
-    onCyclePreload: () -> Unit,
-    onToggleTapPageTurn: () -> Unit
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    val page = vm.currentAiTranslatedPage(vm.currentPage)
+    val windowStatus = vm.currentAiTranslationWindowStatus(preloadPages)
+    val pageRunning = page?.status == AiTranslationPageStatus.RUNNING
+    val running = pageRunning || windowStatus.runningPages > 0
+    val failed = page?.status == AiTranslationPageStatus.FAILED
+    val active = vm.currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON
+    val statusText = readerAiTranslationProgressText(page)
+        ?: if (windowStatus.runningPages > 0 && windowStatus.totalPages > 0) {
+            stringResource(
+                R.string.reader_ai_window_progress_short,
+                windowStatus.completedPages,
+                windowStatus.totalPages
+            )
+        } else null
+        ?: stringResource(readerAiStatusStringRes(page?.status))
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = when {
+            failed -> MaterialTheme.colorScheme.errorContainer
+            active || running -> MaterialTheme.colorScheme.primaryContainer
+            else -> ReaderQuickChipContainerColor
+        },
+        contentColor = when {
+            failed -> MaterialTheme.colorScheme.onErrorContainer
+            active || running -> MaterialTheme.colorScheme.onPrimaryContainer
+            else -> ReaderQuickChipTextColor
+        },
+        border = if (active) {
+            null
+        } else {
+            BorderStroke(
+                width = 1.dp,
+                color = when {
+                    failed -> MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.72f)
+                    running -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                    else -> ReaderQuickChipTextColor.copy(alpha = 0.78f)
+                }
+            )
+        },
+        modifier = modifier
+            .heightIn(min = 40.dp)
+            .combinedClickable(
+                enabled = aiTranslationAvailable,
+                onClick = { vm.handleAiTranslationButtonClick(preloadPages) },
+                onLongClick = { vm.showAiTranslationPageActions = true }
+            )
     ) {
-        AssistChip(
-            onClick = onToggleFit,
-            colors = readerQuickAssistChipColors(),
-            label = { ReaderQuickChipLabel(stringResource(if (pageFit == "WIDTH") R.string.reader_quick_fit_width else R.string.reader_quick_fit_screen)) }
-        )
-        AssistChip(
-            onClick = onToggleDirection,
-            colors = readerQuickAssistChipColors(),
-            label = { ReaderQuickChipLabel(stringResource(if (readingDirection == "RTL") R.string.reader_quick_direction_rtl else R.string.reader_quick_direction_ltr)) }
-        )
-        AssistChip(
-            onClick = onCyclePreload,
-            colors = readerQuickAssistChipColors(),
-            label = { ReaderQuickChipLabel(stringResource(R.string.reader_quick_preload, preloadPages)) }
-        )
-        FilterChip(
-            selected = tapPageTurn,
-            onClick = onToggleTapPageTurn,
-            colors = readerQuickFilterChipColors(),
-            label = { ReaderQuickChipLabel(stringResource(R.string.reader_quick_tap_turn)) }
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Translate,
+                contentDescription = stringResource(R.string.reader_ai_translation),
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = stringResource(R.string.reader_ai_translation) + " · " + statusText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
     }
 }
 
@@ -914,27 +985,31 @@ private fun readerQuickAssistChipColors() = AssistChipDefaults.assistChipColors(
     labelColor = ReaderQuickChipTextColor
 )
 
-@Composable
-private fun readerQuickFilterChipColors() = FilterChipDefaults.filterChipColors(
-    containerColor = ReaderQuickChipContainerColor,
-    labelColor = ReaderQuickChipTextColor,
-    selectedContainerColor = ReaderQuickChipSelectedContainerColor,
-    selectedLabelColor = ReaderQuickChipTextColor
-)
-
 private val ReaderQuickChipContainerColor = Color.Black.copy(alpha = 0.58f)
-private val ReaderQuickChipSelectedContainerColor = Color(0xFF7A4A12).copy(alpha = 0.82f)
 private val ReaderQuickChipTextColor = Color.White
 
 @Composable
-private fun readerAiStatusLabel(vm: ReaderViewModel, aiTranslationAvailable: Boolean): String =
-    if (aiTranslationAvailable) {
-        stringResource(readerAiStatusStringRes(vm.currentAiTranslatedPage(vm.currentPage)?.status)) +
-            " · " +
-            stringResource(readerAiModeShortStringRes(vm.currentAiTranslationModeForPage(vm.currentPage)))
-    } else {
-        stringResource(R.string.disabled)
+private fun readerAiFailureDiagnostic(page: AiTranslatedPage?): String {
+    val summary = page?.errorSummary?.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.reader_ai_failure_reason_empty)
+    val httpStatusLine = page?.errorHttpStatus?.let { status ->
+        stringResource(R.string.reader_ai_failure_http_status, status)
     }
+    val retryAfterLine = page?.retryAfterMs?.let { retryAfterMs ->
+        stringResource(R.string.reader_ai_failure_retry_after, (retryAfterMs + 999L) / 1000L)
+    }
+    return buildString {
+        append(summary)
+        httpStatusLine?.let { line ->
+            append('\n')
+            append(line)
+        }
+        retryAfterLine?.let { line ->
+            append('\n')
+            append(line)
+        }
+    }
+}
 
 @Composable
 private fun ReaderStatusOverlay(
@@ -1548,6 +1623,11 @@ private fun PageContextMenu(
     onDismiss: () -> Unit,
 ) {
     val imageLoader = coil.Coil.imageLoader(context)
+    val settingsScope = rememberCoroutineScope()
+    val pageFit by vm.prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
+    val readingDirection by vm.prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
+    val tapPageTurn by vm.prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
+    val pageCached = ReaderPageCache.hasCachedFile(context, vm.currentSeriesId, vm.currentBookId, url)
     val operationFailed = stringResource(R.string.operation_failed_format)
     val savedToGallery = stringResource(R.string.reader_action_saved_to_gallery)
     val shareTitle = stringResource(R.string.reader_share_title)
@@ -1581,7 +1661,53 @@ private fun PageContextMenu(
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 16.dp)) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 16.dp)
+        ) {
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_page_fit)) },
+                supportingContent = {
+                    Text(stringResource(if (pageFit == "WIDTH") R.string.settings_page_fit_width else R.string.settings_page_fit_fit))
+                },
+                leadingContent = { Icon(Icons.Default.FitScreen, null) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.clickable {
+                    settingsScope.launch { vm.prefs.setPageFit(if (pageFit == "WIDTH") "FIT" else "WIDTH") }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_reading_direction)) },
+                supportingContent = {
+                    Text(stringResource(if (readingDirection == "RTL") R.string.settings_reading_rtl else R.string.settings_reading_ltr))
+                },
+                leadingContent = { Icon(Icons.Default.SwapHoriz, null) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.clickable {
+                    settingsScope.launch {
+                        vm.prefs.setReadingDirection(if (readingDirection == "RTL") "LTR" else "RTL")
+                    }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_tap_page_turn)) },
+                leadingContent = { Icon(Icons.Default.TouchApp, null) },
+                trailingContent = { Switch(checked = tapPageTurn, onCheckedChange = null) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.clickable {
+                    settingsScope.launch { vm.prefs.setTapPageTurn(!tapPageTurn) }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.reader_action_cache_status)) },
+                supportingContent = {
+                    Text(stringResource(if (pageCached) R.string.reader_cached else R.string.reader_network_loading))
+                },
+                leadingContent = { Icon(Icons.Default.Cached, null) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+            )
+            HorizontalDivider()
             ListItem(
                 headlineContent = { Text(stringResource(R.string.reader_action_save)) },
                 leadingContent = { Icon(Icons.Default.Download, null) },
@@ -1661,14 +1787,19 @@ private fun saveBitmapToCache(context: Context, bitmap: Bitmap): android.net.Uri
     return androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ScrollReader(
     vm: ReaderViewModel,
+    onSetBookCover: (String) -> Unit,
+    onSetSeriesCover: (String) -> Unit,
+    canEditMetadata: Boolean,
     aiTranslationAvailable: Boolean,
     verticalGlyphSpacingMultiplier: Float
 ) {
     val listState = rememberLazyListState()
     val context = LocalContext.current
+    var longPressUrl by remember { mutableStateOf<String?>(null) }
     val scrollScope = rememberCoroutineScope()
     val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
@@ -1761,12 +1892,19 @@ fun ScrollReader(
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-            detectTapGestures { vm.toggleControls() }
-        }
+        modifier = Modifier.fillMaxSize()
     ) {
         itemsIndexed(vm.pageUrls, key = { _, url -> url }) { index, url ->
-            BoxWithConstraints(Modifier.fillMaxWidth().wrapContentHeight(), contentAlignment = Alignment.Center) {
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight()
+                    .combinedClickable(
+                        onClick = { vm.toggleControls() },
+                        onLongClick = { longPressUrl = url }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
                 var retryKey by remember(url) { mutableIntStateOf(0) }
                 val pageInfo = vm.pageInfo(index)
                 val renderMode = if (pageInfo != null) readerPageRenderMode(pageInfo) else ReaderPageRenderMode.COIL
@@ -1900,5 +2038,17 @@ fun ScrollReader(
                 }
             }
         }
+    }
+
+    longPressUrl?.let { url ->
+        PageContextMenu(
+            url = url,
+            context = context,
+            vm = vm,
+            onSetBookCover = onSetBookCover,
+            onSetSeriesCover = onSetSeriesCover,
+            canEditMetadata = canEditMetadata,
+            onDismiss = { longPressUrl = null }
+        )
     }
 }

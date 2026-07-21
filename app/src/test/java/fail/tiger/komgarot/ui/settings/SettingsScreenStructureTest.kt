@@ -39,6 +39,9 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("if (!einkMode)"))
         assertTrue(source.contains("prefs.setEinkMode"))
         assertTrue(source.contains("prefs.setTapPageTurn"))
+        assertTrue(source.contains("prefs.showBookThumbnails.collectAsStateWithLifecycle(initialValue = true)"))
+        assertTrue(source.contains("R.string.settings_show_book_thumbnails"))
+        assertTrue(source.contains("prefs.setShowBookThumbnails"))
     }
 
     @Test
@@ -124,6 +127,10 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("var aiServiceTestResult by remember"))
         assertTrue(source.contains("app?.aiTranslationClient?.testService("))
         assertTrue(source.contains("R.string.settings_ai_test_service_config_required"))
+        assertTrue(source.contains("R.string.settings_ai_test_service_local_model_required"))
+        assertTrue(source.contains("aiServiceTestFailureCategoryLabelRes"))
+        assertTrue(source.contains("AiTranslationErrorCategory.VISION_UNSUPPORTED"))
+        assertTrue(source.contains("AiTranslationErrorCategory.JSON_VALIDATION_FAILED"))
         assertTrue(source.contains("AiServiceTestResultDialog("))
         assertTrue(source.contains("SelectionContainer"))
     }
