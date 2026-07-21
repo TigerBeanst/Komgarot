@@ -102,6 +102,10 @@ class ReaderViewModel(
     private var progressJob: Job? = null
     private var aiTranslationJob: Job? = null
     private var aiTranslationPageIndexes: List<Int> = emptyList()
+    var aiTranslationActivePageIndexes by mutableStateOf<List<Int>>(emptyList())
+        private set
+    var aiTranslationPriorityPageIndex by mutableIntStateOf(-1)
+        private set
     private var pendingAiTranslationAction: PendingAiTranslationAction? = null
 
     fun load(bookId: String, startPage: Int, trackProgress: Boolean = true) {
@@ -353,6 +357,8 @@ class ReaderViewModel(
         aiTranslationJob?.cancel(userPausedAiTranslationCancellation())
         aiTranslationJob = null
         aiTranslationPageIndexes = emptyList()
+        aiTranslationActivePageIndexes = emptyList()
+        aiTranslationPriorityPageIndex = -1
         resetRunningAiTranslationStoreState(pageIndexes)
         clearRunningAiTranslationState()
         currentAiTranslationDisplayMode = AiTranslationDisplayMode.OFF
@@ -421,8 +427,14 @@ class ReaderViewModel(
             }
             return
         }
-        if (isAiTranslationWorkRunning()) {
+        if (aiTranslationJob?.isActive == true) {
             prioritizeAiTranslationPageIndexes(pageIndexes)
+            if (anchorPage in aiTranslationActivePageIndexes) {
+                aiTranslationPriorityPageIndex = anchorPage
+                viewModelScope.launch {
+                    repository.prioritizeReaderPage(loaded.id, anchorPage)
+                }
+            }
             return
         }
         if (publishStartedMessage) publishAiTranslationMessage(R.string.reader_ai_retry_started)
@@ -439,19 +451,29 @@ class ReaderViewModel(
                     )
                     if (batchPageIndexes.isEmpty()) break
                     processedPageIndexes += batchPageIndexes
+                    aiTranslationActivePageIndexes = batchPageIndexes
+                    aiTranslationPriorityPageIndex = batchPageIndexes.firstOrNull() ?: -1
+                    repository.prioritizeReaderPage(loaded.id, aiTranslationPriorityPageIndex)
                     batchPageIndexes.forEach { pageIndex ->
                         updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING)
                     }
-                    val result = repository.resumePagesTranslation(
-                        book = loaded,
-                        serverUrl = currentServerUrl,
-                        pageIndexes = batchPageIndexes,
-                        cachedPages = currentPages,
-                        remotePageConcurrencyCap = 2,
-                        onPageUpdated = { page ->
-                            launch { applyAiTranslationPageUpdate(page) }
+                    val result = try {
+                        repository.resumePagesTranslation(
+                            book = loaded,
+                            serverUrl = currentServerUrl,
+                            pageIndexes = batchPageIndexes,
+                            cachedPages = currentPages,
+                            remotePageConcurrencyCap = READER_AI_TRANSLATION_REMOTE_PAGE_CONCURRENCY,
+                            onPageUpdated = { page ->
+                                launch { applyAiTranslationPageUpdate(page) }
+                            }
+                        )
+                    } finally {
+                        if (aiTranslationActivePageIndexes == batchPageIndexes) {
+                            aiTranslationActivePageIndexes = emptyList()
+                            aiTranslationPriorityPageIndex = -1
                         }
-                    )
+                    }
                     aiTranslatedBook = repository.readBookState(loaded.id)
                     currentAiTranslationMode = repository.preferredModeForBook(loaded.id)
                     val firstFailedPageIndex = batchPageIndexes.firstOrNull { pageIndex ->
@@ -480,6 +502,8 @@ class ReaderViewModel(
                 clearRunningAiTranslationState()
                 throw cancelled
             } finally {
+                aiTranslationActivePageIndexes = emptyList()
+                aiTranslationPriorityPageIndex = -1
                 if (aiTranslationJob == coroutineContext[Job]) {
                     aiTranslationJob = null
                     aiTranslationPageIndexes = emptyList()
@@ -810,7 +834,10 @@ internal fun readerAiTranslationWindowStatus(
 internal fun nextAiTranslationPageBatch(
     pageIndexes: List<Int>,
     processedPageIndexes: Set<Int>
-): List<Int> = pageIndexes.filter { pageIndex -> pageIndex !in processedPageIndexes }
+): List<Int> = pageIndexes
+    .filter { pageIndex -> pageIndex !in processedPageIndexes }
+
+private const val READER_AI_TRANSLATION_REMOTE_PAGE_CONCURRENCY = 2
 
 internal fun mergeAiTranslationRefresh(
     current: AiTranslatedBook?,

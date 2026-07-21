@@ -908,17 +908,29 @@ private fun ReaderAiTranslationProgressControl(
 ) {
     val page = vm.currentAiTranslatedPage(vm.currentPage)
     val windowStatus = vm.currentAiTranslationWindowStatus(preloadPages)
+    val activePageNumbers = listOfNotNull(vm.aiTranslationPriorityPageIndex.takeIf { it >= 0 }?.plus(1))
     val pageRunning = page?.status == AiTranslationPageStatus.RUNNING
     val running = pageRunning || windowStatus.runningPages > 0
     val failed = page?.status == AiTranslationPageStatus.FAILED
     val active = vm.currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON
-    val statusText = readerAiTranslationProgressText(page)
+    val statusText = readerAiTranslationProgressText(page)?.let { progress ->
+        stringResource(R.string.reader_ai_page_region_progress_short, vm.currentPage + 1, progress)
+    }
         ?: if (windowStatus.runningPages > 0 && windowStatus.totalPages > 0) {
-            stringResource(
-                R.string.reader_ai_window_progress_short,
-                windowStatus.completedPages,
-                windowStatus.totalPages
-            )
+            if (activePageNumbers.isNotEmpty()) {
+                stringResource(
+                    R.string.reader_ai_window_active_progress_short,
+                    windowStatus.completedPages,
+                    windowStatus.totalPages,
+                    activePageNumbers.joinToString(", ")
+                )
+            } else {
+                stringResource(
+                    R.string.reader_ai_window_progress_short,
+                    windowStatus.completedPages,
+                    windowStatus.totalPages
+                )
+            }
         } else null
         ?: stringResource(readerAiStatusStringRes(page?.status))
     Surface(

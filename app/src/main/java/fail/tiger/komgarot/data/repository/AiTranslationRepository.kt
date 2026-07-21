@@ -177,6 +177,8 @@ class AiTranslationRepository(
     private val bookTranslationQueue = Semaphore(1)
     private val operationGate = AiTranslationOperationGate()
     private val pageTimingStats = ConcurrentHashMap<String, AiTranslationPageTiming>()
+    private val activeReaderSchedulers = ConcurrentHashMap<String, AiTranslationWindowScheduler>()
+    private val readerPagePriorities = ConcurrentHashMap<String, Int>()
 
     fun readBookState(bookId: String): AiTranslatedBook? {
         if (!operationGate.hasActiveJobs(bookId)) store.recoverInterruptedPages(bookId)
@@ -202,6 +204,11 @@ class AiTranslationRepository(
 
     fun resetRunningPages(bookId: String, pageIndexes: List<Int>) {
         store.resetRunningPages(bookId, pageIndexes)
+    }
+
+    suspend fun prioritizeReaderPage(bookId: String, pageIndex: Int): Boolean {
+        readerPagePriorities[bookId] = pageIndex
+        return activeReaderSchedulers[bookId]?.prioritizePage(pageIndex) == true
     }
 
     suspend fun scanMissingBookTranslations(): AiTranslationPurgeScanResult = withContext(Dispatchers.IO) {
@@ -632,72 +639,81 @@ class AiTranslationRepository(
                 secondaryPageLimit = if (remoteWorkerCount > 1) AI_TRANSLATION_SECONDARY_PAGE_REQUEST_LIMIT else 0
             )
         )
-        val preparedPages = orderedPending.map { CompletableDeferred<PreparedAiPageResult>() }
-        val nextPrepareOffset = AtomicInteger(0)
-        val prepareJobs = (0 until preparationWorkerCount).map {
-            async {
-                while (true) {
-                    val offset = nextPrepareOffset.getAndIncrement()
-                    if (offset >= orderedPending.size) break
-                    awaitAiTranslationTaskResumed()
-                    val pageIndex = orderedPending[offset]
-                    val prepared = try {
-                        PreparedAiPageResult.Prepared(
-                            preparePageInput(
+        activeReaderSchedulers[book.id] = requestControl.scheduler
+        try {
+            readerPagePriorities[book.id]?.let { pageIndex ->
+                requestControl.scheduler.prioritizePage(pageIndex)
+            }
+            val preparedPages = orderedPending.map { CompletableDeferred<PreparedAiPageResult>() }
+            val nextPrepareOffset = AtomicInteger(0)
+            val prepareJobs = (0 until preparationWorkerCount).map {
+                async {
+                    while (true) {
+                        val offset = nextPrepareOffset.getAndIncrement()
+                        if (offset >= orderedPending.size) break
+                        awaitAiTranslationTaskResumed()
+                        val pageIndex = orderedPending[offset]
+                        val prepared = try {
+                            PreparedAiPageResult.Prepared(
+                                preparePageInput(
+                                    book = book,
+                                    serverUrl = serverUrl,
+                                    settings = settings,
+                                    s3Uploader = s3Uploader,
+                                    pageIndex = pageIndex,
+                                    pages = allPages,
+                                    sourceLanguage = sourceLanguageSession.current(),
+                                    onPageUpdated = onPageUpdated
+                                )
+                            )
+                        } catch (throwable: Throwable) {
+                            if (throwable is CancellationException) throw throwable
+                            PreparedAiPageResult.Failed(
+                                failRun(
+                                    book.id,
+                                    listOf(pageIndex),
+                                    "Failed to build page image input: ${throwable.message.orEmpty()}"
+                                )
+                            )
+                        }
+                        preparedPages[offset].complete(prepared)
+                    }
+                }
+            }
+            val remoteJobs = mutableListOf<kotlinx.coroutines.Deferred<AiTranslationRunResult>>()
+            orderedPending.indices.forEach { offset ->
+                when (val prepared = preparedPages[offset].await()) {
+                    is PreparedAiPageResult.Failed -> {
+                        remoteJobs += async {
+                            requestControl.scheduler.markPageCompleted(orderedPending[offset])
+                            onPageTranslated()
+                            prepared.result
+                        }
+                    }
+                    is PreparedAiPageResult.Prepared -> {
+                        remoteJobs += async {
+                            awaitAiTranslationTaskResumed()
+                            val result = translatePreparedPage(
                                 book = book,
-                                serverUrl = serverUrl,
                                 settings = settings,
-                                s3Uploader = s3Uploader,
-                                pageIndex = pageIndex,
-                                pages = allPages,
-                                sourceLanguage = sourceLanguageSession.current(),
+                                apiKey = apiKey,
+                                prepared = listOf(prepared.input),
+                                sourceLanguageSession = sourceLanguageSession,
+                                requestControl = requestControl,
                                 onPageUpdated = onPageUpdated
                             )
-                        )
-                    } catch (throwable: Throwable) {
-                        if (throwable is CancellationException) throw throwable
-                        PreparedAiPageResult.Failed(
-                            failRun(
-                                book.id,
-                                listOf(pageIndex),
-                                "Failed to build page image input: ${throwable.message.orEmpty()}"
-                            )
-                        )
-                    }
-                    preparedPages[offset].complete(prepared)
-                }
-            }
-        }
-        val remoteJobs = mutableListOf<kotlinx.coroutines.Deferred<AiTranslationRunResult>>()
-        orderedPending.indices.forEach { offset ->
-            when (val prepared = preparedPages[offset].await()) {
-                is PreparedAiPageResult.Failed -> {
-                    remoteJobs += async {
-                        requestControl.scheduler.markPageCompleted(orderedPending[offset])
-                        onPageTranslated()
-                        prepared.result
-                    }
-                }
-                is PreparedAiPageResult.Prepared -> {
-                    remoteJobs += async {
-                        awaitAiTranslationTaskResumed()
-                        val result = translatePreparedPage(
-                            book = book,
-                            settings = settings,
-                            apiKey = apiKey,
-                            prepared = listOf(prepared.input),
-                            sourceLanguageSession = sourceLanguageSession,
-                            requestControl = requestControl,
-                            onPageUpdated = onPageUpdated
-                        )
-                        onPageTranslated()
-                        result
+                            onPageTranslated()
+                            result
+                        }
                     }
                 }
             }
+            prepareJobs.awaitAll()
+            remoteJobs.awaitAll()
+        } finally {
+            activeReaderSchedulers.remove(book.id, requestControl.scheduler)
+            readerPagePriorities.remove(book.id)
         }
-        prepareJobs.awaitAll()
-        remoteJobs.awaitAll()
     }
 
     private fun ensureBookFile(book: BookDto, pageCount: Int, mode: AiTranslationMode) {

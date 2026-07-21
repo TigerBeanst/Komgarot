@@ -149,6 +149,39 @@ class AiTranslationWindowSchedulerTest {
         assertEquals(4, scheduler.snapshot().peakActiveRequests)
     }
 
+    @Test
+    fun prioritizingPageKeepsRunningRequestAndGrantsNextSlotToCurrentPage() = runBlocking {
+        val scheduler = AiTranslationWindowScheduler(pageIndexes = listOf(0, 1), configuredLimit = 1)
+        scheduler.markPageReady(pageIndex = 0, memoryLimit = 1)
+        scheduler.markPageReady(pageIndex = 1, memoryLimit = 1)
+        val started = Channel<Int>(Channel.UNLIMITED)
+        val releaseOldPage = CompletableDeferred<Unit>()
+
+        val oldPage = async {
+            scheduler.execute(pageIndex = 0) {
+                started.send(0)
+                releaseOldPage.await()
+                AiTranslationRequestResult.Success(normalizedJson = "{}")
+            }
+        }
+        assertEquals(0, withTimeout(1_000L) { started.receive() })
+
+        val currentPage = async {
+            scheduler.execute(pageIndex = 1) {
+                started.send(1)
+                AiTranslationRequestResult.Success(normalizedJson = "{}")
+            }
+        }
+        assertNull(withTimeoutOrNull(100L) { started.receive() })
+        assertTrue(scheduler.prioritizePage(1))
+        releaseOldPage.complete(Unit)
+
+        assertEquals(1, withTimeout(1_000L) { started.receive() })
+        oldPage.await()
+        currentPage.await()
+        Unit
+    }
+
     private companion object {
         const val MIB = 1024L * 1024L
     }

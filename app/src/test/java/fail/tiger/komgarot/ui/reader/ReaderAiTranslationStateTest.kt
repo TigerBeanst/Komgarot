@@ -274,9 +274,10 @@ class ReaderAiTranslationStateTest {
         assertTrue(startSource.contains("nextAiTranslationPageBatch("))
         assertTrue(startSource.contains("repository.resumePagesTranslation("))
         assertTrue(startSource.contains("pageIndexes = batchPageIndexes"))
-        assertTrue(startSource.contains("remotePageConcurrencyCap = 2"))
+        assertTrue(startSource.contains("remotePageConcurrencyCap = READER_AI_TRANSLATION_REMOTE_PAGE_CONCURRENCY"))
         assertTrue(startSource.contains("batchPageIndexes.forEach { pageIndex ->"))
-        assertTrue(startSource.contains("onPageUpdated = { page ->\n                            launch { applyAiTranslationPageUpdate(page) }"))
+        assertTrue(startSource.contains("onPageUpdated = { page ->"))
+        assertTrue(startSource.contains("launch { applyAiTranslationPageUpdate(page) }"))
         assertFalse(startSource.contains("repository.retryPageTranslation("))
         assertFalse(startSource.contains("repository.retryPagesTranslation("))
         assertTrue(repositorySource.contains("suspend fun resumePagesTranslation("))
@@ -300,6 +301,10 @@ class ReaderAiTranslationStateTest {
                 processedPageIndexes = setOf(5)
             )
         )
+        assertTrue(viewModelSource.contains("if (anchorPage in aiTranslationActivePageIndexes)"))
+        assertTrue(viewModelSource.contains("repository.prioritizeReaderPage(loaded.id, anchorPage)"))
+        assertTrue(viewModelSource.contains("repository.prioritizeReaderPage(loaded.id, aiTranslationPriorityPageIndex)"))
+        assertFalse(viewModelSource.contains("cancelAndJoin()"))
     }
 
     @Test
