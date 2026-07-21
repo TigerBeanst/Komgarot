@@ -24,6 +24,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -326,6 +327,8 @@ fun ReaderScreen(
     val context = LocalContext.current
     val view = LocalView.current
     val window = (view.context as? android.app.Activity)?.window
+    val useDarkSystemBarIcons = !isSystemInDarkTheme()
+    val restoreDarkSystemBarIcons by rememberUpdatedState(useDarkSystemBarIcons)
     val keepScreenOn by vm.prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val aiTranslationEnabled by vm.prefs.aiTranslationEnabled.collectAsStateWithLifecycle(initialValue = false)
@@ -366,6 +369,23 @@ fun ReaderScreen(
                 aiTranslationErrorDialogMessage = message
             } else {
                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    DisposableEffect(window, view) {
+        window?.let {
+            WindowInsetsControllerCompat(it, view).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+            }
+        }
+        onDispose {
+            window?.let {
+                WindowInsetsControllerCompat(it, view).apply {
+                    isAppearanceLightStatusBars = restoreDarkSystemBarIcons
+                    isAppearanceLightNavigationBars = restoreDarkSystemBarIcons
+                }
             }
         }
     }
