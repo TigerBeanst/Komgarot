@@ -111,9 +111,10 @@ fun AppNavGraph(app: KomgarotApp) {
         if (serverUrl.isNotEmpty()) {
             sessionVm.refresh(force = true)
         }
-        if (serverUrl.isNotEmpty() && navController.currentDestination?.route != Screen.Library.route) {
+        if (serverUrl.isNotEmpty() && navController.currentDestination?.route == Screen.Login.route) {
             navController.navigate(Screen.Library.route) {
                 popUpTo(Screen.Login.route) { inclusive = true }
+                launchSingleTop = true
             }
         }
     }
