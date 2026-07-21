@@ -14,6 +14,26 @@ import org.junit.Test
 
 class AiTranslationOperationGateTest {
     @Test
+    fun activeJobStateTracksRunningBookOperation() = runBlocking {
+        val gate = AiTranslationOperationGate()
+        val started = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        val operation = launch {
+            gate.runBookOperation("book") {
+                started.complete(Unit)
+                finish.await()
+            }
+        }
+
+        started.await()
+        assertTrue(gate.hasActiveJobs("book"))
+
+        finish.complete(Unit)
+        operation.join()
+        assertFalse(gate.hasActiveJobs("book"))
+    }
+
+    @Test
     fun clearCancelsActiveOperationBeforeDeleting() = runBlocking {
         val gate = AiTranslationOperationGate()
         val started = CompletableDeferred<Long>()

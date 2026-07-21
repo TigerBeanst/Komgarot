@@ -1,6 +1,9 @@
 package fail.tiger.komgarot.data.remote
 
 import fail.tiger.komgarot.data.local.AiImageTransport
+import fail.tiger.komgarot.data.local.AiSeriesSourceLanguageState
+import fail.tiger.komgarot.data.local.AiSourceLanguageOrigin
+import fail.tiger.komgarot.data.local.AiSourceReadingDirection
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
@@ -32,14 +35,14 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("Classify the crop as dialogue, narration, sign, or SFX"))
         assertTrue(prompt.contains("If the crop is dominated by a sound effect"))
         assertTrue(prompt.contains("SFX translatedLines must stay very short"))
-        assertTrue(prompt.contains("Preserve Japanese corner quotes"))
+        assertTrue(prompt.contains("detectedSourceLanguage"))
         assertTrue(prompt.contains("Line breaks must preserve word and phrase cohesion"))
         assertTrue(prompt.contains("Punctuation in translatedLines follows visible source punctuation"))
         assertTrue(prompt.contains("A single visible source ellipsis character … maps to one translated ellipsis"))
         assertTrue(prompt.contains("Short fragments with no visible sentence-final mark should end bare"))
         assertTrue(prompt.contains("Punctuation attaches to the preceding word or phrase"))
         assertTrue(prompt.contains("translatedLines must be written in targetLanguageName"))
-        assertTrue(prompt.contains("Translate Japanese kana and source-language grammar into targetLanguageName"))
+        assertTrue(prompt.contains("IETF BCP 47"))
         assertTrue(prompt.contains("pure number"))
         assertTrue(prompt.contains("translatedLines as an empty array"))
         assertTrue(!prompt.contains("Return strict JSON only."))
@@ -107,6 +110,81 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("left-to-right"))
         assertTrue(prompt.contains("top-to-bottom"))
         assertTrue(prompt.contains("Preserve Korean spaces"))
+    }
+
+    @Test
+    fun userPromptUsesKnownKomgaSourceLanguageWithoutDetectionRequest() {
+        val prompt = aiTranslationUserPrompt(
+            bookId = "book-japanese",
+            targetLocale = "zh-CN",
+            targetLanguageName = "简体中文",
+            translationMode = AiTranslationMode.LOCAL_DETECTION,
+            localPageContexts = emptyList(),
+            customInstructions = "",
+            sourceLanguage = AiSeriesSourceLanguageState(
+                seriesId = "series-1",
+                normalizedCode = "ja-JP",
+                rawKomgaValue = "ja-JP",
+                origin = AiSourceLanguageOrigin.KOMGA,
+                readingDirection = AiSourceReadingDirection.RIGHT_TO_LEFT
+            )
+        )
+
+        assertTrue(prompt.contains("sourceLanguageOrigin: komga"))
+        assertTrue(prompt.contains("sourceLanguage: ja-JP"))
+        assertTrue(prompt.contains("sourceLanguageName: Japanese"))
+        assertTrue(prompt.contains("detectSourceLanguage: false"))
+        assertTrue(prompt.contains("Japanese source"))
+        assertTrue(prompt.contains("Preserve Japanese corner quotes"))
+        assertTrue(prompt.contains("sourceReadingDirection: right_to_left"))
+        assertTrue(prompt.contains("sourceTextProfile: japanese_manga"))
+    }
+
+    @Test
+    fun userPromptRequestsLanguageDetectionForPendingSeries() {
+        val prompt = aiTranslationUserPrompt(
+            bookId = "book-auto",
+            targetLocale = "zh-CN",
+            targetLanguageName = "简体中文",
+            translationMode = AiTranslationMode.LOCAL_DETECTION,
+            localPageContexts = emptyList(),
+            customInstructions = "",
+            sourceLanguage = AiSeriesSourceLanguageState(seriesId = "series-1")
+        )
+
+        assertTrue(prompt.contains("sourceLanguageOrigin: ai_pending"))
+        assertTrue(prompt.contains("sourceLanguage: auto"))
+        assertTrue(prompt.contains("detectSourceLanguage: true"))
+        assertTrue(prompt.contains("IETF BCP 47 tag"))
+    }
+
+    @Test
+    fun userPromptProvidesLanguageSpecificRulesForHorizontalComics() {
+        val instructions = mapOf(
+            "ko" to "Korean source",
+            "en" to "English source",
+            "zh-Hans" to "Chinese source",
+            "th" to "Thai source"
+        )
+
+        instructions.forEach { (language, expectedInstruction) ->
+            val prompt = aiTranslationUserPrompt(
+                bookId = "book-horizontal",
+                targetLocale = "zh-CN",
+                targetLanguageName = "简体中文",
+                translationMode = AiTranslationMode.LOCAL_DETECTION,
+                localPageContexts = emptyList(),
+                customInstructions = "",
+                sourceLanguage = AiSeriesSourceLanguageState(
+                    seriesId = "series-1",
+                    normalizedCode = language,
+                    origin = AiSourceLanguageOrigin.KOMGA
+                )
+            )
+
+            assertTrue(prompt.contains(expectedInstruction))
+            assertTrue(prompt.contains("sourceTextProfile: horizontal_comic"))
+        }
     }
 
     @Test

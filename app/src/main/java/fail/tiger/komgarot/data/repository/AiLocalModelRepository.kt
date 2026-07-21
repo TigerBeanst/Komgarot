@@ -171,6 +171,7 @@ internal fun paddleDetectorInputMaxSide(
     sourceTextProfile: AiSourceTextProfile
 ): Int = when (sourceTextProfile) {
     AiSourceTextProfile.JAPANESE_MANGA -> 1600
+    AiSourceTextProfile.HORIZONTAL_COMIC,
     AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON -> when (tier) {
         AiLocalModelTier.LOW -> 1280
         AiLocalModelTier.BALANCED,

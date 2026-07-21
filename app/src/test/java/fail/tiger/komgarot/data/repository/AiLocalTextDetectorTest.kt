@@ -44,11 +44,15 @@ class AiLocalTextDetectorTest {
         assertTrue(appSource.contains("AiPaddleTextDetector(applicationContext, aiLocalModelRepository)"))
         assertTrue(detectorSource.contains("paddleTextDetector: AiPaddleTextDetector? = null"))
         assertTrue(detectorSource.contains("paddleTextDetector?.detect("))
+        assertTrue(detectorSource.contains("sourceLanguageTag = sourceLanguageTag"))
+        assertTrue(detectorSource.contains("onDetectionStats: (AiLocalDetectionStats) -> Unit = {}"))
         assertTrue(!detectorSource.contains("mergePaddleRegionsWithOcrText"))
         assertTrue(paddleSource.contains("OrtEnvironment.getEnvironment()"))
         assertTrue(paddleSource.contains("paddleProbabilityMapToRects("))
         assertTrue(paddleSource.contains("bitmap.toPaddleDetectorInput(maxSide = paddleDetectorInputMaxSide("))
         assertTrue(paddleSource.contains("coerceIn(0.74f, 1.28f)"))
+        assertTrue(paddleSource.contains("PaddleOnnxSessionCache"))
+        assertTrue(paddleSource.contains("paddleRegionConfidence(this)"))
         assertTrue(!paddleSource.contains("runRecognitionModel"))
     }
 
@@ -915,6 +919,16 @@ class AiLocalTextDetectorTest {
         assertEquals(
             AiTranslationTextDirection.VERTICAL,
             detectedTextDirectionForRect(rect, AiSourceTextProfile.JAPANESE_MANGA)
+        )
+    }
+
+    @Test
+    fun normalHorizontalComicProfilePrefersHorizontalDetectedBoxes() {
+        val rect = AiTranslationRect(x = 0.12f, y = 0.20f, width = 0.16f, height = 0.19f)
+
+        assertEquals(
+            AiTranslationTextDirection.HORIZONTAL,
+            detectedTextDirectionForRect(rect, AiSourceTextProfile.HORIZONTAL_COMIC)
         )
     }
 

@@ -14,7 +14,7 @@ class AiSettingsTest {
         assertEquals("", settings.baseUrl)
         assertEquals("", settings.modelName)
         assertEquals(AiImageTransport.BASE64, settings.imageTransport)
-        assertEquals(AiTranslationRequestMode.SERIAL, settings.requestMode)
+        assertEquals(AiTranslationRequestMode.PARALLEL, settings.requestMode)
         assertEquals(10, settings.pagesPerRequest)
         assertEquals(8, settings.concurrentRequests)
         assertEquals(20, settings.maxImagesPerRequest)
@@ -45,14 +45,16 @@ class AiSettingsTest {
         assertEquals(1, AiSettings.normalizeConcurrentRequests(-3))
         assertEquals(1, AiSettings.normalizeConcurrentRequests(0))
         assertEquals(3, AiSettings.normalizeConcurrentRequests(3))
-        assertEquals(8, AiSettings.normalizeConcurrentRequests(9))
-        assertEquals(8, AiSettings.normalizeConcurrentRequests(80))
+        assertEquals(9, AiSettings.normalizeConcurrentRequests(9))
+        assertEquals(32, AiSettings.normalizeConcurrentRequests(32))
+        assertEquals(32, AiSettings.normalizeConcurrentRequests(80))
     }
 
     @Test
-    fun requestModeFallsBackToSerial() {
-        assertEquals(AiTranslationRequestMode.SERIAL, AiTranslationRequestMode.fromStoredValue(""))
-        assertEquals(AiTranslationRequestMode.SERIAL, AiTranslationRequestMode.fromStoredValue("unknown"))
+    fun requestModeFallsBackToBoundedParallel() {
+        assertEquals(AiTranslationRequestMode.PARALLEL, AiTranslationRequestMode.fromStoredValue(""))
+        assertEquals(AiTranslationRequestMode.PARALLEL, AiTranslationRequestMode.fromStoredValue("unknown"))
+        assertEquals(AiTranslationRequestMode.SERIAL, AiTranslationRequestMode.fromStoredValue("serial"))
         assertEquals(AiTranslationRequestMode.PARALLEL, AiTranslationRequestMode.fromStoredValue("parallel"))
     }
 
@@ -155,6 +157,7 @@ class AiSettingsTest {
     fun sourceTextProfileStoredValuesRoundTrip() {
         assertEquals(AiSourceTextProfile.AUTO, AiSourceTextProfile.fromStoredValue(""))
         assertEquals(AiSourceTextProfile.JAPANESE_MANGA, AiSourceTextProfile.fromStoredValue("japanese_manga"))
+        assertEquals(AiSourceTextProfile.HORIZONTAL_COMIC, AiSourceTextProfile.fromStoredValue("horizontal_comic"))
         assertEquals(AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON, AiSourceTextProfile.fromStoredValue("korean_horizontal_webtoon"))
         assertEquals("korean_horizontal_webtoon", AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON.storedValue)
     }

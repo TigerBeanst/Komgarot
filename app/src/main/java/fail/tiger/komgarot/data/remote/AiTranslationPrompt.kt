@@ -2,10 +2,14 @@ package fail.tiger.komgarot.data.remote
 
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
+import fail.tiger.komgarot.data.local.AiSeriesSourceLanguageState
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
+import fail.tiger.komgarot.data.local.AiSourceLanguageOrigin
+import fail.tiger.komgarot.data.local.AiSourceReadingDirection
 import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
+import java.util.Locale
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -46,7 +50,7 @@ Page context images provide scene, speaker, tone, setting, and action context. U
 The page context images are supporting context for the current crop.
 The crop image is the only readable source text. Read the full crop as one coherent unit before translating.
 Return only:
-{"pageIndex":number,"translations":[{"sourceText":string|string[],"translatedLines":string[],"kind":"dialogue"|"narration"|"sign"|"SFX"}]}
+{"pageIndex":number,"translations":[{"sourceText":string|string[],"translatedLines":string[],"kind":"dialogue"|"narration"|"sign"|"SFX","detectedSourceLanguage":string}]}
 Return no localRegionId, id, rect, coordinates, placement, color, or font data.
 Classify the crop as dialogue, narration, sign, or SFX.
 If the crop is dominated by a sound effect, return kind: "SFX".
@@ -58,9 +62,8 @@ Translate dialogue balloons, narration boxes, signs, and important in-image text
 Keep character voice, pauses, shouting, hesitation, short punchy lines, and comic timing.
 Use the supplied targetLocale and targetLanguageName as the translation language.
 translatedLines must be written in targetLanguageName.
-Translate Japanese kana and source-language grammar into targetLanguageName.
 Before returning JSON, verify every translatedLines entry uses targetLanguageName.
-Preserve Japanese corner quotes 「」 and nested corner quotes 『』 when they express quoted speech, title text, emphasis, or source style.
+When detectSourceLanguage is true, return detectedSourceLanguage as a valid IETF BCP 47 language tag for the crop text.
 Punctuation in translatedLines follows visible source punctuation.
 A single visible source ellipsis character … maps to one translated ellipsis …; repeated visible source ellipses keep the same count.
 Short fragments with no visible sentence-final mark should end bare.
@@ -77,22 +80,25 @@ fun aiTranslationUserPrompt(
     translationMode: AiTranslationMode,
     localPageContexts: List<AiTranslationLocalPageContext>,
     customInstructions: String,
-    sourceTextProfile: AiSourceTextProfile = AiSourceTextProfile.AUTO
+    sourceTextProfile: AiSourceTextProfile = AiSourceTextProfile.AUTO,
+    sourceLanguage: AiSeriesSourceLanguageState? = null
 ): String = buildString {
     appendLine("bookId: $bookId")
     appendLine("targetLocale: $targetLocale")
     appendLine("targetLanguageName: $targetLanguageName")
     appendLine("sourceMode: ${translationMode.storedValue}")
-    appendSourceTextProfileIfNeeded(sourceTextProfile)
+    val effectiveSourceTextProfile = sourceLanguage?.sourceTextProfile ?: sourceTextProfile
+    appendSourceLanguageIfPresent(sourceLanguage)
+    appendSourceTextProfileIfNeeded(effectiveSourceTextProfile)
     if (localPageContexts.isNotEmpty()) {
         appendLine("currentRegion:")
-        appendLine(localContextGson.toJson(localPageContexts.toPromptCurrentRegionJson(sourceTextProfile)))
+        appendLine(localContextGson.toJson(localPageContexts.toPromptCurrentRegionJson(effectiveSourceTextProfile)))
         appendLine("Translate the current crop.")
         appendLine("Image 1: context")
         appendLine("Image 2: crop")
         appendLine("Use page context for scene, speaker, tone, and action.")
         appendLine("Read sourceText from the crop image.")
-        if (sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON) {
+        if (sourceLanguage == null && sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON) {
             appendLine("Korean horizontal webtoon source profile: read Korean text left-to-right within each line and top-to-bottom across lines.")
             appendLine("Preserve Korean spaces in sourceText, including spacing around names, particles, and short spoken fragments.")
         }
@@ -100,6 +106,50 @@ fun aiTranslationUserPrompt(
     if (customInstructions.isNotBlank()) {
         appendLine("Additional user instructions:")
         appendLine(customInstructions)
+    }
+}
+
+private fun StringBuilder.appendSourceLanguageIfPresent(sourceLanguage: AiSeriesSourceLanguageState?) {
+    if (sourceLanguage == null) return
+    appendLine("sourceLanguageOrigin: ${sourceLanguage.origin.storedValue}")
+    if (sourceLanguage.normalizedCode.isBlank()) {
+        appendLine("sourceLanguage: auto")
+        appendLine("detectSourceLanguage: true")
+        appendLine("Detect the crop source language and return detectedSourceLanguage as an IETF BCP 47 tag.")
+    } else {
+        appendLine("sourceLanguage: ${sourceLanguage.normalizedCode}")
+        appendLine("sourceLanguageName: ${sourceLanguage.normalizedCode.sourceLanguageName()}")
+        appendLine("detectSourceLanguage: false")
+        appendKnownSourceLanguageInstructions(sourceLanguage.normalizedCode)
+    }
+    if (sourceLanguage.readingDirection != AiSourceReadingDirection.UNKNOWN) {
+        appendLine("sourceReadingDirection: ${sourceLanguage.readingDirection.storedValue}")
+    }
+    if (sourceLanguage.origin == AiSourceLanguageOrigin.KOMGA && sourceLanguage.rawKomgaValue.isNotBlank()) {
+        appendLine("komgaSourceLanguage: ${sourceLanguage.rawKomgaValue}")
+    }
+}
+
+private fun String.sourceLanguageName(): String =
+    Locale.forLanguageTag(this)
+        .getDisplayLanguage(Locale.ENGLISH)
+        .takeIf { it.isNotBlank() }
+        ?: this
+
+private fun StringBuilder.appendKnownSourceLanguageInstructions(normalizedCode: String) {
+    when (normalizedCode.substringBefore('-')) {
+        "ja" -> {
+            appendLine("Japanese source: read kana, kanji, visible punctuation, and vertical or horizontal text as shown.")
+            appendLine("Preserve Japanese corner quotes 「」 and nested corner quotes 『』 when they carry source style or emphasis.")
+        }
+        "ko" -> {
+            appendLine("Korean source: read each line left-to-right and lines top-to-bottom.")
+            appendLine("Preserve Korean word spacing, names, particles, honorifics, and short spoken fragments in sourceText.")
+        }
+        "en" -> appendLine("English source: preserve capitalization, contractions, slang, emphasis, and short comic timing.")
+        "zh" -> appendLine("Chinese source: preserve the visible script, names, punctuation, and concise comic phrasing.")
+        "th" -> appendLine("Thai source: preserve word grouping, names, particles, tone, and visible punctuation.")
+        else -> appendLine("Read the source text according to the supplied BCP 47 language tag.")
     }
 }
 

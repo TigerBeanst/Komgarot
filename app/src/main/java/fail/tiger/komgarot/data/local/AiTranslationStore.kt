@@ -14,6 +14,7 @@ class AiTranslationStore(private val filesDir: File) {
     private val booksDir = File(rootDir, "books")
     private val localContextDir = File(rootDir, "local_context")
     private val regionCropDir = File(rootDir, "region_crops")
+    private val sourceLanguageDir = File(rootDir, "source_languages")
     private val tasksFile = File(rootDir, "tasks.json")
 
     fun bookFile(bookId: String): File =
@@ -32,6 +33,23 @@ class AiTranslationStore(private val filesDir: File) {
         val file = bookFile(book.bookId)
         file.parentFile?.mkdirs()
         writeAtomically(file, toAiTranslatedBookJson(book))
+    }
+
+    @Synchronized
+    fun readSeriesSourceLanguage(seriesId: String): AiSeriesSourceLanguageState? {
+        if (seriesId.isBlank()) return null
+        val file = File(sourceLanguageDir, "${sanitizeBookId(seriesId)}.json")
+        if (!file.isFile) return null
+        return parseAiSeriesSourceLanguageState(file.readText())
+            ?.takeIf { it.seriesId == seriesId }
+    }
+
+    @Synchronized
+    fun saveSeriesSourceLanguage(state: AiSeriesSourceLanguageState) {
+        if (state.seriesId.isBlank()) return
+        val file = File(sourceLanguageDir, "${sanitizeBookId(state.seriesId)}.json")
+        file.parentFile?.mkdirs()
+        writeAtomically(file, toAiSeriesSourceLanguageJson(state))
     }
 
     @Synchronized
@@ -76,23 +94,52 @@ class AiTranslationStore(private val filesDir: File) {
     }
 
     @Synchronized
+    fun markPagesRunning(bookId: String, pageIndexes: List<Int>, mode: AiTranslationMode) {
+        if (bookId.isBlank() || pageIndexes.isEmpty()) return
+        val existing = readBook(bookId) ?: return
+        val indexes = pageIndexes.toSet()
+        val pagesByIndex = existing.pages.associateBy { it.pageIndex }
+        val updatedPages = (existing.pages.filterNot { it.pageIndex in indexes } + indexes.map { pageIndex ->
+            (pagesByIndex[pageIndex] ?: AiTranslatedPage(pageIndex = pageIndex))
+                .runningForRegionResume(mode)
+        }).sortedBy { it.pageIndex }
+        saveBookNow(existing.copy(pages = updatedPages))
+    }
+
+    @Synchronized
     fun resetRunningPages(bookId: String, pageIndexes: List<Int>) {
         if (bookId.isBlank() || pageIndexes.isEmpty()) return
         val existing = readBook(bookId) ?: return
         val indexes = pageIndexes.toSet()
         val updatedPages = existing.pages.map { page ->
-            if (page.pageIndex in indexes && page.status == AiTranslationPageStatus.RUNNING) {
-                page.copy(
-                    status = AiTranslationPageStatus.PENDING,
-                    blocks = emptyList(),
-                    errorSummary = "",
-                    errorCategory = ""
-                )
+            if (
+                page.pageIndex in indexes &&
+                (page.status == AiTranslationPageStatus.RUNNING || page.blocks.any { it.regionStatus == AiTranslationRegionStatus.RUNNING })
+            ) {
+                page.pausedForRegionResume()
             } else {
                 page
             }
         }
         saveBookNow(existing.copy(pages = updatedPages))
+    }
+
+    @Synchronized
+    fun recoverInterruptedPages(bookId: String) {
+        val existing = readBook(bookId) ?: return
+        val interrupted = existing.pages.filter { page ->
+            page.status == AiTranslationPageStatus.RUNNING ||
+                page.blocks.any { it.regionStatus == AiTranslationRegionStatus.RUNNING }
+        }
+        if (interrupted.isEmpty()) return
+        val interruptedIndexes = interrupted.map { it.pageIndex }.toSet()
+        saveBookNow(
+            existing.copy(
+                pages = existing.pages.map { page ->
+                    if (page.pageIndex in interruptedIndexes) page.pausedForRegionResume() else page
+                }
+            )
+        )
     }
 
     @Synchronized
@@ -225,7 +272,7 @@ class AiTranslationStore(private val filesDir: File) {
 }
 
 private fun taskStateWithTranslatedBooks(state: AiTranslationTaskState): AiTranslationTaskState =
-    state.copy(tasks = state.tasks.filter { it.completedPages > 0 })
+    state.copy(tasks = state.tasks.filter { it.bookId.isNotBlank() })
 
 private fun sha256(value: String): String {
     val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
@@ -251,6 +298,10 @@ private fun toAiTranslatedBookJson(book: AiTranslatedBook): String {
             addProperty("model", book.translation.model)
             addProperty("mode", book.translation.mode)
             addProperty("sourceTextProfile", book.translation.sourceTextProfile)
+            addProperty("sourceLanguageCode", book.translation.sourceLanguageCode)
+            addProperty("sourceLanguageOrigin", book.translation.sourceLanguageOrigin)
+            addProperty("sourceKomgaLanguage", book.translation.sourceKomgaLanguage)
+            addProperty("sourceReadingDirection", book.translation.sourceReadingDirection)
             addProperty("modePinned", book.translation.modePinned)
         })
         add("glossary", JsonArray().apply {
@@ -276,6 +327,7 @@ private fun toAiTranslatedBookJson(book: AiTranslatedBook): String {
                         page.blocks.forEach { block ->
                             add(JsonObject().apply {
                                 if (block.localRegionId.isNotBlank()) addProperty("localRegionId", block.localRegionId)
+                                addProperty("regionStatus", block.regionStatus.name)
                                 addProperty("kind", block.kind.name)
                                 addProperty("sourceText", block.sourceText)
                                 add("translatedLines", JsonArray().apply {
@@ -320,6 +372,8 @@ private fun toAiTranslatedBookJson(book: AiTranslatedBook): String {
                     })
                     addProperty("errorSummary", page.errorSummary)
                     addProperty("errorCategory", page.errorCategory)
+                    page.errorHttpStatus?.let { addProperty("errorHttpStatus", it) }
+                    page.retryAfterMs?.let { addProperty("retryAfterMs", it) }
                 })
             }
         })
@@ -352,6 +406,16 @@ internal fun parseAiTranslatedBookJson(text: String): AiTranslatedBook? = runCat
                 sourceTextProfile = AiSourceTextProfile.fromStoredValue(
                     translation.getStringByAliases("sourceTextProfile").orEmpty()
                 ).storedValue,
+                sourceLanguageCode = normalizeAiSourceLanguageTag(
+                    translation.getStringByAliases("sourceLanguageCode")
+                ),
+                sourceLanguageOrigin = AiSourceLanguageOrigin.fromStoredValue(
+                    translation.getStringByAliases("sourceLanguageOrigin")
+                ).storedValue,
+                sourceKomgaLanguage = translation.getStringByAliases("sourceKomgaLanguage").orEmpty(),
+                sourceReadingDirection = AiSourceReadingDirection.fromStoredValue(
+                    translation.getStringByAliases("sourceReadingDirection")
+                ).storedValue,
                 modePinned = translation.getBooleanByAliases("modePinned").orFalse()
             )
         } ?: base.translation),
@@ -363,6 +427,34 @@ internal fun parseAiTranslatedBookJson(text: String): AiTranslatedBook? = runCat
         pages = root.getJsonArrayByAliases("pages", "i")
             ?.mapNotNull(::parseAiTranslatedPageElement)
             .orEmpty()
+    )
+}.getOrNull()
+
+private fun toAiSeriesSourceLanguageJson(state: AiSeriesSourceLanguageState): String =
+    storeGson.toJson(JsonObject().apply {
+        addProperty("seriesId", state.seriesId)
+        addProperty("normalizedCode", state.normalizedCode)
+        addProperty("rawKomgaValue", state.rawKomgaValue)
+        addProperty("origin", state.origin.storedValue)
+        addProperty("readingDirection", state.readingDirection.storedValue)
+        add("evidence", JsonArray().apply { state.evidence.forEach { add(it) } })
+        addProperty("updatedAt", state.updatedAt)
+    })
+
+private fun parseAiSeriesSourceLanguageState(text: String): AiSeriesSourceLanguageState? = runCatching {
+    val root = JsonParser.parseString(text).asObjectOrNull() ?: return@runCatching null
+    AiSeriesSourceLanguageState(
+        seriesId = root.getStringByAliases("seriesId").orEmpty(),
+        normalizedCode = normalizeAiSourceLanguageTag(root.getStringByAliases("normalizedCode")),
+        rawKomgaValue = root.getStringByAliases("rawKomgaValue").orEmpty(),
+        origin = AiSourceLanguageOrigin.fromStoredValue(root.getStringByAliases("origin")),
+        readingDirection = AiSourceReadingDirection.fromStoredValue(root.getStringByAliases("readingDirection")),
+        evidence = root.getAsJsonArrayOrNull("evidence")
+            ?.mapNotNull { it.takeIf(JsonElement::isJsonPrimitive)?.asString }
+            .orEmpty()
+            .mapNotNull { normalizeAiSourceLanguageTag(it).takeIf(String::isNotBlank) }
+            .take(3),
+        updatedAt = root.getLongByAliases("updatedAt") ?: System.currentTimeMillis()
     )
 }.getOrNull()
 
@@ -380,12 +472,40 @@ internal fun parseAiTranslationTaskStateJson(text: String): AiTranslationTaskSta
     val base = storeGson.fromJson(root, AiTranslationTaskState::class.java)
     base.copy(
         tasks = root.getAsJsonArrayOrNull("tasks")
-            ?.mapNotNull { element ->
-                element.asObjectOrNull()?.let { storeGson.fromJson(it, AiTranslationTaskSummary::class.java) }
-            }
+            ?.mapNotNull(::parseAiTranslationTaskSummary)
             .orEmpty()
     )
 }.getOrDefault(AiTranslationTaskState())
+
+private fun parseAiTranslationTaskSummary(element: JsonElement): AiTranslationTaskSummary? {
+    val taskObject = element.asObjectOrNull() ?: return null
+    val failureCategories = taskObject.get("failureCategories")
+        ?.asObjectOrNull()
+        ?.entrySet()
+        .orEmpty()
+        .mapNotNull { (key, value) -> value.asIntOrNull()?.takeIf { it > 0 }?.let { key to it } }
+        .toMap()
+    val status = taskObject.getStringByAliases("status")
+        ?.let { value -> runCatching { AiTranslationTaskStatus.valueOf(value) }.getOrNull() }
+        ?: AiTranslationTaskStatus.IDLE
+    return AiTranslationTaskSummary(
+        bookId = taskObject.getStringByAliases("bookId").orEmpty(),
+        title = taskObject.getStringByAliases("title").orEmpty(),
+        pageCount = taskObject.getIntByAliases("pageCount")?.coerceAtLeast(0) ?: 0,
+        completedPages = taskObject.getIntByAliases("completedPages")?.coerceAtLeast(0) ?: 0,
+        failedPages = taskObject.getIntByAliases("failedPages")?.coerceAtLeast(0) ?: 0,
+        failureCategories = failureCategories,
+        targetPageIndexes = taskObject.getAsJsonArrayOrNull("targetPageIndexes")
+            ?.mapNotNull(JsonElement::asIntOrNull)
+            .orEmpty()
+            .filter { it >= 0 }
+            .distinct()
+            .sorted(),
+        recoveryRequired = taskObject.getBooleanByAliases("recoveryRequired").orFalse(),
+        status = status,
+        updatedAt = taskObject.getLongByAliases("updatedAt") ?: System.currentTimeMillis()
+    )
+}
 
 private fun parseAiTranslatedPageElement(element: JsonElement): AiTranslatedPage? {
     val obj = element.asObjectOrNull() ?: return null
@@ -409,10 +529,12 @@ private fun parseAiTranslatedPageElement(element: JsonElement): AiTranslatedPage
             imageHeight = obj.getIntByAliases("imageHeight", "f") ?: 0,
             mode = obj.getStringByAliases("mode", "i").orEmpty().ifBlank { AiTranslationMode.LOCAL_DETECTION.storedValue },
             blocks = obj.getJsonArrayByAliases("blocks", "d", "g")
-                ?.mapNotNull(::parseAiTranslationBlockElement)
+                ?.mapNotNull { block -> parseAiTranslationBlockElement(block, status) }
                 .orEmpty(),
             errorSummary = obj.getStringByAliases("errorSummary", "e", "h").orEmpty(),
-            errorCategory = errorCategory
+            errorCategory = errorCategory,
+            errorHttpStatus = obj.getIntByAliases("errorHttpStatus"),
+            retryAfterMs = obj.getLongByAliases("retryAfterMs")
         )
     }.getOrNull()
 }
@@ -422,16 +544,25 @@ private fun parseAiTranslationPageStatus(value: String?): AiTranslationPageStatu
         ?.let { runCatching { AiTranslationPageStatus.valueOf(it) }.getOrNull() }
         ?: AiTranslationPageStatus.PENDING
 
-private fun parseAiTranslationBlockElement(element: JsonElement): AiTranslationBlock? {
+private fun parseAiTranslationBlockElement(
+    element: JsonElement,
+    pageStatus: AiTranslationPageStatus
+): AiTranslationBlock? {
     val obj = element.asObjectOrNull() ?: return null
     return runCatching {
+        val translatedLines = obj.getJsonArrayByAliases("translatedLines", "c")
+            ?.mapNotNull { it.asStringOrNull() }
+            .orEmpty()
         AiTranslationBlock(
             localRegionId = obj.getStringByAliases("localRegionId", "n").orEmpty(),
+            regionStatus = parseAiTranslationRegionStatus(
+                value = obj.getStringByAliases("regionStatus", "status", "p"),
+                pageStatus = pageStatus,
+                translatedLines = translatedLines
+            ),
             kind = parseAiTranslationBlockKind(obj.getStringByAliases("kind", "a")),
             sourceText = obj.getStringByAliases("sourceText", "b").orEmpty(),
-            translatedLines = obj.getJsonArrayByAliases("translatedLines", "c")
-                ?.mapNotNull { it.asStringOrNull() }
-                .orEmpty(),
+            translatedLines = translatedLines,
             rect = parseAiTranslationRect(obj.getByAliases("rect", "d")),
             translationRect = parseAiTranslationRect(obj.getByAliases("translationRect", "m")),
             sourceColumns = parseAiTranslationRectList(obj.getByAliases("sourceColumns", "o")),
@@ -446,6 +577,20 @@ private fun parseAiTranslationBlockElement(element: JsonElement): AiTranslationB
         ).renderSafe()
     }.getOrNull()
 }
+
+private fun parseAiTranslationRegionStatus(
+    value: String?,
+    pageStatus: AiTranslationPageStatus,
+    translatedLines: List<String>
+): AiTranslationRegionStatus =
+    value?.uppercase()
+        ?.let { runCatching { AiTranslationRegionStatus.valueOf(it) }.getOrNull() }
+        ?: when {
+            translatedLines.any { it.isNotBlank() } -> AiTranslationRegionStatus.DONE
+            pageStatus == AiTranslationPageStatus.DONE -> AiTranslationRegionStatus.DONE
+            pageStatus == AiTranslationPageStatus.FAILED -> AiTranslationRegionStatus.FAILED
+            else -> AiTranslationRegionStatus.PENDING
+        }
 
 private fun parseAiTranslationBlockKind(value: String?): AiTranslationBlockKind =
     when (value?.uppercase()) {
@@ -545,6 +690,8 @@ data class AiTranslationTaskSummary(
     val completedPages: Int = 0,
     val failedPages: Int = 0,
     val failureCategories: Map<String, Int> = emptyMap(),
+    val targetPageIndexes: List<Int> = emptyList(),
+    val recoveryRequired: Boolean = false,
     val status: AiTranslationTaskStatus = AiTranslationTaskStatus.IDLE,
     val updatedAt: Long = System.currentTimeMillis()
 )

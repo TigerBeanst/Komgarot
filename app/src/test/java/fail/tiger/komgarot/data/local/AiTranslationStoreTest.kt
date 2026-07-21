@@ -2,6 +2,7 @@ package fail.tiger.komgarot.data.local
 
 import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
+import fail.tiger.komgarot.data.repository.AiTranslationQueueRunner
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,6 +21,10 @@ class AiTranslationStoreTest {
         val book = sampleBook().copy(
             translation = sampleBook().translation.copy(
                 mode = AiTranslationMode.LOCAL_DETECTION.storedValue,
+                sourceLanguageCode = "ja",
+                sourceLanguageOrigin = AiSourceLanguageOrigin.KOMGA.storedValue,
+                sourceKomgaLanguage = "ja",
+                sourceReadingDirection = AiSourceReadingDirection.RIGHT_TO_LEFT.storedValue,
                 modePinned = true
             )
         )
@@ -29,8 +34,28 @@ class AiTranslationStoreTest {
         assertTrue(store.bookFile("book-1").isFile)
         assertEquals(book.bookId, store.readBook("book-1")?.bookId)
         assertEquals(AiTranslationMode.LOCAL_DETECTION.storedValue, store.readBook("book-1")?.translation?.mode)
+        assertEquals("ja", store.readBook("book-1")?.translation?.sourceLanguageCode)
+        assertEquals(AiSourceLanguageOrigin.KOMGA.storedValue, store.readBook("book-1")?.translation?.sourceLanguageOrigin)
+        assertEquals(AiSourceReadingDirection.RIGHT_TO_LEFT.storedValue, store.readBook("book-1")?.translation?.sourceReadingDirection)
         assertTrue(store.readBook("book-1")?.translation?.modePinned == true)
         assertEquals(AiTranslationPageStatus.DONE, store.readBook("book-1")?.pages?.single()?.status)
+    }
+
+    @Test
+    fun seriesSourceLanguageInferenceRoundTripsIndependentlyFromBooks() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        val state = AiSeriesSourceLanguageState(
+            seriesId = "series-1",
+            normalizedCode = "ko",
+            origin = AiSourceLanguageOrigin.AI,
+            readingDirection = AiSourceReadingDirection.LEFT_TO_RIGHT,
+            evidence = listOf("ko", "en", "ko")
+        )
+
+        store.saveSeriesSourceLanguage(state)
+
+        assertEquals(state, store.readSeriesSourceLanguage("series-1"))
+        assertEquals(null, store.readSeriesSourceLanguage("series-2"))
     }
 
     @Test
@@ -202,7 +227,9 @@ class AiTranslationStoreTest {
         val source = java.io.File("src/main/java/fail/tiger/komgarot/data/local/AiTranslationStore.kt").readText()
 
         assertTrue(source.contains("parseAiTranslationTaskStateJson"))
-        assertTrue(source.contains("AiTranslationTaskSummary::class.java"))
+        assertTrue(source.contains("private fun parseAiTranslationTaskSummary("))
+        assertTrue(source.contains("failureCategories = failureCategories"))
+        assertTrue(source.contains("targetPageIndexes = taskObject.getAsJsonArrayOrNull"))
     }
 
     @Test
@@ -483,6 +510,9 @@ class AiTranslationStoreTest {
 
         assertEquals(AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON.storedValue, withProfile.translation.sourceTextProfile)
         assertEquals(AiSourceTextProfile.AUTO.storedValue, legacy.translation.sourceTextProfile)
+        assertEquals("", legacy.translation.sourceLanguageCode)
+        assertEquals(AiSourceLanguageOrigin.AI_PENDING.storedValue, legacy.translation.sourceLanguageOrigin)
+        assertEquals(AiSourceReadingDirection.UNKNOWN.storedValue, legacy.translation.sourceReadingDirection)
     }
 
     @Test
@@ -492,13 +522,17 @@ class AiTranslationStoreTest {
             pageIndex = 3,
             status = AiTranslationPageStatus.FAILED,
             errorSummary = "AI request timed out after 30s.",
-            errorCategory = AiTranslationFailureCategory.NETWORK_OR_API.storedValue
+            errorCategory = AiTranslationFailureCategory.NETWORK_OR_API.storedValue,
+            errorHttpStatus = 429,
+            retryAfterMs = 3_000L
         )
 
         store.saveBookNow(sampleBook().copy(pages = listOf(failedPage)))
 
         val savedPage = store.readBook("book-1")!!.pages.single()
         assertEquals(AiTranslationFailureCategory.NETWORK_OR_API.storedValue, savedPage.errorCategory)
+        assertEquals(429, savedPage.errorHttpStatus)
+        assertEquals(3_000L, savedPage.retryAfterMs)
 
         val legacyPage = parseAiTranslatedBookJson(
             """
@@ -517,6 +551,8 @@ class AiTranslationStoreTest {
         )!!.pages.single()
 
         assertEquals(AiTranslationFailureCategory.UNKNOWN.storedValue, legacyPage.errorCategory)
+        assertEquals(null, legacyPage.errorHttpStatus)
+        assertEquals(null, legacyPage.retryAfterMs)
     }
 
     @Test
@@ -529,6 +565,8 @@ class AiTranslationStoreTest {
             completedPages = 4,
             failedPages = 1,
             failureCategories = mapOf(AiTranslationFailureCategory.NETWORK_OR_API.storedValue to 1),
+            targetPageIndexes = listOf(2, 3, 4),
+            recoveryRequired = true,
             status = AiTranslationTaskStatus.RUNNING,
             updatedAt = 123
         )
@@ -540,10 +578,12 @@ class AiTranslationStoreTest {
         assertEquals("book-1", state.tasks.single().bookId)
         assertEquals(4, state.tasks.single().completedPages)
         assertEquals(mapOf(AiTranslationFailureCategory.NETWORK_OR_API.storedValue to 1), state.tasks.single().failureCategories)
+        assertEquals(listOf(2, 3, 4), state.tasks.single().targetPageIndexes)
+        assertTrue(state.tasks.single().recoveryRequired)
     }
 
     @Test
-    fun saveTaskStateSkipsTasksWithoutCompletedPages() {
+    fun saveTaskStateKeepsQueuedAndFailedTasksVisible() {
         val store = AiTranslationStore(temporaryFolder.newFolder("files"))
 
         store.saveTaskState(
@@ -556,7 +596,7 @@ class AiTranslationStoreTest {
             )
         )
 
-        assertEquals(listOf("done"), store.readTaskState().tasks.map { it.bookId })
+        assertEquals(listOf("empty", "done", "failed"), store.readTaskState().tasks.map { it.bookId })
     }
 
     @Test
@@ -603,11 +643,58 @@ class AiTranslationStoreTest {
             """.trimIndent()
         )
 
-        val task = store.readTaskState().tasks.single()
+        val tasks = store.readTaskState().tasks.associateBy { it.bookId }
+        val task = requireNotNull(tasks["book-1"])
 
+        assertEquals(setOf("empty", "failed-only", "book-1"), tasks.keys)
         assertEquals("book-1", task.bookId)
         assertEquals(AiTranslationTaskStatus.RUNNING, task.status)
         assertEquals(123, task.updatedAt)
+        assertEquals(emptyList<Int>(), task.targetPageIndexes)
+        assertFalse(task.recoveryRequired)
+    }
+
+    @Test
+    fun queueRunnerConvertsInterruptedTasksAndPagesToRecoverableState() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        store.saveBookNow(
+            sampleBook().copy(
+                pages = listOf(
+                    AiTranslatedPage(
+                        pageIndex = 0,
+                        status = AiTranslationPageStatus.RUNNING,
+                        blocks = listOf(
+                            AiTranslationBlock(
+                                localRegionId = "p0-r1",
+                                regionStatus = AiTranslationRegionStatus.RUNNING
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        store.saveTaskState(
+            AiTranslationTaskState(
+                tasks = listOf(
+                    AiTranslationTaskSummary(
+                        bookId = "book-1",
+                        pageCount = 1,
+                        targetPageIndexes = listOf(0),
+                        status = AiTranslationTaskStatus.RUNNING
+                    )
+                )
+            )
+        )
+
+        AiTranslationQueueRunner(store).restoreRunningTasks()
+
+        val restoredTask = store.readTaskState().tasks.single()
+        val restoredPage = store.readBook("book-1")!!.pages.single()
+        assertTrue(store.readTaskState().paused)
+        assertEquals(AiTranslationTaskStatus.PAUSED, restoredTask.status)
+        assertTrue(restoredTask.recoveryRequired)
+        assertEquals(AiTranslationPageStatus.PENDING, restoredPage.status)
+        assertEquals(AiTranslationRegionStatus.PENDING, restoredPage.blocks.single().regionStatus)
     }
 
     @Test
@@ -660,9 +747,21 @@ class AiTranslationStoreTest {
                     AiTranslatedPage(
                         pageIndex = 1,
                         status = AiTranslationPageStatus.RUNNING,
-                        blocks = listOf(AiTranslationBlock(localRegionId = "running")),
+                        blocks = listOf(
+                            AiTranslationBlock(
+                                localRegionId = "done-region",
+                                regionStatus = AiTranslationRegionStatus.DONE,
+                                translatedLines = listOf("完成")
+                            ),
+                            AiTranslationBlock(
+                                localRegionId = "running-region",
+                                regionStatus = AiTranslationRegionStatus.RUNNING
+                            )
+                        ),
                         errorSummary = "running",
-                        errorCategory = AiTranslationFailureCategory.UNKNOWN.storedValue
+                        errorCategory = AiTranslationFailureCategory.UNKNOWN.storedValue,
+                        errorHttpStatus = 503,
+                        retryAfterMs = 2_000L
                     ),
                     AiTranslatedPage(
                         pageIndex = 2,
@@ -680,11 +779,147 @@ class AiTranslationStoreTest {
         assertEquals(AiTranslationPageStatus.DONE, pages[0].status)
         assertEquals(listOf("done"), pages[0].blocks.map { it.localRegionId })
         assertEquals(AiTranslationPageStatus.PENDING, pages[1].status)
-        assertEquals(emptyList<AiTranslationBlock>(), pages[1].blocks)
+        assertEquals(listOf("done-region", "running-region"), pages[1].blocks.map { it.localRegionId })
+        assertEquals(
+            listOf(AiTranslationRegionStatus.DONE, AiTranslationRegionStatus.PENDING),
+            pages[1].blocks.map { it.regionStatus }
+        )
         assertEquals("", pages[1].errorSummary)
         assertEquals("", pages[1].errorCategory)
+        assertEquals(null, pages[1].errorHttpStatus)
+        assertEquals(null, pages[1].retryAfterMs)
         assertEquals(AiTranslationPageStatus.FAILED, pages[2].status)
         assertEquals("failed", pages[2].errorSummary)
+    }
+
+    @Test
+    fun recoverInterruptedPagesPreservesCompletedRegions() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        store.saveBookNow(
+            sampleBook().copy(
+                pages = listOf(
+                    AiTranslatedPage(
+                        pageIndex = 0,
+                        status = AiTranslationPageStatus.RUNNING,
+                        blocks = listOf(
+                            AiTranslationBlock(
+                                localRegionId = "p0-r1",
+                                regionStatus = AiTranslationRegionStatus.DONE,
+                                translatedLines = listOf("完成")
+                            ),
+                            AiTranslationBlock(
+                                localRegionId = "p0-r2",
+                                regionStatus = AiTranslationRegionStatus.RUNNING
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        store.recoverInterruptedPages("book-1")
+
+        val page = store.readBook("book-1")!!.pages.single()
+        assertEquals(AiTranslationPageStatus.PENDING, page.status)
+        assertEquals(
+            listOf(AiTranslationRegionStatus.DONE, AiTranslationRegionStatus.PENDING),
+            page.blocks.map { it.regionStatus }
+        )
+        assertEquals(listOf("完成"), page.blocks.first().translatedLines)
+    }
+
+    @Test
+    fun markPagesRunningKeepsDoneRegionsAndQueuesFailedRegions() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        store.saveBookNow(
+            sampleBook().copy(
+                pages = listOf(
+                    AiTranslatedPage(
+                        pageIndex = 0,
+                        status = AiTranslationPageStatus.FAILED,
+                        blocks = listOf(
+                            AiTranslationBlock(
+                                localRegionId = "p0-r1",
+                                regionStatus = AiTranslationRegionStatus.DONE,
+                                translatedLines = listOf("完成")
+                            ),
+                            AiTranslationBlock(
+                                localRegionId = "p0-r2",
+                                regionStatus = AiTranslationRegionStatus.FAILED
+                            )
+                        ),
+                        errorSummary = "timeout",
+                        errorCategory = AiTranslationFailureCategory.NETWORK_OR_API.storedValue
+                    )
+                )
+            )
+        )
+
+        store.markPagesRunning("book-1", listOf(0), AiTranslationMode.LOCAL_DETECTION)
+
+        val page = store.readBook("book-1")!!.pages.single()
+        assertEquals(AiTranslationPageStatus.RUNNING, page.status)
+        assertEquals(
+            listOf(AiTranslationRegionStatus.DONE, AiTranslationRegionStatus.PENDING),
+            page.blocks.map { it.regionStatus }
+        )
+        assertEquals("", page.errorSummary)
+        assertEquals("", page.errorCategory)
+    }
+
+    @Test
+    fun regionStatusRoundTripsAndLegacyBlocksMigrateFromPageState() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        store.saveBookNow(
+            sampleBook().copy(
+                pages = listOf(
+                    AiTranslatedPage(
+                        pageIndex = 0,
+                        status = AiTranslationPageStatus.FAILED,
+                        blocks = listOf(
+                            AiTranslationBlock(
+                                localRegionId = "p0-r1",
+                                regionStatus = AiTranslationRegionStatus.DONE,
+                                translatedLines = listOf("完成")
+                            ),
+                            AiTranslationBlock(
+                                localRegionId = "p0-r2",
+                                regionStatus = AiTranslationRegionStatus.FAILED
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        assertEquals(
+            listOf(AiTranslationRegionStatus.DONE, AiTranslationRegionStatus.FAILED),
+            store.readBook("book-1")!!.pages.single().blocks.map { it.regionStatus }
+        )
+
+        val legacy = parseAiTranslatedBookJson(
+            """
+            {
+              "bookId": "legacy-book",
+              "pageCount": 1,
+              "pages": [
+                {
+                  "pageIndex": 0,
+                  "status": "FAILED",
+                  "blocks": [
+                    {"localRegionId":"p0-r1","translatedLines":["完成"]},
+                    {"localRegionId":"p0-r2","translatedLines":[]}
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+        )!!.pages.single()
+
+        assertEquals(
+            listOf(AiTranslationRegionStatus.DONE, AiTranslationRegionStatus.FAILED),
+            legacy.blocks.map { it.regionStatus }
+        )
     }
 
     @Test
