@@ -234,6 +234,14 @@ private const val AI_TIMING_HEURISTIC_FALLBACK = "heuristic_fallback"
 internal fun mergeLocalTextRegionsIntoTextBoxes(
     regions: List<AiTranslationLocalTextRegion>,
     sourceTextProfile: AiSourceTextProfile = AiSourceTextProfile.AUTO
+): List<AiTranslationLocalTextRegion> = mergeCollapsedLocalTextRegionsIntoTextBoxes(
+    regions = collapseHighlyOverlappingLocalTextRegions(regions),
+    sourceTextProfile = sourceTextProfile
+)
+
+private fun mergeCollapsedLocalTextRegionsIntoTextBoxes(
+    regions: List<AiTranslationLocalTextRegion>,
+    sourceTextProfile: AiSourceTextProfile
 ): List<AiTranslationLocalTextRegion> {
     if (regions.size < 2) return regions.sortedWith(aiLocalRegionReadingOrder())
     if (usesTextLinePipelineForLocalRegions(regions, sourceTextProfile)) {
@@ -271,6 +279,36 @@ internal fun mergeLocalTextRegionsIntoTextBoxes(
         .flatMap { splitMergedLocalTextBoxCluster(it, sourceTextProfile) }
         .map { it.toMergedLocalTextBoxRegion() }
         .sortedWith(aiLocalRegionReadingOrder())
+}
+
+internal fun collapseHighlyOverlappingLocalTextRegions(
+    regions: List<AiTranslationLocalTextRegion>
+): List<AiTranslationLocalTextRegion> {
+    if (regions.size < 2) return regions
+    val collapsed = mutableListOf<AiTranslationLocalTextRegion>()
+    regions.forEach { region ->
+        val duplicateIndex = collapsed.indexOfFirst { existing ->
+            existing.textDirection.isCompatibleWith(region.textDirection) &&
+                existing.rect.overlapRatioAgainstSmallerRegion(region.rect) >= 0.82f
+        }
+        if (duplicateIndex < 0) {
+            collapsed += region
+        } else {
+            collapsed[duplicateIndex] = listOf(collapsed[duplicateIndex], region).toMergedLocalTextBoxRegion()
+        }
+    }
+    return collapsed.sortedWith(aiLocalRegionReadingOrder())
+}
+
+private fun AiTranslationTextDirection.isCompatibleWith(other: AiTranslationTextDirection): Boolean =
+    this == other || this == AiTranslationTextDirection.AUTO || other == AiTranslationTextDirection.AUTO
+
+private fun AiTranslationRect.overlapRatioAgainstSmallerRegion(other: AiTranslationRect): Float {
+    if (width <= 0f || height <= 0f || other.width <= 0f || other.height <= 0f) return 0f
+    val overlapWidth = (min(x + width, other.x + other.width) - max(x, other.x)).coerceAtLeast(0f)
+    val overlapHeight = (min(y + height, other.y + other.height) - max(y, other.y)).coerceAtLeast(0f)
+    val smallerArea = min(width * height, other.width * other.height).coerceAtLeast(0.000001f)
+    return overlapWidth * overlapHeight / smallerArea
 }
 
 private fun usesTextLinePipelineForLocalRegions(

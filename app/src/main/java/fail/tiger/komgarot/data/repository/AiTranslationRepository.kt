@@ -40,6 +40,7 @@ import fail.tiger.komgarot.data.local.SecureAiSettingsStore
 import fail.tiger.komgarot.data.local.aiSourceLanguageOnMetadataFailure
 import fail.tiger.komgarot.data.local.normalizeAiSourceLanguageTag
 import fail.tiger.komgarot.data.local.resolveAiSourceLanguageFromKomga
+import fail.tiger.komgarot.data.local.suppressDuplicateRenderedTranslations
 import fail.tiger.komgarot.data.remote.AiTranslationClient
 import fail.tiger.komgarot.data.remote.AiTranslationImageInput
 import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
@@ -56,10 +57,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +70,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Semaphore
@@ -644,18 +644,16 @@ class AiTranslationRepository(
             readerPagePriorities[book.id]?.let { pageIndex ->
                 requestControl.scheduler.prioritizePage(pageIndex)
             }
-            val preparedPages = orderedPending.map { CompletableDeferred<PreparedAiPageResult>() }
-            val nextPrepareOffset = AtomicInteger(0)
+            val preparedResults = Channel<PreparedAiPageResult>(capacity = orderedPending.size)
             val prepareJobs = (0 until preparationWorkerCount).map {
                 async {
                     while (true) {
-                        val offset = nextPrepareOffset.getAndIncrement()
-                        if (offset >= orderedPending.size) break
+                        val pageIndex = requestControl.scheduler.claimNextPageForPreparation() ?: break
                         awaitAiTranslationTaskResumed()
-                        val pageIndex = orderedPending[offset]
                         val prepared = try {
                             PreparedAiPageResult.Prepared(
-                                preparePageInput(
+                                pageIndex = pageIndex,
+                                input = preparePageInput(
                                     book = book,
                                     serverUrl = serverUrl,
                                     settings = settings,
@@ -669,23 +667,24 @@ class AiTranslationRepository(
                         } catch (throwable: Throwable) {
                             if (throwable is CancellationException) throw throwable
                             PreparedAiPageResult.Failed(
-                                failRun(
+                                pageIndex = pageIndex,
+                                result = failRun(
                                     book.id,
                                     listOf(pageIndex),
                                     "Failed to build page image input: ${throwable.message.orEmpty()}"
                                 )
                             )
                         }
-                        preparedPages[offset].complete(prepared)
+                        preparedResults.send(prepared)
                     }
                 }
             }
             val remoteJobs = mutableListOf<kotlinx.coroutines.Deferred<AiTranslationRunResult>>()
-            orderedPending.indices.forEach { offset ->
-                when (val prepared = preparedPages[offset].await()) {
+            repeat(orderedPending.size) {
+                when (val prepared = preparedResults.receive()) {
                     is PreparedAiPageResult.Failed -> {
                         remoteJobs += async {
-                            requestControl.scheduler.markPageCompleted(orderedPending[offset])
+                            requestControl.scheduler.markPageCompleted(prepared.pageIndex)
                             onPageTranslated()
                             prepared.result
                         }
@@ -709,6 +708,7 @@ class AiTranslationRepository(
                 }
             }
             prepareJobs.awaitAll()
+            preparedResults.close()
             remoteJobs.awaitAll()
         } finally {
             activeReaderSchedulers.remove(book.id, requestControl.scheduler)
@@ -1025,8 +1025,13 @@ class AiTranslationRepository(
                 pageFragmentsLock = pageFragmentsLock
             )
             if (partialPage != null) {
-                preparedPage.timingRecorder.recordFirstRegionVisible()
-                requestControl.scheduler.markFirstRegionVisible(preparedPage.localContext.pageIndex)
+                val hasVisibleTranslation = chunkResult.fragment.blocks.any { block ->
+                    block.translatedLines.any(String::isNotBlank)
+                }
+                if (hasVisibleTranslation) {
+                    preparedPage.timingRecorder.recordFirstRegionVisible()
+                    requestControl.scheduler.markFirstRegionVisible(preparedPage.localContext.pageIndex)
+                }
                 onPageUpdated(partialPage)
             }
         }
@@ -1135,14 +1140,9 @@ class AiTranslationRepository(
                             localPageContexts = listOf(chunkContext),
                             mode = runMode
                         ).firstOrNull()
-                        if (pageFragment != null) {
-                            PreparedRegionChunkResult.Success(pageFragment)
-                        } else {
-                            PreparedRegionChunkResult.Failed(
-                                summary = "AI response did not bind a translation to region=${regionChunk.singleOrNull()?.id.orEmpty()}.",
-                                category = AiTranslationErrorCategory.JSON_VALIDATION_FAILED
-                            )
-                        }
+                        PreparedRegionChunkResult.Success(
+                            pageFragment ?: emptyTranslatedRegionPage(chunkContext, runMode)
+                        )
                     }
                 }
             }
@@ -1571,8 +1571,17 @@ class AiTranslationRepository(
     )
 
     private sealed interface PreparedAiPageResult {
-        data class Prepared(val input: PreparedAiPageInput) : PreparedAiPageResult
-        data class Failed(val result: AiTranslationRunResult) : PreparedAiPageResult
+        val pageIndex: Int
+
+        data class Prepared(
+            override val pageIndex: Int,
+            val input: PreparedAiPageInput
+        ) : PreparedAiPageResult
+
+        data class Failed(
+            override val pageIndex: Int,
+            val result: AiTranslationRunResult
+        ) : PreparedAiPageResult
     }
 
     private class AiTranslationTimingRecorder(private val pageIndex: Int) {
@@ -1871,7 +1880,7 @@ internal fun buildTranslatedPageFromLocalContext(
             confidence = region.confidence,
             textDirection = region.textDirection
         ).withReadableColors()
-    }
+    }.suppressDuplicateRenderedTranslations()
     if (blocks.isEmpty()) return null
     return AiTranslatedPage(
         pageIndex = localContext.pageIndex,
@@ -2139,7 +2148,7 @@ private fun mergeTranslatedPageFragments(
             }
             AiTranslationPageStatus.RUNNING -> current
         }
-    }
+    }.suppressDuplicateRenderedTranslations()
     if (orderedBlocks.isEmpty()) return null
     return AiTranslatedPage(
         pageIndex = localContext.pageIndex,
@@ -2162,6 +2171,21 @@ private fun emptyTranslatedPage(
     imageWidth = localContext.imageWidth,
     imageHeight = localContext.imageHeight,
     blocks = emptyList(),
+    mode = mode.storedValue
+)
+
+internal fun emptyTranslatedRegionPage(
+    localContext: AiTranslationLocalPageContext,
+    mode: AiTranslationMode
+): AiTranslatedPage = AiTranslatedPage(
+    pageIndex = localContext.pageIndex,
+    status = AiTranslationPageStatus.DONE,
+    updatedAt = System.currentTimeMillis(),
+    imageWidth = localContext.imageWidth,
+    imageHeight = localContext.imageHeight,
+    blocks = localContext.regions.map { region ->
+        localDetectionPlaceholderBlock(region, AiTranslationRegionStatus.DONE)
+    },
     mode = mode.storedValue
 )
 

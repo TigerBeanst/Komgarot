@@ -182,6 +182,17 @@ class AiTranslationWindowSchedulerTest {
         Unit
     }
 
+    @Test
+    fun prioritizingPageChangesNextPreparationClaim() = runBlocking {
+        val scheduler = AiTranslationWindowScheduler(pageIndexes = listOf(0, 1, 2), configuredLimit = 2)
+
+        assertEquals(0, scheduler.claimNextPageForPreparation())
+        assertTrue(scheduler.prioritizePage(2))
+        assertEquals(2, scheduler.claimNextPageForPreparation())
+        assertEquals(1, scheduler.claimNextPageForPreparation())
+        assertNull(scheduler.claimNextPageForPreparation())
+    }
+
     private companion object {
         const val MIB = 1024L * 1024L
     }

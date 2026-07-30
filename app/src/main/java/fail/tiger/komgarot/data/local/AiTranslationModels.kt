@@ -132,6 +132,106 @@ data class AiTranslationBlock(
     )
 }
 
+internal fun List<AiTranslationBlock>.suppressDuplicateRenderedTranslations(): List<AiTranslationBlock> {
+    if (size < 2) return this
+    val result = mutableListOf<AiTranslationBlock>()
+    forEach { block ->
+        val duplicateIndex = result.indexOfFirst { existing ->
+            existing.hasEquivalentTranslationNear(block)
+        }
+        if (duplicateIndex < 0) {
+            result += block
+        } else {
+            result[duplicateIndex] = result[duplicateIndex].mergeDuplicateTranslationMask(block)
+            result += block.copy(translatedLines = emptyList())
+        }
+    }
+    return result
+}
+
+private fun AiTranslationBlock.hasEquivalentTranslationNear(other: AiTranslationBlock): Boolean {
+    if (regionStatus != AiTranslationRegionStatus.DONE || other.regionStatus != AiTranslationRegionStatus.DONE) {
+        return false
+    }
+    val translated = translatedLines.normalizedTranslationText()
+    val otherTranslated = other.translatedLines.normalizedTranslationText()
+    if (translated.isEmpty() || otherTranslated.isEmpty()) return false
+    val source = sourceText.normalizedTranslationText()
+    val otherSource = other.sourceText.normalizedTranslationText()
+    val equivalentText = translated.isEquivalentTranslationText(otherTranslated) ||
+        source.isNotEmpty() && otherSource.isNotEmpty() && source.isEquivalentTranslationText(otherSource)
+    if (!equivalentText) return false
+    val sourceOverlap = rect.overlapRatioAgainstSmaller(other.rect)
+    val renderOverlap = effectiveTranslationRect().overlapRatioAgainstSmaller(other.effectiveTranslationRect())
+    if (sourceOverlap >= 0.32f || renderOverlap >= 0.42f) return true
+    val textLength = maxOf(translated.length, otherTranslated.length)
+    return textLength >= 6 && rect.isCloselyAdjacentTo(other.rect)
+}
+
+private fun AiTranslationBlock.mergeDuplicateTranslationMask(other: AiTranslationBlock): AiTranslationBlock {
+    val mergedSourceColumns = (
+        sourceColumns.ifEmpty { listOf(rect) } +
+            other.sourceColumns.ifEmpty { listOf(other.rect) }
+        ).distinct()
+    val preferredLines = listOf(translatedLines, other.translatedLines)
+        .maxBy { it.normalizedTranslationText().length }
+    return copy(
+        kind = if (kind == AiTranslationBlockKind.OTHER) other.kind else kind,
+        sourceText = maxOf(sourceText, other.sourceText, compareBy(String::length)),
+        translatedLines = preferredLines,
+        rect = rect.union(other.rect),
+        translationRect = effectiveTranslationRect().union(other.effectiveTranslationRect()),
+        sourceColumns = mergedSourceColumns,
+        confidence = maxOf(confidence, other.confidence)
+    )
+}
+
+private fun AiTranslationBlock.effectiveTranslationRect(): AiTranslationRect =
+    translationRect.takeIf { it.width > 0f && it.height > 0f } ?: rect
+
+private fun List<String>.normalizedTranslationText(): String = joinToString("").normalizedTranslationText()
+
+private fun String.normalizedTranslationText(): String = buildString(length) {
+    this@normalizedTranslationText.forEach { character ->
+        if (character.isLetterOrDigit()) append(character.lowercaseChar())
+    }
+}
+
+private fun String.isEquivalentTranslationText(other: String): Boolean {
+    if (this == other) return true
+    val shorter = minOf(length, other.length)
+    val longer = maxOf(length, other.length)
+    return shorter >= 6 && shorter.toFloat() / longer >= 0.78f && (contains(other) || other.contains(this))
+}
+
+private fun AiTranslationRect.overlapRatioAgainstSmaller(other: AiTranslationRect): Float {
+    if (width <= 0f || height <= 0f || other.width <= 0f || other.height <= 0f) return 0f
+    val overlapWidth = (minOf(x + width, other.x + other.width) - maxOf(x, other.x)).coerceAtLeast(0f)
+    val overlapHeight = (minOf(y + height, other.y + other.height) - maxOf(y, other.y)).coerceAtLeast(0f)
+    val smallerArea = minOf(width * height, other.width * other.height).coerceAtLeast(0.000001f)
+    return overlapWidth * overlapHeight / smallerArea
+}
+
+private fun AiTranslationRect.isCloselyAdjacentTo(other: AiTranslationRect): Boolean {
+    val horizontalGap = maxOf(maxOf(x, other.x) - minOf(x + width, other.x + other.width), 0f)
+    val verticalGap = maxOf(maxOf(y, other.y) - minOf(y + height, other.y + other.height), 0f)
+    val horizontalOverlap = (minOf(x + width, other.x + other.width) - maxOf(x, other.x)).coerceAtLeast(0f)
+    val verticalOverlap = (minOf(y + height, other.y + other.height) - maxOf(y, other.y)).coerceAtLeast(0f)
+    val sameTextRow = verticalOverlap / minOf(height, other.height).coerceAtLeast(0.000001f) >= 0.55f &&
+        horizontalGap <= maxOf(minOf(width, other.width) * 0.30f, 0.012f)
+    val sameTextColumn = horizontalOverlap / minOf(width, other.width).coerceAtLeast(0.000001f) >= 0.55f &&
+        verticalGap <= maxOf(minOf(height, other.height) * 0.30f, 0.012f)
+    return sameTextRow || sameTextColumn
+}
+
+private fun AiTranslationRect.union(other: AiTranslationRect): AiTranslationRect {
+    val left = minOf(x, other.x)
+    val top = minOf(y, other.y)
+    val right = maxOf(x + width, other.x + other.width)
+    val bottom = maxOf(y + height, other.y + other.height)
+    return AiTranslationRect(left, top, right - left, bottom - top)
+}
+
 internal fun AiTranslatedPage.pausedForRegionResume(): AiTranslatedPage {
     val pausedBlocks = blocks.map { block ->
         if (block.regionStatus == AiTranslationRegionStatus.RUNNING) {

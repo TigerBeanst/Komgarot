@@ -1593,4 +1593,61 @@ class AiLocalTextDetectorTest {
         assertTrue(cropBounds.width <= maskBounds.width)
         assertTrue(cropBounds.width < renderBounds.width)
     }
+
+    @Test
+    fun highlyOverlappingDetectionRegionsCollapseBeforeTranslation() {
+        val regions = listOf(
+            AiTranslationLocalTextRegion(
+                id = "p0-r1",
+                rect = AiTranslationRect(0.20f, 0.20f, 0.18f, 0.16f),
+                textDirection = AiTranslationTextDirection.HORIZONTAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.92f,
+                estimatedFontScale = 1f
+            ),
+            AiTranslationLocalTextRegion(
+                id = "p0-r2",
+                rect = AiTranslationRect(0.21f, 0.21f, 0.17f, 0.15f),
+                textDirection = AiTranslationTextDirection.HORIZONTAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.88f,
+                estimatedFontScale = 1f
+            )
+        )
+
+        val collapsed = collapseHighlyOverlappingLocalTextRegions(regions)
+
+        assertEquals(1, collapsed.size)
+        assertEquals(2, collapsed.single().sourceColumns.size)
+    }
+
+    @Test
+    fun nearbySeparateDetectionRegionsRemainIndependent() {
+        val regions = listOf(
+            AiTranslationLocalTextRegion(
+                id = "p0-r1",
+                rect = AiTranslationRect(0.20f, 0.20f, 0.08f, 0.16f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.92f,
+                estimatedFontScale = 1f
+            ),
+            AiTranslationLocalTextRegion(
+                id = "p0-r2",
+                rect = AiTranslationRect(0.30f, 0.20f, 0.08f, 0.16f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.88f,
+                estimatedFontScale = 1f
+            )
+        )
+
+        val collapsed = collapseHighlyOverlappingLocalTextRegions(regions)
+
+        assertEquals(2, collapsed.size)
+    }
 }

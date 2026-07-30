@@ -3,6 +3,7 @@ package fail.tiger.komgarot.ui.reader
 import fail.tiger.komgarot.data.local.AiTranslatedBook
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationBlock
+import fail.tiger.komgarot.data.local.AiTranslationFailureCategory
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import fail.tiger.komgarot.data.local.AiTranslationRegionStatus
 import fail.tiger.komgarot.data.local.pausedForRegionResume
@@ -288,23 +289,115 @@ class ReaderAiTranslationStateTest {
     @Test
     fun aiTranslationBatchSkipsProcessedPagesAndKeepsNewPriorityOrder() {
         assertEquals(
-            listOf(7, 6, 8),
+            listOf(7),
             nextAiTranslationPageBatch(
                 pageIndexes = listOf(7, 6, 8, 5),
                 processedPageIndexes = setOf(5)
             )
         )
         assertEquals(
-            listOf(9, 7, 6, 8),
+            listOf(9),
             nextAiTranslationPageBatch(
                 pageIndexes = listOf(9, 7, 6, 8, 5),
                 processedPageIndexes = setOf(5)
             )
         )
-        assertTrue(viewModelSource.contains("if (anchorPage in aiTranslationActivePageIndexes)"))
-        assertTrue(viewModelSource.contains("repository.prioritizeReaderPage(loaded.id, anchorPage)"))
+        assertTrue(viewModelSource.contains("firstSequentialAiTranslationPage("))
+        assertTrue(viewModelSource.contains("restartAiTranslationInSequentialOrder("))
+        assertTrue(viewModelSource.contains("repository.prioritizeReaderPage(loaded.id, firstSequentialPage"))
         assertTrue(viewModelSource.contains("repository.prioritizeReaderPage(loaded.id, aiTranslationPriorityPageIndex)"))
         assertFalse(viewModelSource.contains("cancelAndJoin()"))
+    }
+
+    @Test
+    fun sequentialReaderTranslationFindsEarliestIncompletePage() {
+        val pages = listOf(
+            AiTranslatedPage(pageIndex = 4, status = AiTranslationPageStatus.DONE),
+            AiTranslatedPage(pageIndex = 5, status = AiTranslationPageStatus.PENDING),
+            AiTranslatedPage(pageIndex = 6, status = AiTranslationPageStatus.RUNNING)
+        )
+
+        assertEquals(
+            5,
+            firstSequentialAiTranslationPage(pageIndexes = listOf(4, 5, 6), pages = pages)
+        )
+        assertEquals(
+            6,
+            firstSequentialAiTranslationPage(
+                pageIndexes = listOf(4, 5, 6),
+                pages = pages.map { page ->
+                    if (page.pageIndex == 5) page.copy(status = AiTranslationPageStatus.DONE) else page
+                }
+            )
+        )
+    }
+
+    @Test
+    fun sequentialReaderTranslationStopsQueueAtExistingFailure() {
+        val pages = listOf(
+            AiTranslatedPage(pageIndex = 4, status = AiTranslationPageStatus.DONE),
+            AiTranslatedPage(pageIndex = 5, status = AiTranslationPageStatus.FAILED),
+            AiTranslatedPage(pageIndex = 6, status = AiTranslationPageStatus.PENDING)
+        )
+
+        assertEquals(
+            emptyList<Int>(),
+            sequentialReaderAiTranslationQueue(
+                pageIndexes = listOf(4, 5, 6),
+                pages = pages,
+                includeFailedPages = false
+            )
+        )
+        assertEquals(
+            listOf(5, 6),
+            sequentialReaderAiTranslationQueue(
+                pageIndexes = listOf(4, 5, 6),
+                pages = pages,
+                includeFailedPages = true
+            )
+        )
+        assertTrue(viewModelSource.contains("if (stopAtFailedPage) break"))
+    }
+
+    @Test
+    fun readerAutomaticallyRetriesRecoverablePageFailuresOnce() {
+        val recoverable = listOf(
+            AiTranslationFailureCategory.NETWORK_OR_API,
+            AiTranslationFailureCategory.NON_JSON_RESPONSE,
+            AiTranslationFailureCategory.JSON_VALIDATION_FAILED,
+            AiTranslationFailureCategory.EMPTY_AI_RESULT,
+            AiTranslationFailureCategory.IMAGE_INPUT,
+            AiTranslationFailureCategory.REGION_CROP,
+            AiTranslationFailureCategory.SAVE_VERIFICATION,
+            AiTranslationFailureCategory.UNKNOWN
+        )
+
+        recoverable.forEach { category ->
+            assertTrue(
+                shouldAutomaticallyRetryReaderAiTranslation(
+                    AiTranslatedPage(status = AiTranslationPageStatus.FAILED, errorCategory = category.storedValue),
+                    retryCount = 0
+                )
+            )
+        }
+        assertFalse(
+            shouldAutomaticallyRetryReaderAiTranslation(
+                AiTranslatedPage(
+                    status = AiTranslationPageStatus.FAILED,
+                    errorCategory = AiTranslationFailureCategory.MODEL_CONFIGURATION.storedValue
+                ),
+                retryCount = 0
+            )
+        )
+        assertFalse(
+            shouldAutomaticallyRetryReaderAiTranslation(
+                AiTranslatedPage(
+                    status = AiTranslationPageStatus.FAILED,
+                    errorCategory = AiTranslationFailureCategory.NETWORK_OR_API.storedValue
+                ),
+                retryCount = 1
+            )
+        )
     }
 
     @Test
