@@ -84,6 +84,28 @@ class SessionManagerTest {
     }
 
     @Test
+    fun serverRestartCancelsPreviousRequestAndLoadsFreshUser() = runBlocking {
+        val firstResponse = CompletableDeferred<Result<UserDto>>()
+        val attempts = AtomicInteger(0)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val manager = SessionManager(scope, retryDelaysMs = emptyList()) {
+            if (attempts.incrementAndGet() == 1) {
+                firstResponse.await()
+            } else {
+                Result.success(UserDto(id = "fresh-user", email = "fresh@example.com"))
+            }
+        }
+
+        manager.refresh()
+        manager.restart()
+        manager.awaitIdle()
+
+        assertEquals(2, attempts.get())
+        assertEquals("fresh-user", manager.state.value.userOrNull?.id)
+        scope.cancel()
+    }
+
+    @Test
     fun authenticationFailureRequiresLoginWithoutAutomaticRetry() = runBlocking {
         val attempts = AtomicInteger(0)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)

@@ -65,6 +65,15 @@ internal class SessionManager(
         launchRequest(attempt = 0, publishLoading = true)
     }
 
+    fun restart() {
+        retryJob?.cancel()
+        requestJob?.cancel()
+        retryJob = null
+        requestJob = null
+        _state.value = SessionState.Initializing()
+        launchRequest(attempt = 0, publishLoading = false)
+    }
+
     suspend fun awaitIdle() {
         requestJob?.join()
     }
@@ -144,6 +153,10 @@ class SessionViewModel(private val repo: UserRepository) : ViewModel() {
 
     fun refresh(force: Boolean = false) {
         manager.refresh(force)
+    }
+
+    fun restart() {
+        manager.restart()
     }
 
     suspend fun refreshCurrentUser() {

@@ -13,6 +13,10 @@ class SessionRecoveryStructureTest {
         assertTrue(navSource.contains("LifecycleEventEffect(Lifecycle.Event.ON_RESUME)"))
         assertTrue(navSource.contains("sessionVm.refresh(force = true)"))
         assertTrue(navSource.contains("sessionState.userOrNull"))
+        assertTrue(navSource.contains("LaunchedEffect(serverUrl)"))
+        assertTrue(navSource.contains("sessionVm.restart()"))
+        assertTrue(navSource.contains("onServerChanged = {"))
+        assertTrue(navSource.contains("popUpTo(Screen.Library.route) { inclusive = true }"))
     }
 
     @Test
