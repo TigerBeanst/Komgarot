@@ -42,6 +42,12 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("prefs.showBookThumbnails.collectAsStateWithLifecycle(initialValue = true)"))
         assertTrue(source.contains("R.string.settings_show_book_thumbnails"))
         assertTrue(source.contains("prefs.setShowBookThumbnails"))
+        assertTrue(source.contains("prefs.splitLandscapePages.collectAsStateWithLifecycle(initialValue = false)"))
+        assertTrue(source.contains("LandscapePageSplitOrder.RIGHT_FIRST"))
+        assertTrue(source.contains("prefs.setSplitLandscapePages"))
+        assertTrue(source.contains("prefs.setLandscapePageSplitOrder"))
+        assertTrue(source.contains("R.string.settings_split_landscape_pages"))
+        assertTrue(source.contains("R.string.settings_landscape_page_split_order"))
     }
 
     @Test

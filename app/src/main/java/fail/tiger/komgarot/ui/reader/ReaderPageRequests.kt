@@ -1,11 +1,16 @@
 package fail.tiger.komgarot.ui.reader
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Size
+import coil.transform.Transformation
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
 import fail.tiger.komgarot.data.remote.dto.PageDto
@@ -28,10 +33,12 @@ fun readerPageMemoryCacheKey(
     url: String,
     allowHardware: Boolean,
     originalSize: Boolean,
-    cacheVersion: Int = 0
+    cacheVersion: Int = 0,
+    pageSegment: ReaderPageSegment = ReaderPageSegment.FULL
 ): String {
     val versionSegment = if (cacheVersion > 0) ":v$cacheVersion" else ""
-    return "reader-page:${if (originalSize) "original" else "display"}:${if (allowHardware) "hardware" else "software"}$versionSegment:$url"
+    val splitSegment = if (pageSegment == ReaderPageSegment.FULL) "" else ":${pageSegment.name.lowercase()}"
+    return "reader-page:${if (originalSize) "original" else "display"}:${if (allowHardware) "hardware" else "software"}$splitSegment$versionSegment:$url"
 }
 
 fun readerPageDiskCacheKey(url: String): String = "reader-page:$url"
@@ -52,6 +59,7 @@ fun readerPageRequest(
     displayQualityScale: Float = 1f,
     displayMaxDecodedBytes: Long = Long.MAX_VALUE,
     retainInMemory: Boolean = false,
+    pageSegment: ReaderPageSegment = ReaderPageSegment.FULL,
     retryKey: Int = 0,
     progressListener: ImageDownloadProgressListener? = null,
     listener: ImageRequest.Listener? = null
@@ -62,7 +70,7 @@ fun readerPageRequest(
         else -> ReaderPageCache.cachedFile(context, url)
     }
     val data = cachedFile ?: url
-    val memoryKey = readerPageMemoryCacheKey(url, allowHardware, originalSize, cacheVersion)
+    val memoryKey = readerPageMemoryCacheKey(url, allowHardware, originalSize, cacheVersion, pageSegment)
     val builder = ImageRequest.Builder(context)
         .data(data)
         .memoryCacheKey(memoryKey)
@@ -76,6 +84,9 @@ fun readerPageRequest(
         .allowHardware(allowHardware)
         .allowRgb565(false)
         .apply {
+            if (pageSegment != ReaderPageSegment.FULL) {
+                transformations(ReaderPageHalfTransformation(pageSegment))
+            }
             if (originalSize) {
                 size(Size.ORIGINAL)
             } else if (displayWidthPx > 0 && displayHeightPx > 0) {
@@ -105,6 +116,39 @@ fun readerPageRequest(
         }
     }
     return builder.build()
+}
+
+private class ReaderPageHalfTransformation(
+    private val segment: ReaderPageSegment
+) : Transformation {
+    override val cacheKey: String = "${javaClass.name}:${segment.name}"
+
+    override suspend fun transform(input: Bitmap, size: Size): Bitmap {
+        if (segment == ReaderPageSegment.FULL || input.width < 2 || input.height < 1) return input
+        val splitX = input.width / 2
+        val source = when (segment) {
+            ReaderPageSegment.LEFT_HALF -> Rect(0, 0, splitX, input.height)
+            ReaderPageSegment.RIGHT_HALF -> Rect(splitX, 0, input.width, input.height)
+            ReaderPageSegment.FULL -> return input
+        }
+        val output = Bitmap.createBitmap(
+            source.width().coerceAtLeast(1),
+            source.height().coerceAtLeast(1),
+            input.config ?: Bitmap.Config.ARGB_8888
+        )
+        Canvas(output).drawBitmap(
+            input,
+            source,
+            Rect(0, 0, output.width, output.height),
+            Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        )
+        return output
+    }
+
+    override fun equals(other: Any?): Boolean =
+        other is ReaderPageHalfTransformation && other.segment == segment
+
+    override fun hashCode(): Int = 31 * javaClass.hashCode() + segment.hashCode()
 }
 
 fun readerMemoryAwarePreloadPages(
@@ -232,6 +276,7 @@ fun readerPagerActualPreloadRange(
     return (forward + oppositeNeighbor)
         .distinct()
         .mapNotNull { index -> (pagerPages.getOrNull(index) as? ReaderPagerPage.Actual)?.pageIndex }
+        .distinct()
 }
 
 fun readerPagerPreloadDirection(

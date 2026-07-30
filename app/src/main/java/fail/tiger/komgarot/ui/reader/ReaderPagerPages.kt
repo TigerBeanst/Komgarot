@@ -1,11 +1,18 @@
 package fail.tiger.komgarot.ui.reader
 
+import fail.tiger.komgarot.data.local.LandscapePageSplitOrder
 import fail.tiger.komgarot.data.remote.dto.BookDto
+import fail.tiger.komgarot.data.remote.dto.PageDto
 
 enum class ReaderBoundaryDirection { PREVIOUS, NEXT }
 
+enum class ReaderPageSegment { FULL, LEFT_HALF, RIGHT_HALF }
+
 sealed interface ReaderPagerPage {
-    data class Actual(val pageIndex: Int) : ReaderPagerPage
+    data class Actual(
+        val pageIndex: Int,
+        val segment: ReaderPageSegment = ReaderPageSegment.FULL
+    ) : ReaderPagerPage
     data class Boundary(val direction: ReaderBoundaryDirection, val target: BookDto?) : ReaderPagerPage
     data class Trigger(val direction: ReaderBoundaryDirection, val target: BookDto) : ReaderPagerPage
 }
@@ -13,7 +20,10 @@ sealed interface ReaderPagerPage {
 fun buildReaderPagerPages(
     pageCount: Int,
     previousBook: BookDto?,
-    nextBook: BookDto?
+    nextBook: BookDto?,
+    splitLandscapePages: Boolean = false,
+    splitOrder: LandscapePageSplitOrder = LandscapePageSplitOrder.RIGHT_FIRST,
+    pageInfo: (Int) -> PageDto? = { null }
 ): List<ReaderPagerPage> = buildList {
     if (previousBook != null) {
         add(ReaderPagerPage.Trigger(ReaderBoundaryDirection.PREVIOUS, previousBook))
@@ -21,7 +31,24 @@ fun buildReaderPagerPages(
     } else {
         add(ReaderPagerPage.Boundary(ReaderBoundaryDirection.PREVIOUS, null))
     }
-    repeat(pageCount) { pageIndex -> add(ReaderPagerPage.Actual(pageIndex)) }
+    repeat(pageCount) { pageIndex ->
+        val page = pageInfo(pageIndex)
+        if (splitLandscapePages && page != null && page.width > page.height) {
+            val segments = when (splitOrder) {
+                LandscapePageSplitOrder.RIGHT_FIRST -> listOf(
+                    ReaderPageSegment.RIGHT_HALF,
+                    ReaderPageSegment.LEFT_HALF
+                )
+                LandscapePageSplitOrder.LEFT_FIRST -> listOf(
+                    ReaderPageSegment.LEFT_HALF,
+                    ReaderPageSegment.RIGHT_HALF
+                )
+            }
+            segments.forEach { segment -> add(ReaderPagerPage.Actual(pageIndex, segment)) }
+        } else {
+            add(ReaderPagerPage.Actual(pageIndex))
+        }
+    }
     if (nextBook != null) {
         add(ReaderPagerPage.Boundary(ReaderBoundaryDirection.NEXT, nextBook))
         add(ReaderPagerPage.Trigger(ReaderBoundaryDirection.NEXT, nextBook))

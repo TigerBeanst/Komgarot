@@ -16,6 +16,16 @@ import java.util.Locale
 
 private val Context.dataStore by preferencesDataStore("auth")
 
+enum class LandscapePageSplitOrder(val storedValue: String) {
+    RIGHT_FIRST("right_first"),
+    LEFT_FIRST("left_first");
+
+    companion object {
+        fun fromStoredValue(value: String): LandscapePageSplitOrder =
+            entries.firstOrNull { it.storedValue == value } ?: RIGHT_FIRST
+    }
+}
+
 class AuthPreferences(private val context: Context) {
     private val SERVER_URL = stringPreferencesKey("server_url")
     private val USERNAME = stringPreferencesKey("username")
@@ -24,6 +34,8 @@ class AuthPreferences(private val context: Context) {
     private val PRELOAD_PAGES = intPreferencesKey("preload_pages")
     private val READING_DIRECTION = stringPreferencesKey("reading_direction")
     private val PAGE_FIT = stringPreferencesKey("page_fit")
+    private val SPLIT_LANDSCAPE_PAGES = booleanPreferencesKey("split_landscape_pages")
+    private val LANDSCAPE_PAGE_SPLIT_ORDER = stringPreferencesKey("landscape_page_split_order")
     private val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
     private val EINK_MODE = booleanPreferencesKey("eink_mode")
     private val TAP_PAGE_TURN = booleanPreferencesKey("tap_page_turn")
@@ -66,6 +78,10 @@ class AuthPreferences(private val context: Context) {
     val preloadPages: Flow<Int> = context.dataStore.data.map { it[PRELOAD_PAGES] ?: 5 }
     val readingDirection: Flow<String> = context.dataStore.data.map { it[READING_DIRECTION] ?: "LTR" }
     val pageFit: Flow<String> = context.dataStore.data.map { it[PAGE_FIT] ?: "FIT" }
+    val splitLandscapePages: Flow<Boolean> = context.dataStore.data.map { it[SPLIT_LANDSCAPE_PAGES] ?: false }
+    val landscapePageSplitOrder: Flow<LandscapePageSplitOrder> = context.dataStore.data.map {
+        LandscapePageSplitOrder.fromStoredValue(it[LANDSCAPE_PAGE_SPLIT_ORDER].orEmpty())
+    }
     val keepScreenOn: Flow<Boolean> = context.dataStore.data.map { it[KEEP_SCREEN_ON] ?: true }
     val einkMode: Flow<Boolean> = context.dataStore.data.map { it[EINK_MODE] ?: false }
     val tapPageTurn: Flow<Boolean> = context.dataStore.data.map { it[TAP_PAGE_TURN] ?: false }
@@ -170,6 +186,14 @@ class AuthPreferences(private val context: Context) {
 
     suspend fun setPageFit(value: String) {
         context.dataStore.edit { it[PAGE_FIT] = value }
+    }
+
+    suspend fun setSplitLandscapePages(value: Boolean) {
+        context.dataStore.edit { it[SPLIT_LANDSCAPE_PAGES] = value }
+    }
+
+    suspend fun setLandscapePageSplitOrder(value: LandscapePageSplitOrder) {
+        context.dataStore.edit { it[LANDSCAPE_PAGE_SPLIT_ORDER] = value.storedValue }
     }
 
     suspend fun setKeepScreenOn(value: Boolean) {

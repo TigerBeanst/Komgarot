@@ -1,5 +1,6 @@
 package fail.tiger.komgarot.ui.reader
 
+import fail.tiger.komgarot.data.local.LandscapePageSplitOrder
 import fail.tiger.komgarot.data.remote.dto.PageDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -9,6 +10,53 @@ import org.junit.Test
 import java.io.File
 
 class ReaderPageRequestsTest {
+    @Test
+    fun landscapePagesSplitInConfiguredOrder() {
+        val pages = listOf(
+            PageDto(number = 1, mediaType = "image/jpeg", width = 2400, height = 1600),
+            PageDto(number = 2, mediaType = "image/jpeg", width = 1600, height = 2400)
+        )
+
+        val rightFirst = buildReaderPagerPages(
+            pageCount = pages.size,
+            previousBook = null,
+            nextBook = null,
+            splitLandscapePages = true,
+            splitOrder = LandscapePageSplitOrder.RIGHT_FIRST,
+            pageInfo = pages::getOrNull
+        ).filterIsInstance<ReaderPagerPage.Actual>()
+        val leftFirst = buildReaderPagerPages(
+            pageCount = pages.size,
+            previousBook = null,
+            nextBook = null,
+            splitLandscapePages = true,
+            splitOrder = LandscapePageSplitOrder.LEFT_FIRST,
+            pageInfo = pages::getOrNull
+        ).filterIsInstance<ReaderPagerPage.Actual>()
+
+        assertEquals(
+            listOf(ReaderPageSegment.RIGHT_HALF, ReaderPageSegment.LEFT_HALF, ReaderPageSegment.FULL),
+            rightFirst.map(ReaderPagerPage.Actual::segment)
+        )
+        assertEquals(
+            listOf(ReaderPageSegment.LEFT_HALF, ReaderPageSegment.RIGHT_HALF, ReaderPageSegment.FULL),
+            leftFirst.map(ReaderPagerPage.Actual::segment)
+        )
+    }
+
+    @Test
+    fun landscapePageSplittingDefaultsToDisabled() {
+        val page = PageDto(number = 1, mediaType = "image/jpeg", width = 2400, height = 1600)
+        val actualPages = buildReaderPagerPages(
+            pageCount = 1,
+            previousBook = null,
+            nextBook = null,
+            pageInfo = listOf(page)::getOrNull
+        ).filterIsInstance<ReaderPagerPage.Actual>()
+
+        assertEquals(listOf(ReaderPageSegment.FULL), actualPages.map(ReaderPagerPage.Actual::segment))
+    }
+
     @Test
     fun imageAspectRatioRequiresUsableDimensions() {
         assertEquals(0.5f, readerImageAspectRatio(width = 1000, height = 2000) ?: 0f, 0.001f)
@@ -547,5 +595,27 @@ class ReaderPageRequestsTest {
             "reader-page:display:software:v3:$url",
             readerPageMemoryCacheKey(url, allowHardware = false, originalSize = false, cacheVersion = 3)
         )
+    }
+
+    @Test
+    fun splitPageSegmentsUseIndependentMemoryCacheKeys() {
+        val url = "https://komga.test/api/v1/books/book-1/pages/1"
+
+        val left = readerPageMemoryCacheKey(
+            url = url,
+            allowHardware = false,
+            originalSize = false,
+            pageSegment = ReaderPageSegment.LEFT_HALF
+        )
+        val right = readerPageMemoryCacheKey(
+            url = url,
+            allowHardware = false,
+            originalSize = false,
+            pageSegment = ReaderPageSegment.RIGHT_HALF
+        )
+
+        assertTrue(left.contains("left_half"))
+        assertTrue(right.contains("right_half"))
+        assertFalse(left == right)
     }
 }

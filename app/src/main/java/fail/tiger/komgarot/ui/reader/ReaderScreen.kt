@@ -68,6 +68,7 @@ import fail.tiger.komgarot.R
 import fail.tiger.komgarot.ThumbnailVersion
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
+import fail.tiger.komgarot.data.local.LandscapePageSplitOrder
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.remote.ImageDownloadProgressListener
 import coil.compose.SubcomposeAsyncImage
@@ -146,6 +147,7 @@ private fun rememberReaderPageRequest(
     displayMaxDecodedBytes: Long = readerRenderMemoryBudget().currentPreviewBytes,
     allowHardware: Boolean = false,
     retainInMemory: Boolean = false,
+    pageSegment: ReaderPageSegment = ReaderPageSegment.FULL,
     retryKey: Int = 0
 ): ReaderPageImageRequestState {
     val context = LocalContext.current
@@ -168,6 +170,7 @@ private fun rememberReaderPageRequest(
         displayMaxDecodedBytes,
         allowHardware,
         retainInMemory,
+        pageSegment,
         retryKey,
         progressState,
         cacheVersion
@@ -185,6 +188,7 @@ private fun rememberReaderPageRequest(
             displayQualityScale = displayQualityScale,
             displayMaxDecodedBytes = displayMaxDecodedBytes,
             retainInMemory = retainInMemory,
+            pageSegment = pageSegment,
             retryKey = retryKey,
             progressListener = progressState.listener,
             listener = object : ImageRequest.Listener {
@@ -280,10 +284,16 @@ private fun MutableMap<String, Painter>.trimReaderPagePainters(
     val from = (currentPage - 1).coerceAtLeast(0)
     val to = (currentPage + preloadPages.coerceAtLeast(1)).coerceAtMost(pageUrls.lastIndex)
     val retainedUrls = pageUrls.subList(from, to + 1).toSet()
-    keys.toList().forEach { url ->
-        if (url !in retainedUrls) remove(url)
+    keys.toList().forEach { painterKey ->
+        if (readerPageUrlFromPainterKey(painterKey) !in retainedUrls) remove(painterKey)
     }
 }
+
+private fun readerPagePainterKey(url: String, segment: ReaderPageSegment): String =
+    "$url#reader-segment=${segment.name}"
+
+private fun readerPageUrlFromPainterKey(key: String): String =
+    key.substringBeforeLast("#reader-segment=", key)
 
 @Composable
 private fun rememberReaderPagePainterTransform(
@@ -1086,21 +1096,40 @@ fun PagerReader(
     verticalGlyphSpacingMultiplier: Float
 ) {
     if (vm.pageUrls.isEmpty()) return
-    val pagerPages = remember(vm.pageUrls, vm.previousBook, vm.nextBook) {
-        buildReaderPagerPages(vm.pageUrls.size, vm.previousBook, vm.nextBook)
-    }
-    val initialPage = remember(vm.currentBookId, pagerPages) {
-        pagerPages.pagerIndexForActualPage(vm.currentPage)
-    }
-    val pagerState = rememberPagerState(initialPage = initialPage) { pagerPages.size }
     val context = LocalContext.current
     var longPressUrl by remember { mutableStateOf<String?>(null) }
     var openedBoundaryBookId by remember(vm.currentBookId) { mutableStateOf<String?>(null) }
     val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
     val readingDirection by vm.prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
     val pageFit by vm.prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
+    val splitLandscapePages by vm.prefs.splitLandscapePages.collectAsStateWithLifecycle(initialValue = false)
+    val splitOrder by vm.prefs.landscapePageSplitOrder.collectAsStateWithLifecycle(
+        initialValue = LandscapePageSplitOrder.RIGHT_FIRST
+    )
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val tapPageTurn by vm.prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
+    val pagerPages = remember(
+        vm.pageUrls,
+        vm.previousBook,
+        vm.nextBook,
+        splitLandscapePages,
+        splitOrder
+    ) {
+        buildReaderPagerPages(
+            pageCount = vm.pageUrls.size,
+            previousBook = vm.previousBook,
+            nextBook = vm.nextBook,
+            splitLandscapePages = splitLandscapePages,
+            splitOrder = splitOrder,
+            pageInfo = vm::pageInfo
+        )
+    }
+    val initialPage = remember(vm.currentBookId, pagerPages) {
+        pagerPages.pagerIndexForActualPage(vm.currentPage)
+    }
+    val pagerState = key(vm.currentBookId, splitLandscapePages, splitOrder) {
+        rememberPagerState(initialPage = initialPage) { pagerPages.size }
+    }
     val pagerScope = rememberCoroutineScope()
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
     val retainedPagePainters = remember(vm.currentBookId) { mutableStateMapOf<String, Painter>() }
@@ -1215,15 +1244,21 @@ fun PagerReader(
         when (val readerPage = pagerPages[page]) {
             is ReaderPagerPage.Actual -> {
                 val actualPageIndex = readerPage.pageIndex
+                val pageSegment = readerPage.segment
                 val zoomState = rememberZoomState(maxScale = 5f)
-                LaunchedEffect(actualPageIndex) { zoomState.reset() }
+                LaunchedEffect(actualPageIndex, pageSegment) { zoomState.reset() }
                 val pageUrl = vm.pageUrls[actualPageIndex]
+                val pageRenderKey = readerPagePainterKey(pageUrl, pageSegment)
                 val pageInfo = vm.pageInfo(actualPageIndex)
-                val renderMode = if (pageInfo != null) readerPageRenderMode(pageInfo) else ReaderPageRenderMode.COIL
+                val renderMode = if (pageSegment == ReaderPageSegment.FULL && pageInfo != null) {
+                    readerPageRenderMode(pageInfo)
+                } else {
+                    ReaderPageRenderMode.COIL
+                }
                 val retainInMemory = readerShouldRetainPageInMemory(einkMode, renderMode)
                 val isDisplayTarget = page == pagerState.targetPage
                 val isSettledPage = page == pagerState.settledPage
-                var retryKey by remember(pageUrl) { mutableIntStateOf(0) }
+                var retryKey by remember(pageRenderKey) { mutableIntStateOf(0) }
 
                 BoxWithConstraints(
                     Modifier
@@ -1240,7 +1275,12 @@ fun PagerReader(
                     val pageAspectRatio = pageInfo
                         ?.takeIf { it.width > 0 && it.height > 0 }
                         ?.let { it.width.toFloat() / it.height.toFloat() }
-                    val displayWidthPx = constraints.maxWidth.coerceAtLeast(1)
+                    val viewportWidthPx = constraints.maxWidth.coerceAtLeast(1)
+                    val displayWidthPx = if (pageSegment == ReaderPageSegment.FULL) {
+                        viewportWidthPx
+                    } else {
+                        viewportWidthPx * 2
+                    }
                     val displayHeightPx = if (pageFit == "WIDTH" && pageAspectRatio != null) {
                         (displayWidthPx / pageAspectRatio).roundToInt().coerceAtLeast(1)
                     } else {
@@ -1260,6 +1300,7 @@ fun PagerReader(
                             pagerRenderMemoryBudget.adjacentPreviewBytes
                         },
                         retainInMemory = retainInMemory,
+                        pageSegment = pageSegment,
                         retryKey = retryKey
                     )
                     ZoomableReaderPageContent(
@@ -1269,7 +1310,7 @@ fun PagerReader(
                         bookId = vm.currentBookId,
                         pageRequestState = pageRequestState,
                         renderMode = renderMode,
-                        retainedPainter = retainedPagePainters[pageUrl],
+                        retainedPainter = retainedPagePainters[pageRenderKey],
                         retryKey = retryKey,
                         pageFit = pageFit,
                         zoomState = zoomState,
@@ -1280,10 +1321,12 @@ fun PagerReader(
                             READER_ADJACENT_PREVIEW_QUALITY_SCALE
                         },
                         einkMode = einkMode,
-                        aiTranslatedPage = vm.currentAiTranslatedPage(actualPageIndex).takeIf { aiTranslationAvailable },
+                        aiTranslatedPage = vm.currentAiTranslatedPage(actualPageIndex)
+                            ?.forReaderPageSegment(pageSegment)
+                            ?.takeIf { aiTranslationAvailable },
                         aiDisplayMode = if (aiTranslationAvailable) vm.aiTranslationDisplayModeForPage(actualPageIndex) else AiTranslationDisplayMode.OFF,
                         verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
-                        onPainterRetained = { retainedPagePainters[pageUrl] = it },
+                        onPainterRetained = { retainedPagePainters[pageRenderKey] = it },
                         onRetry = { retryKey += 1 },
                         onLongPress = { longPressUrl = pageUrl },
                         onTap = { tapX, width ->
