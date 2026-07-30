@@ -3,11 +3,19 @@ package fail.tiger.komgarot.ui.reader
 import fail.tiger.komgarot.data.remote.dto.PageDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 class ReaderPageRequestsTest {
+    @Test
+    fun imageAspectRatioRequiresUsableDimensions() {
+        assertEquals(0.5f, readerImageAspectRatio(width = 1000, height = 2000) ?: 0f, 0.001f)
+        assertNull(readerImageAspectRatio(width = 0, height = 2000))
+        assertNull(readerImageAspectRatio(width = 1000, height = 0))
+    }
+
     @Test
     fun directImagePageUrlUsesOriginalEndpoint() {
         val page = PageDto(number = 3, mediaType = "image/jpeg", width = 100, height = 200)
