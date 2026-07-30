@@ -518,6 +518,12 @@
     <string name="metadata_cover_pick_image">Choose cover image</string>
 
     <!-- Settings -->
+    <string name="settings_section_server">Server</string>
+    <string name="settings_server_url">Server URL</string>
+    <string name="settings_server_url_desc">Change the address used for the current signed-in Komga server. The saved account is verified before switching.</string>
+    <string name="settings_server_url_placeholder">https://komga.example.com</string>
+    <string name="settings_server_url_required">Enter a server URL</string>
+    <string name="settings_server_url_update_failed">Could not switch server</string>
     <string name="settings_clear_image_cache">Clear image cache</string>
     <string name="settings_clear_cache">Clear cache</string>
     <string name="settings_cover_cache_size">Cover cache size</string>

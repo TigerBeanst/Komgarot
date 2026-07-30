@@ -109,7 +109,7 @@ fun AppNavGraph(app: KomgarotApp) {
 
     LaunchedEffect(serverUrl) {
         if (serverUrl.isNotEmpty()) {
-            sessionVm.refresh(force = true)
+            sessionVm.restart()
         }
         if (serverUrl.isNotEmpty() && navController.currentDestination?.route == Screen.Login.route) {
             navController.navigate(Screen.Library.route) {
@@ -649,7 +649,17 @@ fun AppNavGraph(app: KomgarotApp) {
         }
 
         composable(Screen.Settings.route) {
-            SettingsScreen(onBack = { navController.popBackStack() }, prefs = app.authPreferences, aiTranslationAvailable = aiTranslationAvailable)
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onServerChanged = {
+                    navController.navigate(Screen.Library.route) {
+                        popUpTo(Screen.Library.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                prefs = app.authPreferences,
+                aiTranslationAvailable = aiTranslationAvailable
+            )
         }
     }
     }

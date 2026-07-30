@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -82,10 +83,16 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalCoilApi::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, prefs: AuthPreferences, aiTranslationAvailable: Boolean = BuildConfig.AI_TRANSLATION_AVAILABLE) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onServerChanged: () -> Unit = {},
+    prefs: AuthPreferences,
+    aiTranslationAvailable: Boolean = BuildConfig.AI_TRANSLATION_AVAILABLE
+) {
     SettingsContent(
         prefs = prefs,
         aiTranslationAvailable = aiTranslationAvailable,
+        onServerChanged = onServerChanged,
         onBack = onBack
     )
 }
@@ -180,6 +187,7 @@ fun MeScreen(
 }
 
 private enum class SettingsPage(val titleRes: Int, val icon: ImageVector) {
+    SERVER(R.string.settings_section_server, Icons.Default.Dns),
     CACHE(R.string.settings_section_cache, Icons.Default.Cached),
     READING(R.string.settings_section_reading, Icons.AutoMirrored.Filled.MenuBook),
     AI(R.string.settings_section_ai_translation, Icons.Default.AutoAwesome),
@@ -226,6 +234,7 @@ private val aiSourceTextProfileOptions = listOf(
 private fun SettingsContent(
     prefs: AuthPreferences,
     aiTranslationAvailable: Boolean,
+    onServerChanged: () -> Unit,
     onBack: () -> Unit,
     headerContent: @Composable ColumnScope.() -> Unit = {}
 ) {
@@ -235,6 +244,10 @@ private fun SettingsContent(
     var showClearDialog by remember { mutableStateOf(false) }
     var showCoverCacheSizeDialog by remember { mutableStateOf(false) }
     var showReaderCacheSizeDialog by remember { mutableStateOf(false) }
+    var showServerUrlDialog by remember { mutableStateOf(false) }
+    var serverUrlSaving by remember { mutableStateOf(false) }
+    var serverUrlError by remember { mutableStateOf<String?>(null) }
+    val serverUrl by prefs.serverUrl.collectAsStateWithLifecycle()
     val alwaysIncognito by prefs.alwaysIncognito.collectAsStateWithLifecycle(initialValue = false)
     val preloadPages by prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
     val readingDirection by prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
@@ -376,6 +389,23 @@ private fun SettingsContent(
                         SettingsCategoryList(aiTranslationAvailable = aiTranslationAvailable, onSelect = { selectedSettingsPage = it })
                     } else {
             when (page) {
+                SettingsPage.SERVER -> {
+            SettingsSectionHeader(stringResource(R.string.settings_section_server))
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_server_url)) },
+                supportingContent = { Text(serverUrl.ifBlank { stringResource(R.string.settings_not_configured) }) },
+                modifier = Modifier.clickable {
+                    serverUrlError = null
+                    showServerUrlDialog = true
+                }
+            )
+            Text(
+                text = stringResource(R.string.settings_server_url_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+                }
                 SettingsPage.CACHE -> {
             SettingsSectionHeader(stringResource(R.string.settings_section_cache))
             ListItem(
@@ -1213,6 +1243,40 @@ private fun SettingsContent(
         )
     }
 
+    if (showServerUrlDialog) {
+        ServerUrlSettingDialog(
+            initialValue = serverUrl,
+            saving = serverUrlSaving,
+            error = serverUrlError,
+            onSave = { value ->
+                if (value.isBlank()) {
+                    serverUrlError = context.getString(R.string.settings_server_url_required)
+                } else {
+                    serverUrlSaving = true
+                    serverUrlError = null
+                    scope.launch {
+                        val result = app?.authRepository?.updateServerUrl(value)
+                            ?: Result.failure(IllegalStateException("Application unavailable"))
+                        serverUrlSaving = false
+                        result
+                            .onSuccess {
+                                showServerUrlDialog = false
+                                onServerChanged()
+                            }
+                            .onFailure { failure ->
+                                serverUrlError = failure.message
+                                    ?.takeIf(String::isNotBlank)
+                                    ?: context.getString(R.string.settings_server_url_update_failed)
+                            }
+                    }
+                }
+            },
+            onDismiss = {
+                if (!serverUrlSaving) showServerUrlDialog = false
+            }
+        )
+    }
+
     if (showAiBaseUrlDialog) {
         TextSettingDialog(
             title = stringResource(R.string.settings_ai_base_url),
@@ -1881,6 +1945,56 @@ private fun TextSettingDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
+}
+
+@Composable
+private fun ServerUrlSettingDialog(
+    initialValue: String,
+    saving: Boolean,
+    error: String?,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var value by remember(initialValue) { mutableStateOf(initialValue) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_server_url)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    placeholder = { Text(stringResource(R.string.settings_server_url_placeholder)) },
+                    singleLine = true,
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (error != null) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (saving) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(value) },
+                enabled = !saving && value.isNotBlank()
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !saving) {
+                Text(stringResource(R.string.cancel))
+            }
         }
     )
 }

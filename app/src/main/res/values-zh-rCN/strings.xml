@@ -515,6 +515,12 @@
     <string name="metadata_cover_pick_image">选择封面图片</string>
 
     <!-- 设置 -->
+    <string name="settings_section_server">服务器</string>
+    <string name="settings_server_url">服务器 URL</string>
+    <string name="settings_server_url_desc">修改当前登录使用的 Komga 服务器地址，切换前会使用已保存账号验证新地址。</string>
+    <string name="settings_server_url_placeholder">https://komga.example.com</string>
+    <string name="settings_server_url_required">请输入服务器 URL</string>
+    <string name="settings_server_url_update_failed">服务器切换失败</string>
     <string name="settings_clear_image_cache">清除图片缓存</string>
     <string name="settings_clear_cache">清除缓存</string>
     <string name="settings_cover_cache_size">封面缓存上限</string>
