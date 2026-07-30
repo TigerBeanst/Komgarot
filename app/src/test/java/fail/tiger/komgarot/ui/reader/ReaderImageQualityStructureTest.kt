@@ -31,9 +31,29 @@ class ReaderImageQualityStructureTest {
         assertTrue(pagerSource.contains("displayQualityScale = if (isDisplayTarget) 1.25f else 1f"))
         assertTrue(pagerSource.contains("displayMaxDecodedBytes = if (isDisplayTarget)"))
         assertTrue(scrollSource.contains("originalSize = false"))
-        assertTrue(scrollSource.contains("displayQualityScale = if (index == vm.currentPage)"))
-        assertTrue(scrollSource.contains("displayMaxDecodedBytes = if (index == vm.currentPage)"))
+        assertTrue(scrollSource.contains("displayQualityScale = READER_CURRENT_PREVIEW_QUALITY_SCALE"))
+        assertTrue(scrollSource.contains("displayMaxDecodedBytes = scrollRenderMemoryBudget.currentPreviewBytes"))
+        assertFalse(scrollSource.contains("displayQualityScale = if (index == vm.currentPage)"))
         assertTrue(requestSource.contains("size(displayDecodeSize.width, displayDecodeSize.height)"))
+    }
+
+    @Test
+    fun scrollReaderKeepsRequestsAndPageGeometryStableWhileCurrentPageChanges() {
+        val scrollStart = source.indexOf("fun ScrollReader(")
+        val scrollSource = source.substring(scrollStart)
+
+        assertTrue(scrollSource.contains(".aspectRatio(pageAspectRatio)"))
+        assertTrue(scrollSource.contains("modifier = Modifier.fillMaxSize()"))
+        assertTrue(scrollSource.contains("listPositionInitialized"))
+        assertTrue(scrollSource.contains("scrollSessionObserved"))
+        assertTrue(scrollSource.contains("listState.isScrollInProgress to dominantPage"))
+        assertTrue(scrollSource.contains("key = { index, url -> \"${'$'}index:${'$'}url\" }"))
+        assertTrue(scrollSource.contains("val resolvedPageAspectRatios"))
+        assertTrue(scrollSource.contains("val decodedAspectRatio = readerImageAspectRatio("))
+        assertTrue(scrollSource.contains("resolvedPageAspectRatios[url] = decodedAspectRatio"))
+        assertTrue(scrollSource.contains("contentScale = ContentScale.Fit"))
+        assertTrue(scrollSource.contains("displayWidthPx / pageAspectRatio"))
+        assertFalse(scrollSource.contains(".wrapContentHeight()"))
     }
 
     @Test

@@ -1837,34 +1837,51 @@ fun ScrollReader(
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
     val einkMode by vm.prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val retainedPagePainters = remember(vm.currentBookId) { mutableStateMapOf<String, Painter>() }
+    val resolvedPageAspectRatios = remember(vm.currentBookId) { mutableStateMapOf<String, Float>() }
     val scrollRenderMemoryBudget = remember { readerRenderMemoryBudget() }
     var scrollPreloadDirection by remember(vm.currentBookId) { mutableIntStateOf(1) }
     var lastVisiblePage by remember(vm.currentBookId) { mutableIntStateOf(vm.currentPage) }
+    var listPositionInitialized by remember(vm.currentBookId) { mutableStateOf(false) }
 
-    LaunchedEffect(vm.currentPage) {
+    LaunchedEffect(vm.currentBookId, vm.pageUrls) {
+        if (!listPositionInitialized && vm.pageUrls.isNotEmpty()) {
+            val initialPage = vm.currentPage.coerceIn(vm.pageUrls.indices)
+            listState.scrollToItem(initialPage)
+            lastVisiblePage = initialPage
+            listPositionInitialized = true
+        }
+    }
+
+    LaunchedEffect(vm.currentPage, listPositionInitialized) {
+        if (!listPositionInitialized) return@LaunchedEffect
         val currentPageVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == vm.currentPage }
         if (!listState.isScrollInProgress && !currentPageVisible) {
             listState.scrollToItem(vm.currentPage)
         }
     }
 
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.layoutInfo.visibleItemsInfo }
-            .map { visibleItems ->
-                visibleItems.maxByOrNull { item ->
-                    val visibleTop = item.offset.coerceAtLeast(0)
-                    val visibleBottom = (item.offset + item.size).coerceAtMost(listState.layoutInfo.viewportEndOffset)
-                    visibleBottom - visibleTop
-                }?.index
-            }
+    LaunchedEffect(listState, listPositionInitialized) {
+        if (!listPositionInitialized) return@LaunchedEffect
+        var scrollSessionObserved = false
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val dominantPage = layoutInfo.visibleItemsInfo.maxByOrNull { item ->
+                val visibleTop = item.offset.coerceAtLeast(layoutInfo.viewportStartOffset)
+                val visibleBottom = (item.offset + item.size).coerceAtMost(layoutInfo.viewportEndOffset)
+                visibleBottom - visibleTop
+            }?.index
+            listState.isScrollInProgress to dominantPage
+        }
             .distinctUntilChanged()
-            .collect { index ->
-                if (index != null) {
+            .collect { (isScrollInProgress, index) ->
+                if (isScrollInProgress) scrollSessionObserved = true
+                if (scrollSessionObserved && index != null) {
                     val pageDelta = index - lastVisiblePage
                     if (pageDelta != 0) scrollPreloadDirection = if (pageDelta < 0) -1 else 1
                     lastVisiblePage = index
                     vm.updatePage(index)
                 }
+                if (!isScrollInProgress) scrollSessionObserved = false
             }
     }
 
@@ -1926,11 +1943,17 @@ fun ScrollReader(
         state = listState,
         modifier = Modifier.fillMaxSize()
     ) {
-        itemsIndexed(vm.pageUrls, key = { _, url -> url }) { index, url ->
+        itemsIndexed(vm.pageUrls, key = { index, url -> "$index:$url" }) { index, url ->
+            val pageInfo = vm.pageInfo(index)
+            val metadataPageAspectRatio = readerImageAspectRatio(
+                width = pageInfo?.width ?: 0,
+                height = pageInfo?.height ?: 0
+            ) ?: 0.7f
+            val pageAspectRatio = resolvedPageAspectRatios[url] ?: metadataPageAspectRatio
             BoxWithConstraints(
                 Modifier
                     .fillMaxWidth()
-                    .wrapContentHeight()
+                    .aspectRatio(pageAspectRatio)
                     .combinedClickable(
                         onClick = { vm.toggleControls() },
                         onLongClick = { longPressUrl = url }
@@ -1938,13 +1961,7 @@ fun ScrollReader(
                 contentAlignment = Alignment.Center
             ) {
                 var retryKey by remember(url) { mutableIntStateOf(0) }
-                val pageInfo = vm.pageInfo(index)
                 val renderMode = if (pageInfo != null) readerPageRenderMode(pageInfo) else ReaderPageRenderMode.COIL
-                val pageAspectRatio = if (pageInfo != null && pageInfo.width > 0 && pageInfo.height > 0) {
-                    pageInfo.width.toFloat() / pageInfo.height.toFloat()
-                } else {
-                    0.7f
-                }
                 val displayWidthPx = constraints.maxWidth.coerceAtLeast(1)
                 val displayHeightPx = (displayWidthPx / pageAspectRatio).roundToInt().coerceAtLeast(1)
                 val pageRequestState = rememberReaderPageRequest(
@@ -1954,12 +1971,8 @@ fun ScrollReader(
                     originalSize = false,
                     displayWidthPx = displayWidthPx,
                     displayHeightPx = displayHeightPx,
-                    displayQualityScale = if (index == vm.currentPage) 1.25f else 1f,
-                    displayMaxDecodedBytes = if (index == vm.currentPage) {
-                        scrollRenderMemoryBudget.currentPreviewBytes
-                    } else {
-                        scrollRenderMemoryBudget.adjacentPreviewBytes
-                    },
+                    displayQualityScale = READER_CURRENT_PREVIEW_QUALITY_SCALE,
+                    displayMaxDecodedBytes = scrollRenderMemoryBudget.currentPreviewBytes,
                     retryKey = retryKey
                 )
                 var pageImageLoaded by remember(pageRequestState.request) { mutableStateOf(false) }
@@ -1980,12 +1993,12 @@ fun ScrollReader(
                             READER_ADJACENT_PREVIEW_QUALITY_SCALE
                         },
                         progressListener = pageRequestState.progressState.listener,
-                        modifier = Modifier.fillMaxWidth().aspectRatio(pageAspectRatio),
+                        modifier = Modifier.fillMaxSize(),
                         loadingContent = {
                             PageLoadingPlaceholder(
                                 progressState = pageRequestState.progressState,
                                 einkMode = einkMode,
-                                modifier = Modifier.fillMaxWidth().height(400.dp)
+                                modifier = Modifier.fillMaxSize()
                             )
                         },
                         errorContent = { ReaderPageError(onRetry = { retryKey += 1 }) },
@@ -1998,8 +2011,8 @@ fun ScrollReader(
                         model = pageRequestState.request,
                         contentDescription = stringResource(R.string.reader_page_description, index + 1),
                         transform = rememberReaderPagePainterTransform(pageRequestState.request),
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier.fillMaxWidth()
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         when (val state = painter.state) {
                             is AsyncImagePainter.State.Loading -> {
@@ -2012,7 +2025,7 @@ fun ScrollReader(
                                         progressState = pageRequestState.progressState,
                                         isLocalCacheHit = pageRequestState.isLocalCacheHit,
                                         einkMode = einkMode,
-                                        modifier = Modifier.fillMaxWidth().height(400.dp)
+                                        modifier = Modifier.fillMaxSize()
                                     )
                                 }
                             }
@@ -2024,7 +2037,7 @@ fun ScrollReader(
                                     PageLoadingPlaceholder(
                                         progressState = pageRequestState.progressState,
                                         einkMode = einkMode,
-                                        modifier = Modifier.fillMaxWidth().height(400.dp)
+                                        modifier = Modifier.fillMaxSize()
                                     )
                                 }
                             }
@@ -2035,7 +2048,7 @@ fun ScrollReader(
                                 } else {
                                     CachedPageErrorContent(
                                         state = state,
-                                        modifier = Modifier.fillMaxWidth().height(400.dp),
+                                        modifier = Modifier.fillMaxSize(),
                                         onRetry = { retryKey += 1 }
                                     )
                                 }
@@ -2043,14 +2056,28 @@ fun ScrollReader(
                             else -> {
                                 val success = state as? AsyncImagePainter.State.Success
                                 val drawable = success?.result?.drawable
+                                val decodedAspectRatio = readerImageAspectRatio(
+                                    width = drawable?.intrinsicWidth ?: 0,
+                                    height = drawable?.intrinsicHeight ?: 0
+                                )
                                 if (readerDrawableExceedsCanvasSafeSize(drawable)) {
-                                    forceTiledRender = true
+                                    LaunchedEffect(url, decodedAspectRatio) {
+                                        if (decodedAspectRatio != null) {
+                                            resolvedPageAspectRatios[url] = decodedAspectRatio
+                                        }
+                                        forceTiledRender = true
+                                    }
                                     PageLoadingPlaceholder(
                                         progressState = pageRequestState.progressState,
                                         einkMode = einkMode,
-                                        modifier = Modifier.fillMaxWidth().height(400.dp)
+                                        modifier = Modifier.fillMaxSize()
                                     )
                                 } else {
+                                    LaunchedEffect(url, decodedAspectRatio) {
+                                        if (decodedAspectRatio != null) {
+                                            resolvedPageAspectRatios[url] = decodedAspectRatio
+                                        }
+                                    }
                                     pageImageLoaded = true
                                     if (success != null) retainedPagePainters[url] = success.painter
                                     SubcomposeAsyncImageContent()

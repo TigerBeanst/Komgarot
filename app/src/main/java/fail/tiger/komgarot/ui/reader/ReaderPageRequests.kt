@@ -178,6 +178,9 @@ fun readerBitmapExceedsCanvasSafeSize(
 
 data class ReaderDisplayDecodeSize(val width: Int, val height: Int)
 
+fun readerImageAspectRatio(width: Int, height: Int): Float? =
+    if (width > 0 && height > 0) width.toFloat() / height.toFloat() else null
+
 fun readerDisplayDecodeSize(
     layoutWidth: Int,
     layoutHeight: Int,
