@@ -63,6 +63,22 @@ class ReaderImageQualityStructureTest {
     }
 
     @Test
+    fun pagerUsesSplitSegmentsForLandscapePages() {
+        val pagerStart = source.indexOf("fun PagerReader(")
+        val pagerEnd = source.indexOf("private fun saveBitmapToGallery", pagerStart)
+        val pagerSource = source.substring(pagerStart, pagerEnd)
+
+        assertTrue(pagerSource.contains("vm.prefs.splitLandscapePages.collectAsStateWithLifecycle"))
+        assertTrue(pagerSource.contains("vm.prefs.landscapePageSplitOrder.collectAsStateWithLifecycle"))
+        assertTrue(pagerSource.contains("splitLandscapePages = splitLandscapePages"))
+        assertTrue(pagerSource.contains("val pageSegment = readerPage.segment"))
+        assertTrue(pagerSource.contains("viewportWidthPx * 2"))
+        assertTrue(pagerSource.contains("pageSegment = pageSegment"))
+        assertTrue(pagerSource.contains("forReaderPageSegment(pageSegment)"))
+        assertTrue(pagerSource.contains("key(vm.currentBookId, splitLandscapePages, splitOrder)"))
+    }
+
+    @Test
     fun readerPageRequestsKeepDecodedImagesOutOfCoilMemoryCache() {
         assertTrue(requestSource.contains("retainInMemory: Boolean = false"))
         assertTrue(requestSource.contains(".memoryCachePolicy(if (retainInMemory) CachePolicy.ENABLED else CachePolicy.DISABLED)"))

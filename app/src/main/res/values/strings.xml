@@ -545,6 +545,11 @@
     <string name="settings_page_fit">Page fit</string>
     <string name="settings_page_fit_fit">Fit whole page</string>
     <string name="settings_page_fit_width">Fit width</string>
+    <string name="settings_split_landscape_pages">Split double pages</string>
+    <string name="settings_split_landscape_pages_desc">In paged reading, split landscape images into two pages</string>
+    <string name="settings_landscape_page_split_order">Double-page order</string>
+    <string name="settings_landscape_page_split_right_first">Right page first</string>
+    <string name="settings_landscape_page_split_left_first">Left page first</string>
     <string name="settings_keep_screen_on">Keep screen on while reading</string>
     <string name="settings_keep_screen_on_desc">Screen stays awake in reader</string>
     <string name="settings_app_lock">App lock</string>

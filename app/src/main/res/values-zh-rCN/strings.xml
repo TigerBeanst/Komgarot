@@ -542,6 +542,11 @@
     <string name="settings_page_fit">页面适配</string>
     <string name="settings_page_fit_fit">完整显示页面</string>
     <string name="settings_page_fit_width">适合宽度</string>
+    <string name="settings_split_landscape_pages">拆分双页</string>
+    <string name="settings_split_landscape_pages_desc">在分页阅读中将横向图片拆分为两个页面</string>
+    <string name="settings_landscape_page_split_order">双页阅读顺序</string>
+    <string name="settings_landscape_page_split_right_first">先阅读右半页</string>
+    <string name="settings_landscape_page_split_left_first">先阅读左半页</string>
     <string name="settings_keep_screen_on">阅读时保持亮屏</string>
     <string name="settings_keep_screen_on_desc">打开阅读器时不自动息屏</string>
     <string name="settings_app_lock">应用锁定</string>

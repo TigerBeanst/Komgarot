@@ -57,6 +57,7 @@ import fail.tiger.komgarot.data.local.CacheClearTarget
 import fail.tiger.komgarot.data.local.CacheMaintenance
 import fail.tiger.komgarot.data.local.CacheSizeOption
 import fail.tiger.komgarot.data.local.CachedBookEntry
+import fail.tiger.komgarot.data.local.LandscapePageSplitOrder
 import fail.tiger.komgarot.data.local.ReaderPageCache
 import fail.tiger.komgarot.data.local.SecureAiSettings
 import fail.tiger.komgarot.data.local.SecureWebDavSettings
@@ -238,6 +239,10 @@ private fun SettingsContent(
     val preloadPages by prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
     val readingDirection by prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
     val pageFit by prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
+    val splitLandscapePages by prefs.splitLandscapePages.collectAsStateWithLifecycle(initialValue = false)
+    val landscapePageSplitOrder by prefs.landscapePageSplitOrder.collectAsStateWithLifecycle(
+        initialValue = LandscapePageSplitOrder.RIGHT_FIRST
+    )
     val keepScreenOn by prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
     val einkMode by prefs.einkMode.collectAsStateWithLifecycle(initialValue = false)
     val tapPageTurn by prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
@@ -267,6 +272,7 @@ private fun SettingsContent(
     var showPreloadDialog by remember { mutableStateOf(false) }
     var showReadingDialog by remember { mutableStateOf(false) }
     var showFitDialog by remember { mutableStateOf(false) }
+    var showLandscapePageSplitOrderDialog by remember { mutableStateOf(false) }
     var showAiBaseUrlDialog by remember { mutableStateOf(false) }
     var showAiApiKeyDialog by remember { mutableStateOf(false) }
     var showAiModelDialog by remember { mutableStateOf(false) }
@@ -475,6 +481,36 @@ private fun SettingsContent(
                 },
                 modifier = Modifier.clickable { showFitDialog = true }
             )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_split_landscape_pages)) },
+                supportingContent = { Text(stringResource(R.string.settings_split_landscape_pages_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = splitLandscapePages,
+                        onCheckedChange = { scope.launch { prefs.setSplitLandscapePages(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setSplitLandscapePages(!splitLandscapePages) }
+                }
+            )
+            if (splitLandscapePages) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_landscape_page_split_order)) },
+                    supportingContent = {
+                        Text(
+                            stringResource(
+                                if (landscapePageSplitOrder == LandscapePageSplitOrder.RIGHT_FIRST) {
+                                    R.string.settings_landscape_page_split_right_first
+                                } else {
+                                    R.string.settings_landscape_page_split_left_first
+                                }
+                            )
+                        )
+                    },
+                    modifier = Modifier.clickable { showLandscapePageSplitOrderDialog = true }
+                )
+            }
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_keep_screen_on)) },
                 supportingContent = { Text(stringResource(R.string.settings_keep_screen_on_desc)) },
@@ -1063,6 +1099,38 @@ private fun SettingsContent(
                     RadioOption("WIDTH", stringResource(R.string.settings_page_fit_width), pageFit) {
                         scope.launch { prefs.setPageFit(it) }
                         showFitDialog = false
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    if (showLandscapePageSplitOrderDialog) {
+        AlertDialog(
+            onDismissRequest = { showLandscapePageSplitOrderDialog = false },
+            title = { Text(stringResource(R.string.settings_landscape_page_split_order)) },
+            text = {
+                Column {
+                    RadioOption(
+                        LandscapePageSplitOrder.RIGHT_FIRST.storedValue,
+                        stringResource(R.string.settings_landscape_page_split_right_first),
+                        landscapePageSplitOrder.storedValue
+                    ) {
+                        scope.launch {
+                            prefs.setLandscapePageSplitOrder(LandscapePageSplitOrder.RIGHT_FIRST)
+                        }
+                        showLandscapePageSplitOrderDialog = false
+                    }
+                    RadioOption(
+                        LandscapePageSplitOrder.LEFT_FIRST.storedValue,
+                        stringResource(R.string.settings_landscape_page_split_left_first),
+                        landscapePageSplitOrder.storedValue
+                    ) {
+                        scope.launch {
+                            prefs.setLandscapePageSplitOrder(LandscapePageSplitOrder.LEFT_FIRST)
+                        }
+                        showLandscapePageSplitOrderDialog = false
                     }
                 }
             },
