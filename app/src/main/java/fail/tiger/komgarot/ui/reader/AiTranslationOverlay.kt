@@ -42,6 +42,7 @@ import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import fail.tiger.komgarot.data.local.AiTranslationRegionStatus
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
+import fail.tiger.komgarot.data.local.suppressDuplicateRenderedTranslations
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -75,7 +76,7 @@ fun AiTranslationOverlay(
             imageHeight = page.imageHeight,
             fillWidth = fillWidth
         )
-        val displayBlocks = remember(page.blocks) { page.blocks }
+        val displayBlocks = remember(page.blocks) { page.blocks.suppressDuplicateRenderedTranslations() }
         displayBlocks.forEach { block ->
             val safe = block.renderSafe()
             val hasTranslatedText = safe.translatedLines.any { it.isNotBlank() }

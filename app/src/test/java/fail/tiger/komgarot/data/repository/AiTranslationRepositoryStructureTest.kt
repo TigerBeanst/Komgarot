@@ -18,6 +18,7 @@ import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
 import fail.tiger.komgarot.data.remote.AiTranslationRequestResult
 import fail.tiger.komgarot.data.remote.AiTranslationUsage
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -163,16 +164,16 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
-    fun fullBookTranslationStartsPagesInPageIndexOrderAcrossConcurrentWorkers() {
-        assertTrue(source.contains("AtomicInteger"))
+    fun pageTranslationPreparationFollowsDynamicReaderPriority() {
         assertTrue(source.contains("translatePendingPagesInPageOrder("))
         assertTrue(source.contains("pending.distinct()"))
-        assertTrue(source.contains("val nextPrepareOffset = AtomicInteger(0)"))
-        assertTrue(source.contains("val pageIndex = orderedPending[offset]"))
+        assertTrue(source.contains("requestControl.scheduler.claimNextPageForPreparation()"))
+        assertTrue(source.contains("preparedResults.send(prepared)"))
+        assertTrue(source.contains("preparedResults.receive()"))
         assertTrue(source.contains("effectiveAiTranslationRemoteWorkerCount("))
         assertTrue(source.contains("effectiveAiTranslationPreparationWorkerCount()"))
         assertTrue(source.contains("AiTranslationWindowScheduler("))
-        assertTrue(source.contains("requestControl.scheduler.markPageCompleted(orderedPending[offset])"))
+        assertTrue(source.contains("requestControl.scheduler.markPageCompleted(prepared.pageIndex)"))
         assertTrue(source.contains("translatePreparedPage("))
     }
 
@@ -418,18 +419,31 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
-    fun unboundChunkTranslationStopsTheWindowWithContractError() {
+    fun emptyChunkTranslationCompletesRegionWithoutVisibleText() {
         val chunkStart = source.indexOf("private suspend fun translatePreparedRegionChunk(")
         val chunkEnd = source.indexOf("private suspend fun translateRegionChunkImages(", chunkStart)
         assertTrue(chunkStart >= 0)
         assertTrue(chunkEnd > chunkStart)
         val chunkSource = source.substring(chunkStart, chunkEnd)
 
-        assertTrue(chunkSource.contains("AI response did not bind a translation to region="))
-        assertTrue(chunkSource.contains("AiTranslationErrorCategory.JSON_VALIDATION_FAILED"))
+        assertTrue(chunkSource.contains("pageFragment ?: emptyTranslatedRegionPage(chunkContext, runMode)"))
+        assertFalse(chunkSource.contains("AI response did not bind a translation to region="))
         assertTrue(source.contains("if (chunkResult is PreparedRegionChunkResult.Success)"))
         assertTrue(source.contains("chunkResults.filterIsInstance<PreparedRegionChunkResult.Failed>()"))
         assertTrue(source.contains("requestControl.stop(chunkResult)"))
+    }
+
+    @Test
+    fun emptyChunkDoesNotReportFirstVisibleTranslation() {
+        val chunkStart = source.indexOf("private suspend fun translatePreparedRegionChunkAndSavePartial(")
+        val chunkEnd = source.indexOf("private suspend fun translatePreparedRegionChunk(", chunkStart)
+        assertTrue(chunkStart >= 0)
+        assertTrue(chunkEnd > chunkStart)
+        val chunkSource = source.substring(chunkStart, chunkEnd)
+
+        assertTrue(chunkSource.contains("val hasVisibleTranslation = chunkResult.fragment.blocks.any"))
+        assertTrue(chunkSource.contains("block.translatedLines.any(String::isNotBlank)"))
+        assertTrue(chunkSource.contains("if (hasVisibleTranslation)"))
     }
 
     @Test
@@ -588,7 +602,7 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(pendingSource.contains("preparePageInput("))
         assertTrue(pendingSource.contains("translatePreparedPage("))
         assertTrue(pendingSource.indexOf("preparePageInput(") < pendingSource.indexOf("translatePreparedPage("))
-        assertTrue(pendingSource.contains("CompletableDeferred<PreparedAiPageResult>"))
+        assertTrue(pendingSource.contains("Channel<PreparedAiPageResult>"))
         assertTrue(pendingSource.contains("PreparedAiPageResult.Failed"))
     }
 
@@ -806,6 +820,13 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("localDetectionPlaceholderPage("))
         assertTrue(source.contains("mergeLocalDetectionPageForRegionResume("))
         assertTrue(source.contains("store.upsertPages(bookId, listOf(resumablePage))"))
+    }
+
+    @Test
+    fun pagePreparationUsesSchedulerPriorityAndCompletionOrder() {
+        assertTrue(source.contains("claimNextPageForPreparation()"))
+        assertTrue(source.contains("Channel<PreparedAiPageResult>"))
+        assertTrue(source.contains("preparedResults.receive()"))
     }
 
     @Test
@@ -1138,6 +1159,34 @@ class AiTranslationRepositoryStructureTest {
         assertEquals(context.regions.single().effectiveSourceMaskBounds(), page.blocks.single().rect)
         assertEquals("Sample source text", page.blocks.single().sourceText)
         assertEquals(listOf("示例译文"), page.blocks.single().translatedLines)
+    }
+
+    @Test
+    fun emptyRegionTranslationMarksLocalRegionDoneWithoutRenderedText() {
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 3,
+            imageWidth = 1200,
+            imageHeight = 1800,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p3-r1",
+                    rect = AiTranslationRect(x = 0.15f, y = 0.20f, width = 0.12f, height = 0.22f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.91f,
+                    estimatedFontScale = 0.96f
+                )
+            )
+        )
+
+        val page = emptyTranslatedRegionPage(context, AiTranslationMode.LOCAL_DETECTION)
+        val block = page.blocks.single()
+
+        assertEquals(AiTranslationPageStatus.DONE, page.status)
+        assertEquals("p3-r1", block.localRegionId)
+        assertEquals(AiTranslationRegionStatus.DONE, block.regionStatus)
+        assertTrue(block.translatedLines.isEmpty())
     }
 
     @Test

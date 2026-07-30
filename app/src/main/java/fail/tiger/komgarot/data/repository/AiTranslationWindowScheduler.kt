@@ -85,6 +85,7 @@ internal class AiTranslationWindowScheduler(
     private val pageStates = orderedPages.associateWith { PageState() }.toMutableMap()
     private val pageMemoryLimits = mutableMapOf<Int, Int>()
     private val activeByPage = mutableMapOf<Int, Int>()
+    private val preparationClaimedPages = mutableSetOf<Int>()
     private val configuredLimit = configuredLimit.coerceIn(1, AI_TRANSLATION_MAX_CONFIGURED_CONCURRENCY)
     private var serviceLimit = this.configuredLimit
     private var activeRequests = 0
@@ -125,6 +126,14 @@ internal class AiTranslationWindowScheduler(
         orderedPages.add(0, pageIndex)
         signalChange()
         true
+    }
+
+    suspend fun claimNextPageForPreparation(): Int? = mutex.withLock {
+        orderedPages
+            .firstOrNull { pageIndex ->
+                pageIndex !in preparationClaimedPages && pageStates[pageIndex]?.completed != true
+            }
+            ?.also(preparationClaimedPages::add)
     }
 
     suspend fun execute(

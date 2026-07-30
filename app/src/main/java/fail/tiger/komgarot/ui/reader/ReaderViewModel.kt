@@ -16,6 +16,7 @@ import fail.tiger.komgarot.data.local.AiTranslatedBook
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiBookTranslationMetadata
 import fail.tiger.komgarot.data.local.AiTranslationMode
+import fail.tiger.komgarot.data.local.AiTranslationFailureCategory
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import fail.tiger.komgarot.data.local.AiTranslationRegionStatus
 import fail.tiger.komgarot.data.local.pausedForRegionResume
@@ -30,6 +31,7 @@ import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.data.repository.defaultAiLocalModelPlan
 import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -101,12 +103,14 @@ class ReaderViewModel(
         private set
     private var progressJob: Job? = null
     private var aiTranslationJob: Job? = null
+    private var aiTranslationSequentialRestartJob: Job? = null
     private var aiTranslationPageIndexes: List<Int> = emptyList()
     var aiTranslationActivePageIndexes by mutableStateOf<List<Int>>(emptyList())
         private set
     var aiTranslationPriorityPageIndex by mutableIntStateOf(-1)
         private set
     private var pendingAiTranslationAction: PendingAiTranslationAction? = null
+    private var pendingSequentialAiTranslationRestart: PendingAiTranslationAction.TranslateWindow? = null
 
     fun load(bookId: String, startPage: Int, trackProgress: Boolean = true) {
         progressJob?.cancel()
@@ -350,10 +354,14 @@ class ReaderViewModel(
         }
     }
 
-    private fun isAiTranslationWorkRunning(): Boolean = aiTranslationJob?.isActive == true
+    private fun isAiTranslationWorkRunning(): Boolean =
+        aiTranslationJob?.isActive == true || aiTranslationSequentialRestartJob?.isActive == true
 
     private fun stopAiTranslationWork() {
         val pageIndexes = aiTranslationPageIndexes
+        pendingSequentialAiTranslationRestart = null
+        aiTranslationSequentialRestartJob?.cancel()
+        aiTranslationSequentialRestartJob = null
         aiTranslationJob?.cancel(userPausedAiTranslationCancellation())
         aiTranslationJob = null
         aiTranslationPageIndexes = emptyList()
@@ -369,6 +377,9 @@ class ReaderViewModel(
 
     private fun userPausedAiTranslationCancellation(): CancellationException =
         CancellationException("AI translation paused by user")
+
+    private fun readerPageOrderAiTranslationCancellation(): CancellationException =
+        CancellationException("AI translation restarted to preserve reader page order")
 
     private fun resetRunningAiTranslationStoreState(pageIndexes: List<Int>) {
         val loaded = book ?: return
@@ -410,17 +421,29 @@ class ReaderViewModel(
             publishAiTranslationMessage(R.string.ai_translate_config_required)
             return
         }
+        val sequentialRestart = PendingAiTranslationAction.TranslateWindow(
+            bookId = loaded.id,
+            anchorPage = anchorPage,
+            preloadPages = preloadPages,
+            publishStartedMessage = publishStartedMessage,
+            includeFailedPages = includeFailedPages
+        )
+        if (aiTranslationSequentialRestartJob?.isActive == true) {
+            pendingSequentialAiTranslationRestart = sequentialRestart
+            return
+        }
         val storedBook = repository.readBookState(loaded.id)
         aiTranslatedBook = mergeAiTranslationRefresh(aiTranslatedBook, storedBook)
             ?: storedBook
             ?: aiTranslatedBook
             ?: localAiBookShell(loaded)
         currentAiTranslationDisplayMode = AiTranslationDisplayMode.ON
-        val pageIndexes = readerAiTranslationPageRange(anchorPage, pageUrls.size, preloadPages)
-            .filter { pageIndex ->
-                val status = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }?.status
-                shouldQueueAiTranslationPage(status, includeFailedPages)
-            }
+        val sequentialPageIndexes = readerAiTranslationPageRange(anchorPage, pageUrls.size, preloadPages)
+        val pageIndexes = sequentialReaderAiTranslationQueue(
+            pageIndexes = sequentialPageIndexes,
+            pages = aiTranslatedBook?.pages.orEmpty(),
+            includeFailedPages = includeFailedPages
+        )
         if (pageIndexes.isEmpty()) {
             viewModelScope.launch {
                 prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.ON.storedValue)
@@ -428,11 +451,20 @@ class ReaderViewModel(
             return
         }
         if (aiTranslationJob?.isActive == true) {
+            val firstSequentialPage = firstSequentialAiTranslationPage(
+                pageIndexes = sequentialPageIndexes,
+                pages = aiTranslatedBook?.pages.orEmpty()
+            )
+            val activePage = aiTranslationActivePageIndexes.firstOrNull()
+            if (firstSequentialPage != null && activePage != null && activePage != firstSequentialPage) {
+                restartAiTranslationInSequentialOrder(sequentialRestart)
+                return
+            }
             prioritizeAiTranslationPageIndexes(pageIndexes)
-            if (anchorPage in aiTranslationActivePageIndexes) {
-                aiTranslationPriorityPageIndex = anchorPage
+            if (firstSequentialPage in aiTranslationActivePageIndexes) {
+                aiTranslationPriorityPageIndex = firstSequentialPage ?: -1
                 viewModelScope.launch {
-                    repository.prioritizeReaderPage(loaded.id, anchorPage)
+                    repository.prioritizeReaderPage(loaded.id, firstSequentialPage ?: return@launch)
                 }
             }
             return
@@ -443,6 +475,7 @@ class ReaderViewModel(
         val launchedJob = viewModelScope.launch {
             prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.ON.storedValue)
             val processedPageIndexes = mutableSetOf<Int>()
+            val automaticRetryCounts = mutableMapOf<Int, Int>()
             try {
                 while (true) {
                     val batchPageIndexes = nextAiTranslationPageBatch(
@@ -481,6 +514,8 @@ class ReaderViewModel(
                             ?.firstOrNull { page -> page.pageIndex == pageIndex }
                             ?.status != AiTranslationPageStatus.DONE
                     }
+                    var scheduledAutomaticRetry = false
+                    var stopAtFailedPage = false
                     if (!result.ok || firstFailedPageIndex != null) {
                         val pageIndex = firstFailedPageIndex ?: batchPageIndexes.first()
                         val updatedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == pageIndex }
@@ -493,9 +528,45 @@ class ReaderViewModel(
                         if (updatedPage?.status != AiTranslationPageStatus.DONE) {
                             updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.FAILED)
                         }
-                        publishAiTranslationFailureMessage(loaded, pageIndex, updatedPage, result)
+                        val recoverablePageIndexes = batchPageIndexes
+                            .filter { batchPageIndex ->
+                                val failedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == batchPageIndex }
+                                shouldAutomaticallyRetryReaderAiTranslation(
+                                    page = failedPage,
+                                    retryCount = automaticRetryCounts[batchPageIndex] ?: 0
+                                )
+                            }
+                            .sortedBy { batchPageIndex -> if (batchPageIndex == currentPage) 0 else 1 }
+                        if (recoverablePageIndexes.isNotEmpty()) {
+                            scheduledAutomaticRetry = true
+                            recoverablePageIndexes.forEach { retryPageIndex ->
+                                automaticRetryCounts[retryPageIndex] = (automaticRetryCounts[retryPageIndex] ?: 0) + 1
+                                updateAiTranslationPageStatus(retryPageIndex, AiTranslationPageStatus.RUNNING)
+                            }
+                            processedPageIndexes.removeAll(recoverablePageIndexes.toSet())
+                            prioritizeAiTranslationPageIndexes(recoverablePageIndexes)
+                            val retryDelayMs = recoverablePageIndexes
+                                .mapNotNull { retryPageIndex ->
+                                    aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == retryPageIndex }?.retryAfterMs
+                                }
+                                .maxOrNull()
+                                ?.coerceIn(READER_AI_TRANSLATION_AUTO_RETRY_MIN_DELAY_MS, READER_AI_TRANSLATION_AUTO_RETRY_MAX_DELAY_MS)
+                                ?: READER_AI_TRANSLATION_AUTO_RETRY_MIN_DELAY_MS
+                            delay(retryDelayMs)
+                        }
+                        val reportedPageIndex = batchPageIndexes.firstOrNull { batchPageIndex ->
+                            batchPageIndex !in recoverablePageIndexes &&
+                                aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == batchPageIndex }?.status !=
+                                AiTranslationPageStatus.DONE
+                        }
+                        if (reportedPageIndex != null) {
+                            stopAtFailedPage = true
+                            val reportedPage = aiTranslatedBook?.pages?.firstOrNull { it.pageIndex == reportedPageIndex }
+                            publishAiTranslationFailureMessage(loaded, reportedPageIndex, reportedPage, result)
+                        }
                     }
-                    refreshAiTranslationState()
+                    if (!scheduledAutomaticRetry) refreshAiTranslationState()
+                    if (stopAtFailedPage) break
                 }
             } catch (cancelled: CancellationException) {
                 resetRunningAiTranslationStoreState(aiTranslationPageIndexes)
@@ -513,18 +584,40 @@ class ReaderViewModel(
         aiTranslationJob = launchedJob
     }
 
+    private fun restartAiTranslationInSequentialOrder(
+        request: PendingAiTranslationAction.TranslateWindow
+    ) {
+        pendingSequentialAiTranslationRestart = request
+        if (aiTranslationSequentialRestartJob?.isActive == true) return
+        val runningJob = aiTranslationJob ?: return
+        val restartJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            runningJob.cancel(readerPageOrderAiTranslationCancellation())
+            runningJob.join()
+            val latestRequest = pendingSequentialAiTranslationRestart
+            pendingSequentialAiTranslationRestart = null
+            aiTranslationSequentialRestartJob = null
+            if (
+                latestRequest != null &&
+                latestRequest.bookId == currentBookId &&
+                currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON
+            ) {
+                startOrExtendCurrentAndPreloadedAiTranslation(
+                    preloadPages = latestRequest.preloadPages,
+                    publishStartedMessage = false,
+                    includeFailedPages = latestRequest.includeFailedPages,
+                    anchorPage = latestRequest.anchorPage
+                )
+            }
+        }
+        aiTranslationSequentialRestartJob = restartJob
+        restartJob.start()
+    }
+
     private fun prioritizeAiTranslationPageIndexes(pageIndexes: List<Int>) {
         aiTranslationPageIndexes = (pageIndexes + aiTranslationPageIndexes)
             .distinct()
             .filter { it in 0 until pageUrls.size }
     }
-
-    private fun shouldQueueAiTranslationPage(status: AiTranslationPageStatus?, includeFailedPages: Boolean): Boolean =
-        when (status) {
-            AiTranslationPageStatus.DONE, AiTranslationPageStatus.RUNNING -> false
-            AiTranslationPageStatus.FAILED -> includeFailedPages
-            else -> true
-        }
 
     fun retryCurrentAiTranslationPage() {
         val loaded = book ?: return
@@ -836,8 +929,65 @@ internal fun nextAiTranslationPageBatch(
     processedPageIndexes: Set<Int>
 ): List<Int> = pageIndexes
     .filter { pageIndex -> pageIndex !in processedPageIndexes }
+    .take(READER_AI_TRANSLATION_PAGE_BATCH_SIZE)
 
-private const val READER_AI_TRANSLATION_REMOTE_PAGE_CONCURRENCY = 2
+internal fun firstSequentialAiTranslationPage(
+    pageIndexes: List<Int>,
+    pages: List<AiTranslatedPage>
+): Int? {
+    val pagesByIndex = pages.associateBy(AiTranslatedPage::pageIndex)
+    return pageIndexes.firstOrNull { pageIndex ->
+        pagesByIndex[pageIndex]?.status != AiTranslationPageStatus.DONE
+    }
+}
+
+internal fun sequentialReaderAiTranslationQueue(
+    pageIndexes: List<Int>,
+    pages: List<AiTranslatedPage>,
+    includeFailedPages: Boolean
+): List<Int> {
+    val pagesByIndex = pages.associateBy(AiTranslatedPage::pageIndex)
+    val queued = mutableListOf<Int>()
+    for (pageIndex in pageIndexes) {
+        when (pagesByIndex[pageIndex]?.status) {
+            AiTranslationPageStatus.DONE,
+            AiTranslationPageStatus.RUNNING -> Unit
+            AiTranslationPageStatus.FAILED -> {
+                if (includeFailedPages) queued += pageIndex else break
+            }
+            AiTranslationPageStatus.PENDING,
+            null -> queued += pageIndex
+        }
+    }
+    return queued
+}
+
+internal fun shouldAutomaticallyRetryReaderAiTranslation(
+    page: AiTranslatedPage?,
+    retryCount: Int
+): Boolean {
+    if (page?.status != AiTranslationPageStatus.FAILED || retryCount >= READER_AI_TRANSLATION_AUTO_RETRY_LIMIT) {
+        return false
+    }
+    return AiTranslationFailureCategory.entries
+        .firstOrNull { category -> category.storedValue == page.errorCategory }
+        .let { category ->
+            category == AiTranslationFailureCategory.NETWORK_OR_API ||
+                category == AiTranslationFailureCategory.NON_JSON_RESPONSE ||
+                category == AiTranslationFailureCategory.JSON_VALIDATION_FAILED ||
+                category == AiTranslationFailureCategory.EMPTY_AI_RESULT ||
+                category == AiTranslationFailureCategory.IMAGE_INPUT ||
+                category == AiTranslationFailureCategory.REGION_CROP ||
+                category == AiTranslationFailureCategory.SAVE_VERIFICATION ||
+                category == AiTranslationFailureCategory.UNKNOWN
+        }
+}
+
+private const val READER_AI_TRANSLATION_REMOTE_PAGE_CONCURRENCY = 1
+private const val READER_AI_TRANSLATION_PAGE_BATCH_SIZE = READER_AI_TRANSLATION_REMOTE_PAGE_CONCURRENCY
+private const val READER_AI_TRANSLATION_AUTO_RETRY_LIMIT = 1
+private const val READER_AI_TRANSLATION_AUTO_RETRY_MIN_DELAY_MS = 1_500L
+private const val READER_AI_TRANSLATION_AUTO_RETRY_MAX_DELAY_MS = 8_000L
 
 internal fun mergeAiTranslationRefresh(
     current: AiTranslatedBook?,
