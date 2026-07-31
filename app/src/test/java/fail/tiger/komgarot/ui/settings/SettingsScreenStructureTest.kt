@@ -51,15 +51,9 @@ class SettingsScreenStructureTest {
     }
 
     @Test
-    fun settingsAllowsValidatedServerUrlChanges() {
-        assertTrue(source.contains("SettingsPage.SERVER"))
-        assertTrue(source.contains("R.string.settings_section_server"))
-        assertTrue(source.contains("prefs.serverUrl.collectAsStateWithLifecycle()"))
-        assertTrue(source.contains("ServerUrlSettingDialog("))
-        assertTrue(source.contains("app?.authRepository?.updateServerUrl(value)"))
-        assertTrue(source.contains("serverUrlSaving"))
-        assertTrue(source.contains("serverUrlError"))
-        assertTrue(source.contains("onServerChanged()"))
+    fun serverUrlIsKeptOutOfSettingsCategories() {
+        assertTrue(!source.contains("SettingsPage.SERVER"))
+        assertTrue(!source.contains("Icons.Default.Dns"))
     }
 
     @Test

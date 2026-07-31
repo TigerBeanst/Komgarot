@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -85,14 +84,12 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onServerChanged: () -> Unit = {},
     prefs: AuthPreferences,
     aiTranslationAvailable: Boolean = BuildConfig.AI_TRANSLATION_AVAILABLE
 ) {
     SettingsContent(
         prefs = prefs,
         aiTranslationAvailable = aiTranslationAvailable,
-        onServerChanged = onServerChanged,
         onBack = onBack
     )
 }
@@ -101,10 +98,13 @@ fun SettingsScreen(
 @Composable
 fun MeScreen(
     userEmail: String?,
+    serverUrl: String,
     isAdmin: Boolean,
     sessionSyncing: Boolean,
     sessionRetryable: Boolean,
     onSessionRetry: () -> Unit,
+    onUpdateServerUrl: suspend (String) -> Result<Unit>,
+    onServerChanged: () -> Unit,
     aiTranslationAvailable: Boolean = BuildConfig.AI_TRANSLATION_AVAILABLE,
     onCachedBooksClick: () -> Unit,
     onAiTranslationTasksClick: () -> Unit,
@@ -113,6 +113,12 @@ fun MeScreen(
     onSettingsClick: () -> Unit,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showServerUrlDialog by remember { mutableStateOf(false) }
+    var serverUrlSaving by remember { mutableStateOf(false) }
+    var serverUrlError by remember { mutableStateOf<String?>(null) }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text(stringResource(R.string.me)) })
@@ -124,16 +130,23 @@ fun MeScreen(
                     Text(userEmail?.takeIf { it.isNotBlank() } ?: stringResource(R.string.session_syncing))
                 },
                 supportingContent = {
-                    Text(
-                        stringResource(
-                            when {
-                                sessionRetryable -> R.string.session_sync_failed
-                                sessionSyncing -> R.string.session_syncing_desc
-                                isAdmin -> R.string.admin_admin_role
-                                else -> R.string.user_role
-                            }
+                    Column {
+                        Text(
+                            stringResource(
+                                when {
+                                    sessionRetryable -> R.string.session_sync_failed
+                                    sessionSyncing -> R.string.session_syncing_desc
+                                    isAdmin -> R.string.admin_admin_role
+                                    else -> R.string.user_role
+                                }
+                            )
                         )
-                    )
+                        Text(
+                            text = serverUrl.ifBlank { stringResource(R.string.settings_not_configured) },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 },
                 trailingContent = {
                     when {
@@ -141,7 +154,12 @@ fun MeScreen(
                             Text(stringResource(R.string.session_retry))
                         }
                         sessionSyncing -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else -> Icon(Icons.Default.ChevronRight, contentDescription = null)
                     }
+                },
+                modifier = Modifier.clickable {
+                    serverUrlError = null
+                    showServerUrlDialog = true
                 }
             )
             ListItem(
@@ -184,10 +202,42 @@ fun MeScreen(
             AboutSection(appUpdateRepository = appUpdateRepository)
         }
     }
+
+    if (showServerUrlDialog) {
+        ServerUrlSettingDialog(
+            initialValue = serverUrl,
+            saving = serverUrlSaving,
+            error = serverUrlError,
+            onSave = { value ->
+                if (value.isBlank()) {
+                    serverUrlError = context.getString(R.string.settings_server_url_required)
+                } else {
+                    serverUrlSaving = true
+                    serverUrlError = null
+                    scope.launch {
+                        val result = onUpdateServerUrl(value)
+                        serverUrlSaving = false
+                        result
+                            .onSuccess {
+                                showServerUrlDialog = false
+                                onServerChanged()
+                            }
+                            .onFailure { failure ->
+                                serverUrlError = failure.message
+                                    ?.takeIf(String::isNotBlank)
+                                    ?: context.getString(R.string.settings_server_url_update_failed)
+                            }
+                    }
+                }
+            },
+            onDismiss = {
+                if (!serverUrlSaving) showServerUrlDialog = false
+            }
+        )
+    }
 }
 
 private enum class SettingsPage(val titleRes: Int, val icon: ImageVector) {
-    SERVER(R.string.settings_section_server, Icons.Default.Dns),
     CACHE(R.string.settings_section_cache, Icons.Default.Cached),
     READING(R.string.settings_section_reading, Icons.AutoMirrored.Filled.MenuBook),
     AI(R.string.settings_section_ai_translation, Icons.Default.AutoAwesome),
@@ -234,7 +284,6 @@ private val aiSourceTextProfileOptions = listOf(
 private fun SettingsContent(
     prefs: AuthPreferences,
     aiTranslationAvailable: Boolean,
-    onServerChanged: () -> Unit,
     onBack: () -> Unit,
     headerContent: @Composable ColumnScope.() -> Unit = {}
 ) {
@@ -244,10 +293,6 @@ private fun SettingsContent(
     var showClearDialog by remember { mutableStateOf(false) }
     var showCoverCacheSizeDialog by remember { mutableStateOf(false) }
     var showReaderCacheSizeDialog by remember { mutableStateOf(false) }
-    var showServerUrlDialog by remember { mutableStateOf(false) }
-    var serverUrlSaving by remember { mutableStateOf(false) }
-    var serverUrlError by remember { mutableStateOf<String?>(null) }
-    val serverUrl by prefs.serverUrl.collectAsStateWithLifecycle()
     val alwaysIncognito by prefs.alwaysIncognito.collectAsStateWithLifecycle(initialValue = false)
     val preloadPages by prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
     val readingDirection by prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
@@ -389,23 +434,6 @@ private fun SettingsContent(
                         SettingsCategoryList(aiTranslationAvailable = aiTranslationAvailable, onSelect = { selectedSettingsPage = it })
                     } else {
             when (page) {
-                SettingsPage.SERVER -> {
-            SettingsSectionHeader(stringResource(R.string.settings_section_server))
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.settings_server_url)) },
-                supportingContent = { Text(serverUrl.ifBlank { stringResource(R.string.settings_not_configured) }) },
-                modifier = Modifier.clickable {
-                    serverUrlError = null
-                    showServerUrlDialog = true
-                }
-            )
-            Text(
-                text = stringResource(R.string.settings_server_url_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-                }
                 SettingsPage.CACHE -> {
             SettingsSectionHeader(stringResource(R.string.settings_section_cache))
             ListItem(
@@ -1240,40 +1268,6 @@ private fun SettingsContent(
                 showReaderCacheSizeDialog = false
             },
             onDismiss = { showReaderCacheSizeDialog = false }
-        )
-    }
-
-    if (showServerUrlDialog) {
-        ServerUrlSettingDialog(
-            initialValue = serverUrl,
-            saving = serverUrlSaving,
-            error = serverUrlError,
-            onSave = { value ->
-                if (value.isBlank()) {
-                    serverUrlError = context.getString(R.string.settings_server_url_required)
-                } else {
-                    serverUrlSaving = true
-                    serverUrlError = null
-                    scope.launch {
-                        val result = app?.authRepository?.updateServerUrl(value)
-                            ?: Result.failure(IllegalStateException("Application unavailable"))
-                        serverUrlSaving = false
-                        result
-                            .onSuccess {
-                                showServerUrlDialog = false
-                                onServerChanged()
-                            }
-                            .onFailure { failure ->
-                                serverUrlError = failure.message
-                                    ?.takeIf(String::isNotBlank)
-                                    ?: context.getString(R.string.settings_server_url_update_failed)
-                            }
-                    }
-                }
-            },
-            onDismiss = {
-                if (!serverUrlSaving) showServerUrlDialog = false
-            }
         )
     }
 

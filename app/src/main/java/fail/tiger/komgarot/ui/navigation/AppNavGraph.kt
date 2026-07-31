@@ -582,10 +582,18 @@ fun AppNavGraph(app: KomgarotApp) {
         composable(Screen.Me.route) {
             MeScreen(
                 userEmail = user?.email,
+                serverUrl = serverUrl,
                 isAdmin = canEditMetadata,
                 sessionSyncing = sessionState is SessionState.Initializing,
                 sessionRetryable = sessionState is SessionState.RetryableFailure,
                 onSessionRetry = { sessionVm.refresh(force = true) },
+                onUpdateServerUrl = app.authRepository::updateServerUrl,
+                onServerChanged = {
+                    navController.navigate(Screen.Library.route) {
+                        popUpTo(Screen.Library.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
                 aiTranslationAvailable = aiTranslationAvailable,
                 onCachedBooksClick = { navController.navigate(Screen.CachedBooks.route) },
                 onAiTranslationTasksClick = { navController.navigate(Screen.AiTranslationTasks.route) },
@@ -651,12 +659,6 @@ fun AppNavGraph(app: KomgarotApp) {
         composable(Screen.Settings.route) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
-                onServerChanged = {
-                    navController.navigate(Screen.Library.route) {
-                        popUpTo(Screen.Library.route) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                },
                 prefs = app.authPreferences,
                 aiTranslationAvailable = aiTranslationAvailable
             )
