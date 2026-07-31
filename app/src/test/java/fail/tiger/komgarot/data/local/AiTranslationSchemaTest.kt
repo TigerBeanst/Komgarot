@@ -35,7 +35,7 @@ class AiTranslationSchemaTest {
     }
 
     @Test
-    fun alphaAndRotationAreClampedForRendering() {
+    fun alphaAndGeometryAreSanitizedForRendering() {
         val block = sampleBlock().copy(
             rect = AiTranslationRect(x = 0.96f, y = -0.2f, width = 0.8f, height = 0.01f),
             translationRect = AiTranslationRect(x = 0.94f, y = 0.9f, width = 0.4f, height = 0.3f),
@@ -55,7 +55,7 @@ class AiTranslationSchemaTest {
         assertTrue(render.translationRect.x + render.translationRect.width <= 1.0001f)
         assertTrue(render.translationRect.y + render.translationRect.height <= 1.0001f)
         assertEquals(0.78f, render.maskAlpha)
-        assertEquals(12f, render.rotationDegrees)
+        assertEquals(0f, render.rotationDegrees)
         assertEquals(0.12f, render.cornerRadius)
         assertEquals(1.4f, render.fontScale)
     }

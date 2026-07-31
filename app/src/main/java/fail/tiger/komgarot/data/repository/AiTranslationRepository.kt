@@ -2439,7 +2439,7 @@ private fun aiLocalContextCacheKey(
     sourceLanguage: AiSeriesSourceLanguageState
 ): String =
     listOf(
-        "local-v14",
+        "local-v15",
         file.length(),
         file.lastModified(),
         settings.localModelSource.storedValue,
