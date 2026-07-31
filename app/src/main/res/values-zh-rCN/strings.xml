@@ -209,6 +209,8 @@
     <string name="reader_boundary_last_book">已到最后一本书</string>
     <string name="reader_boundary_first_book">已到第一本书</string>
     <string name="reader_page_description">第 %d 页</string>
+    <string name="reader_split_page_left">左</string>
+    <string name="reader_split_page_right">右</string>
     <string name="reader_action_save">保存</string>
     <string name="reader_action_share">分享</string>
     <string name="reader_action_cache_status">页面加载</string>

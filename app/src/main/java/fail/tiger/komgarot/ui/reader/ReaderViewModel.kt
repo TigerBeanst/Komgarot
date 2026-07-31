@@ -97,6 +97,8 @@ class ReaderViewModel(
     private var aiTranslatedBook by mutableStateOf<AiTranslatedBook?>(null)
     private var currentServerUrl: String = ""
     private var currentPages: List<PageDto> = emptyList()
+    var observedPageLandscape by mutableStateOf<Map<Int, Boolean>>(emptyMap())
+        private set
     var currentBookId: String = ""
         private set
     var currentSeriesId: String = ""
@@ -120,6 +122,7 @@ class ReaderViewModel(
             pendingAiTranslationAction = null
             pageUrls = emptyList()
             currentPages = emptyList()
+            observedPageLandscape = emptyMap()
             currentPage = 0
             book = null
             previousBook = null
@@ -183,6 +186,19 @@ class ReaderViewModel(
         )
 
     fun pageInfo(pageIndex: Int): PageDto? = currentPages.getOrNull(pageIndex)
+
+    fun recordPageDisplayDimensions(pageIndex: Int, width: Int, height: Int) {
+        if (pageIndex !in currentPages.indices || width <= 0 || height <= 0) return
+        val landscape = width > height
+        val page = currentPages[pageIndex]
+        val metadataLandscape = page.width > page.height
+        val updated = if (landscape == metadataLandscape) {
+            observedPageLandscape - pageIndex
+        } else {
+            observedPageLandscape + (pageIndex to landscape)
+        }
+        if (updated != observedPageLandscape) observedPageLandscape = updated
+    }
 
     fun currentAiTranslationModeForPage(pageIndex: Int): String {
         val page = currentAiTranslatedPage(pageIndex)

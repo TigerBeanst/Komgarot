@@ -212,6 +212,8 @@
     <string name="reader_boundary_last_book">This is the last book</string>
     <string name="reader_boundary_first_book">This is the first book</string>
     <string name="reader_page_description">Page %d</string>
+    <string name="reader_split_page_left">L</string>
+    <string name="reader_split_page_right">R</string>
     <string name="reader_action_save">Save</string>
     <string name="reader_action_share">Share</string>
     <string name="reader_action_cache_status">Page loading</string>

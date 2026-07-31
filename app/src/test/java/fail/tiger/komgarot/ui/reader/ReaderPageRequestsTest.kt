@@ -4,6 +4,7 @@ import fail.tiger.komgarot.data.local.LandscapePageSplitOrder
 import fail.tiger.komgarot.data.remote.dto.PageDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -55,6 +56,62 @@ class ReaderPageRequestsTest {
         ).filterIsInstance<ReaderPagerPage.Actual>()
 
         assertEquals(listOf(ReaderPageSegment.FULL), actualPages.map(ReaderPagerPage.Actual::segment))
+    }
+
+    @Test
+    fun decodedLandscapeDimensionsOverrideMissingOrIncorrectMetadata() {
+        val pages = listOf(
+            PageDto(number = 1, mediaType = "image/jpeg", width = 0, height = 0),
+            PageDto(number = 2, mediaType = "image/jpeg", width = 1200, height = 1800)
+        )
+
+        val actualPages = buildReaderPagerPages(
+            pageCount = pages.size,
+            previousBook = null,
+            nextBook = null,
+            splitLandscapePages = true,
+            observedPageLandscape = mapOf(0 to true, 1 to true),
+            pageInfo = pages::getOrNull
+        ).filterIsInstance<ReaderPagerPage.Actual>()
+
+        assertEquals(
+            listOf(
+                ReaderPageSegment.RIGHT_HALF,
+                ReaderPageSegment.LEFT_HALF,
+                ReaderPageSegment.RIGHT_HALF,
+                ReaderPageSegment.LEFT_HALF
+            ),
+            actualPages.map(ReaderPagerPage.Actual::segment)
+        )
+    }
+
+    @Test
+    fun splitPartNumberFollowsConfiguredReadingOrder() {
+        assertEquals(1, ReaderPageSegment.RIGHT_HALF.splitPartNumber(LandscapePageSplitOrder.RIGHT_FIRST))
+        assertEquals(2, ReaderPageSegment.LEFT_HALF.splitPartNumber(LandscapePageSplitOrder.RIGHT_FIRST))
+        assertEquals(1, ReaderPageSegment.LEFT_HALF.splitPartNumber(LandscapePageSplitOrder.LEFT_FIRST))
+        assertEquals(2, ReaderPageSegment.RIGHT_HALF.splitPartNumber(LandscapePageSplitOrder.LEFT_FIRST))
+        assertNull(ReaderPageSegment.FULL.splitPartNumber(LandscapePageSplitOrder.RIGHT_FIRST))
+    }
+
+    @Test
+    fun pagerKeysPreservePrimaryHalfWhenDecodedDimensionsEnableSplitting() {
+        val fullPage = ReaderPagerPage.Actual(3, ReaderPageSegment.FULL)
+        val rightHalf = ReaderPagerPage.Actual(3, ReaderPageSegment.RIGHT_HALF)
+        val leftHalf = ReaderPagerPage.Actual(3, ReaderPageSegment.LEFT_HALF)
+
+        assertEquals(
+            fullPage.readerPagerStableKey(LandscapePageSplitOrder.RIGHT_FIRST),
+            rightHalf.readerPagerStableKey(LandscapePageSplitOrder.RIGHT_FIRST)
+        )
+        assertNotEquals(
+            fullPage.readerPagerStableKey(LandscapePageSplitOrder.RIGHT_FIRST),
+            leftHalf.readerPagerStableKey(LandscapePageSplitOrder.RIGHT_FIRST)
+        )
+        assertEquals(
+            fullPage.readerPagerStableKey(LandscapePageSplitOrder.LEFT_FIRST),
+            leftHalf.readerPagerStableKey(LandscapePageSplitOrder.LEFT_FIRST)
+        )
     }
 
     @Test
@@ -122,13 +179,23 @@ class ReaderPageRequestsTest {
     @Test
     fun pagerProgressJumpSyncsFromBoundaryPages() {
         val source = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
-        val effectStart = source.indexOf("LaunchedEffect(vm.currentPage)")
+        val effectStart = source.indexOf("LaunchedEffect(vm.currentPage, pagerState)")
         assertTrue(effectStart >= 0)
         val effectEnd = source.indexOf("LaunchedEffect(vm.currentPage, memoryAwarePreloadPages", effectStart)
         val effectSource = source.substring(effectStart, effectEnd)
 
         assertTrue(effectSource.contains("pagerState.scrollToPage(targetPage)"))
-        assertFalse(effectSource.contains("currentPagerPage is ReaderPagerPage.Actual &&"))
+        assertTrue(effectSource.contains("readerPagerNeedsProgressSync(currentPagerPage, vm.currentPage)"))
+    }
+
+    @Test
+    fun pagerProgressSyncKeepsHalfPageSwipesAndStillLeavesBoundaries() {
+        val actual = ReaderPagerPage.Actual(pageIndex = 4, segment = ReaderPageSegment.RIGHT_HALF)
+        val boundary = ReaderPagerPage.Boundary(ReaderBoundaryDirection.NEXT, null)
+
+        assertFalse(readerPagerNeedsProgressSync(actual, actualPageIndex = 4))
+        assertTrue(readerPagerNeedsProgressSync(actual, actualPageIndex = 5))
+        assertTrue(readerPagerNeedsProgressSync(boundary, actualPageIndex = 4))
     }
 
     @Test
@@ -210,6 +277,14 @@ class ReaderPageRequestsTest {
         assertEquals(1, readerPagerBeyondViewportPageCount(einkMode = false, hasTiledPages = true))
         assertEquals(0, readerPagerBeyondViewportPageCount(einkMode = false, hasTiledPages = false))
         assertEquals(1, readerPagerBeyondViewportPageCount(einkMode = true, hasTiledPages = false))
+        assertEquals(
+            1,
+            readerPagerBeyondViewportPageCount(
+                einkMode = false,
+                hasTiledPages = false,
+                hasSplitPages = true
+            )
+        )
     }
 
     @Test
