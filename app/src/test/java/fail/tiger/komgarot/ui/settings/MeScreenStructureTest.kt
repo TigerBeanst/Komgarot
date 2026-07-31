@@ -37,4 +37,18 @@ class MeScreenStructureTest {
         assertTrue(overlaySource.contains("route == Screen.Library.route"))
         assertFalse(overlaySource.contains("route == Screen.Me.route"))
     }
+
+    @Test
+    fun accountCardAllowsValidatedServerUrlChanges() {
+        val meStart = source.indexOf("fun MeScreen(")
+        val settingsPageStart = source.indexOf("private enum class SettingsPage", meStart)
+        val meSource = source.substring(meStart, settingsPageStart)
+
+        assertTrue(meSource.contains("serverUrl: String"))
+        assertTrue(meSource.contains("onUpdateServerUrl: suspend (String) -> Result<Unit>"))
+        assertTrue(meSource.contains("ServerUrlSettingDialog("))
+        assertTrue(meSource.contains("val result = onUpdateServerUrl(value)"))
+        assertTrue(meSource.contains("onServerChanged()"))
+        assertTrue(navSource.contains("onUpdateServerUrl = app.authRepository::updateServerUrl"))
+    }
 }
