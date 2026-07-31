@@ -250,7 +250,7 @@ fun SeriesMetadataContent(
                     MetaField(stringResource(R.string.metadata_publisher), publisher, editing) { publisher = it }
                     MetadataLanguageField(
                         language = language,
-                        serverLanguages = vm.seriesLanguages,
+                        serverLanguages = vm.metadataLanguages,
                         editing = editing,
                         onChange = {
                             language = it
@@ -304,6 +304,7 @@ fun BookMetadataContent(
     onEditToggle: () -> Unit
 ) {
     val meta = vm.bookMeta
+    val seriesMeta = vm.bookSeriesMeta
     var title by remember(meta) { mutableStateOf(meta?.title ?: "") }
     var summary by remember(meta) { mutableStateOf(meta?.summary ?: "") }
     var number by remember(meta) { mutableStateOf(meta?.number ?: "") }
@@ -319,6 +320,8 @@ fun BookMetadataContent(
     var authorsLock by remember(meta) { mutableStateOf(meta?.authorsLock ?: false) }
     var tagsLock by remember(meta) { mutableStateOf(meta?.tagsLock ?: false) }
     var linksLock by remember(meta) { mutableStateOf(meta?.linksLock ?: false) }
+    var language by remember(seriesMeta) { mutableStateOf(seriesMeta?.language ?: "") }
+    var languageLock by remember(seriesMeta) { mutableStateOf(seriesMeta?.languageLock ?: false) }
     val thumbnailVersion = ThumbnailVersion.get(id)
     val thumbnailUrl = remember(serverUrl, id, thumbnailVersion) {
         KomgaUrls.bookThumbnail(serverUrl, id, thumbnailVersion)
@@ -336,8 +339,8 @@ fun BookMetadataContent(
         saving = vm.saving,
         onSave = {
             vm.saveBookMeta(
-                id,
-                BookMetadataDto(
+                id = id,
+                meta = BookMetadataDto(
                     title = title,
                     summary = summary,
                     number = number,
@@ -356,7 +359,9 @@ fun BookMetadataContent(
                     authorsLock = authorsLock,
                     tagsLock = tagsLock,
                     linksLock = linksLock
-                )
+                ),
+                seriesLanguage = language,
+                seriesLanguageLock = languageLock
             ) { ok ->
                 if (ok) {
                     onEditToggle()
@@ -388,6 +393,22 @@ fun BookMetadataContent(
                     MetaField(stringResource(R.string.metadata_number_sort), numberSort, editing) { numberSort = it }
                     MetaField(stringResource(R.string.metadata_release_date), releaseDate, editing) { releaseDate = it }
                     MetaField(stringResource(R.string.metadata_isbn), isbn, editing) { isbn = it }
+                    if (seriesMeta != null) {
+                        MetadataLanguageField(
+                            language = language,
+                            serverLanguages = vm.metadataLanguages,
+                            editing = editing,
+                            onChange = {
+                                language = it
+                                languageLock = true
+                            }
+                        )
+                        Text(
+                            stringResource(R.string.metadata_book_language_series_scope),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 MetadataSection(stringResource(R.string.summary)) {
                     MetaField(stringResource(R.string.summary), summary, editing, maxLines = 6) { summary = it }
@@ -407,6 +428,9 @@ fun BookMetadataContent(
                         LockSwitch(stringResource(R.string.summary), summaryLock) { summaryLock = it }
                         LockSwitch(stringResource(R.string.metadata_number), numberLock) { numberLock = it }
                         LockSwitch(stringResource(R.string.metadata_authors), authorsLock) { authorsLock = it }
+                        if (seriesMeta != null) {
+                            LockSwitch(stringResource(R.string.metadata_language), languageLock) { languageLock = it }
+                        }
                         LockSwitch(stringResource(R.string.metadata_label), tagsLock) { tagsLock = it }
                         LockSwitch(stringResource(R.string.metadata_links), linksLock) { linksLock = it }
                     }

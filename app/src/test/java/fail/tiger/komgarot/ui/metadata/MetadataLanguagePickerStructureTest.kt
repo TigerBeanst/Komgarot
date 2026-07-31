@@ -19,6 +19,28 @@ class MetadataLanguagePickerStructureTest {
     @Test
     fun seriesLanguageLoadsKomgaReferentialValuesWithFallback() {
         assertTrue(repositorySource.contains("suspend fun getLanguages(): List<String> = api.getLanguages()"))
-        assertTrue(viewModelSource.contains("seriesLanguages = loadMetadataLanguages { repo.getLanguages() }"))
+        assertTrue(viewModelSource.contains("metadataLanguages = loadMetadataLanguages { repo.getLanguages() }"))
+    }
+
+    @Test
+    fun bookMetadataShowsAndEditsItsKomgaSeriesLanguage() {
+        val bookStart = screenSource.indexOf("fun BookMetadataContent(")
+        val bookEnd = screenSource.indexOf("private fun MetadataScaffold(", bookStart)
+        val bookSource = screenSource.substring(bookStart, bookEnd)
+
+        assertTrue(bookSource.contains("val seriesMeta = vm.bookSeriesMeta"))
+        assertTrue(bookSource.contains("MetadataLanguageField("))
+        assertTrue(bookSource.contains("R.string.metadata_book_language_series_scope"))
+        assertTrue(bookSource.contains("seriesLanguage = language"))
+        assertTrue(bookSource.contains("seriesLanguageLock = languageLock"))
+        assertTrue(bookSource.contains("LockSwitch(stringResource(R.string.metadata_language), languageLock)"))
+    }
+
+    @Test
+    fun bookMetadataLoadsAndPartiallyUpdatesItsSeriesLanguage() {
+        assertTrue(viewModelSource.contains("bookSeriesId = book.seriesId"))
+        assertTrue(viewModelSource.contains("repo.getSeriesMetadata(book.seriesId)"))
+        assertTrue(viewModelSource.contains("repo.updateSeriesLanguage(bookSeriesId, body)"))
+        assertTrue(repositorySource.contains("suspend fun updateSeriesLanguage("))
     }
 }

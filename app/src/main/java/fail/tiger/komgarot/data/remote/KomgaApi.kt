@@ -122,6 +122,9 @@ interface MetadataApi {
     @PATCH("api/v1/series/{id}/metadata")
     suspend fun updateSeriesMetadata(@Path("id") id: String, @Body metadata: SeriesMetadataUpdateDto)
 
+    @PATCH("api/v1/series/{id}/metadata")
+    suspend fun updateSeriesLanguage(@Path("id") id: String, @Body metadata: SeriesLanguageUpdateDto)
+
     @PATCH("api/v1/books/{id}/metadata")
     suspend fun updateBookMetadata(@Path("id") id: String, @Body metadata: BookMetadataUpdateDto)
 

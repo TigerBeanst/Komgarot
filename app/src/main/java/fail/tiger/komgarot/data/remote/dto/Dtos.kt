@@ -180,6 +180,11 @@ data class SeriesMetadataUpdateDto(
     val totalBookCountLock: Boolean
 )
 
+data class SeriesLanguageUpdateDto(
+    val language: String,
+    val languageLock: Boolean
+)
+
 data class BookMetadataUpdateDto(
     val title: String,
     val summary: String,

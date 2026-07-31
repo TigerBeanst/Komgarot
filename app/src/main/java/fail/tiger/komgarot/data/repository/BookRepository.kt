@@ -41,6 +41,9 @@ class BookRepository(private val api: KomgaApi) {
     suspend fun updateSeriesMetadata(id: String, metadata: SeriesMetadataUpdateDto) =
         api.updateSeriesMetadata(id, metadata)
 
+    suspend fun updateSeriesLanguage(id: String, metadata: SeriesLanguageUpdateDto) =
+        api.updateSeriesLanguage(id, metadata)
+
     suspend fun updateBookMetadata(id: String, metadata: BookMetadataUpdateDto) =
         api.updateBookMetadata(id, metadata)
 
