@@ -248,6 +248,7 @@
     <string name="settings_ai_source_text_profile_japanese_manga">日文漫画</string>
     <string name="settings_ai_source_text_profile_korean_horizontal_webtoon">韩文横排条漫</string>
     <string name="settings_ai_section_basic">基础</string>
+    <string name="settings_ai_section_translation_behavior">翻译行为</string>
     <string name="settings_ai_section_request">请求</string>
     <string name="settings_ai_section_image_transport">图片传输</string>
     <string name="settings_ai_section_local_model">本地模型</string>
@@ -284,6 +285,14 @@
     <string name="settings_ai_image_max_edge">模型输入图片尺寸</string>
     <string name="settings_ai_prompt_preview">提示词预览</string>
     <string name="settings_ai_custom_instructions">自定义附加要求</string>
+    <string name="settings_ai_skip_sound_effects">跳过拟声词</string>
+    <string name="settings_ai_skip_sound_effects_desc">开启后，AI 会识别拟声词和音效文字并跳过翻译。</string>
+    <string name="settings_ai_reasoning_effort">思考等级</string>
+    <string name="settings_ai_reasoning_effort_desc">填写 API 支持的等级；留空时省略 reasoning_effort 字段。</string>
+    <string name="settings_ai_reasoning_effort_placeholder">例如：low、medium、high</string>
+    <string name="settings_ai_additional_prompt">附加提示词</string>
+    <string name="settings_ai_additional_prompt_desc">内容会追加到内置翻译提示词末尾。</string>
+    <string name="settings_ai_additional_prompt_placeholder">输入额外的翻译要求</string>
     <string name="settings_ai_high_concurrency_warning">高并发会更快消耗 token，可能触发限流、增加发热和失败页。</string>
     <string name="settings_ai_purge_translation_data">净化已翻译数据</string>
     <string name="settings_ai_purge_translation_data_desc">检查已缓存 AI 翻译的书本是否仍在服务器，移除已不存在的缓存。</string>

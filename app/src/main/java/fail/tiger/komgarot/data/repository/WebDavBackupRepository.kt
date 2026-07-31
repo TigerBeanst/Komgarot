@@ -147,6 +147,8 @@ class WebDavBackupRepository(
             aiMaxImagesPerRequest = prefs.aiMaxImagesPerRequest.first(),
             aiTimeoutSeconds = prefs.aiTimeoutSeconds.first(),
             aiImageMaxEdge = prefs.aiImageMaxEdge.first().storedValue,
+            aiSkipSoundEffects = prefs.aiSkipSoundEffects.first(),
+            aiReasoningEffort = prefs.aiReasoningEffort.first(),
             aiCustomInstructions = prefs.aiCustomInstructions.first(),
             aiApiKey = secureAi.apiKey,
             aiImageUrlExtraQuery = secureAi.imageUrlExtraQuery,
@@ -248,6 +250,8 @@ class WebDavBackupRepository(
         prefs.setAiMaxImagesPerRequest(settings.aiMaxImagesPerRequest)
         prefs.setAiTimeoutSeconds(settings.aiTimeoutSeconds)
         prefs.setAiImageMaxEdge(AiImageMaxEdge.fromStoredValue(settings.aiImageMaxEdge))
+        prefs.setAiSkipSoundEffects(settings.aiSkipSoundEffects)
+        prefs.setAiReasoningEffort(settings.aiReasoningEffort)
         prefs.setAiCustomInstructions(settings.aiCustomInstructions)
         secureAiSettingsStore.saveApiKey(settings.aiApiKey)
         secureAiSettingsStore.saveImageUrlExtraQuery(settings.aiImageUrlExtraQuery)
@@ -295,10 +299,12 @@ data class WebDavBackupSettings(
     val aiTranslationRequestMode: String = AiTranslationRequestMode.PARALLEL.storedValue,
     val aiSourceTextProfile: String = AiSourceTextProfile.AUTO.storedValue,
     val aiPagesPerRequest: Int = 10,
-    val aiConcurrentRequests: Int = 2,
+    val aiConcurrentRequests: Int = 8,
     val aiMaxImagesPerRequest: Int = 20,
     val aiTimeoutSeconds: Int = 30,
     val aiImageMaxEdge: String = "",
+    val aiSkipSoundEffects: Boolean = false,
+    val aiReasoningEffort: String = "",
     val aiCustomInstructions: String = "",
     val aiApiKey: String = "",
     val aiImageUrlExtraQuery: String = "",

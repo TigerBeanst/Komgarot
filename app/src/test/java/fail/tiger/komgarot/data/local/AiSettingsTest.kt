@@ -27,6 +27,8 @@ class AiSettingsTest {
         assertEquals("main", settings.modelRevision)
         assertTrue(settings.downloadLatestModel)
         assertTrue(settings.autoSelectDeviceTier)
+        assertFalse(settings.skipSoundEffects)
+        assertEquals("", settings.reasoningEffort)
         assertEquals("", settings.customInstructions)
         assertFalse(settings.testModeEnabled)
         assertFalse(settings.configurationTestPassed)

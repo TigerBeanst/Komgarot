@@ -548,6 +548,8 @@ class AiTranslationRepository(
             maxImagesPerRequest = prefs.aiMaxImagesPerRequest.first(),
             timeoutSeconds = prefs.aiTimeoutSeconds.first(),
             imageMaxEdge = prefs.aiImageMaxEdge.first(),
+            skipSoundEffects = prefs.aiSkipSoundEffects.first(),
+            reasoningEffort = prefs.aiReasoningEffort.first(),
             customInstructions = prefs.aiCustomInstructions.first(),
             testModeEnabled = prefs.aiTestModeEnabled.first(),
             configurationTestPassed = prefs.aiConfigurationTestPassed.first()
@@ -1174,7 +1176,7 @@ class AiTranslationRepository(
                 baseUrl = settings.baseUrl,
                 apiKey = apiKey,
                 model = settings.modelName,
-                systemPrompt = aiTranslationSystemPrompt(),
+                systemPrompt = aiTranslationSystemPrompt(settings.skipSoundEffects),
                 userPrompt = aiTranslationUserPrompt(
                     bookId = book.id,
                     targetLocale = settings.targetLocale,
@@ -1182,11 +1184,13 @@ class AiTranslationRepository(
                     translationMode = runMode,
                     localPageContexts = listOf(chunkContext),
                     customInstructions = settings.customInstructions,
+                    skipSoundEffects = settings.skipSoundEffects,
                     sourceTextProfile = sourceLanguage.sourceTextProfile,
                     sourceLanguage = sourceLanguage
                 ),
                 images = images,
-                timeoutSeconds = settings.timeoutSeconds
+                timeoutSeconds = settings.timeoutSeconds,
+                reasoningEffort = settings.reasoningEffort
             )
             requestControl.scheduler.recordFeedback(result)
             timingRecorder.recordRequest(result)

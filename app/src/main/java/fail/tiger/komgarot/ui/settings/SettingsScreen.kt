@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -323,6 +324,9 @@ private fun SettingsContent(
     val aiConcurrentRequests by prefs.aiConcurrentRequests.collectAsStateWithLifecycle(initialValue = AiSettings.defaults().concurrentRequests)
     val aiMaxImagesPerRequest by prefs.aiMaxImagesPerRequest.collectAsStateWithLifecycle(initialValue = 20)
     val aiTimeoutSeconds by prefs.aiTimeoutSeconds.collectAsStateWithLifecycle(initialValue = 30)
+    val aiSkipSoundEffects by prefs.aiSkipSoundEffects.collectAsStateWithLifecycle(initialValue = false)
+    val aiReasoningEffort by prefs.aiReasoningEffort.collectAsStateWithLifecycle(initialValue = "")
+    val aiAdditionalPrompt by prefs.aiCustomInstructions.collectAsStateWithLifecycle(initialValue = "")
     val aiVerticalGlyphSpacingPercent by prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 86)
     val app = context.applicationContext as? KomgarotApp
     var secureAiSettings by remember { mutableStateOf(app?.secureAiSettingsStore?.read() ?: SecureAiSettings()) }
@@ -352,6 +356,8 @@ private fun SettingsContent(
     var showAiConcurrencyDialog by remember { mutableStateOf(false) }
     var showAiMaxImagesPerRequestDialog by remember { mutableStateOf(false) }
     var showAiTimeoutDialog by remember { mutableStateOf(false) }
+    var showAiReasoningEffortDialog by remember { mutableStateOf(false) }
+    var showAiAdditionalPromptDialog by remember { mutableStateOf(false) }
     var showAiVerticalGlyphSpacingDialog by remember { mutableStateOf(false) }
     var showDeleteLocalModelsDialog by remember { mutableStateOf(false) }
     var purgingAiTranslations by remember { mutableStateOf(false) }
@@ -678,6 +684,54 @@ private fun SettingsContent(
                 headlineContent = { Text(stringResource(R.string.settings_ai_source_text_profile)) },
                 supportingContent = { Text(stringResource(sourceTextProfileOption.labelRes)) },
                 modifier = Modifier.clickable { showAiSourceTextProfileDialog = true }
+            )
+            SettingsSectionHeader(stringResource(R.string.settings_ai_section_translation_behavior))
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_skip_sound_effects)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_skip_sound_effects_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = aiSkipSoundEffects,
+                        onCheckedChange = { scope.launch { prefs.setAiSkipSoundEffects(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setAiSkipSoundEffects(!aiSkipSoundEffects) }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_reasoning_effort)) },
+                supportingContent = {
+                    Column {
+                        Text(aiReasoningEffort.ifBlank { stringResource(R.string.settings_not_configured) })
+                        Text(
+                            text = stringResource(R.string.settings_ai_reasoning_effort_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                modifier = Modifier.clickable { showAiReasoningEffortDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_additional_prompt)) },
+                supportingContent = {
+                    Column {
+                        if (aiAdditionalPrompt.isNotBlank()) {
+                            Text(
+                                text = aiAdditionalPrompt,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.settings_ai_additional_prompt_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                modifier = Modifier.clickable { showAiAdditionalPromptDialog = true }
             )
             SettingsSectionHeader(stringResource(R.string.settings_ai_section_image_transport))
             ListItem(
@@ -1321,6 +1375,29 @@ private fun SettingsContent(
                 }
             },
             confirmButton = {}
+        )
+    }
+
+    if (showAiReasoningEffortDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_reasoning_effort),
+            initialValue = aiReasoningEffort,
+            placeholder = stringResource(R.string.settings_ai_reasoning_effort_placeholder),
+            onSave = { scope.launch { prefs.setAiReasoningEffort(it) } },
+            onDismiss = { showAiReasoningEffortDialog = false }
+        )
+    }
+
+    if (showAiAdditionalPromptDialog) {
+        TextSettingDialog(
+            title = stringResource(R.string.settings_ai_additional_prompt),
+            initialValue = aiAdditionalPrompt,
+            placeholder = stringResource(R.string.settings_ai_additional_prompt_placeholder),
+            singleLine = false,
+            minLines = 4,
+            maxLines = 12,
+            onSave = { scope.launch { prefs.setAiCustomInstructions(it) } },
+            onDismiss = { showAiAdditionalPromptDialog = false }
         )
     }
 

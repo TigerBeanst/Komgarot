@@ -111,13 +111,20 @@ class AiTranslationClient(httpClient: OkHttpClient = OkHttpClient()) {
         systemPrompt: String,
         userPrompt: String,
         images: List<AiTranslationImageInput>,
-        timeoutSeconds: Int = 30
+        timeoutSeconds: Int = 30,
+        reasoningEffort: String = ""
     ): AiTranslationRequestResult {
         val responseTimeout = aiResponseTimeoutSeconds(timeoutSeconds)
         val writeTimeout = aiWriteTimeoutSeconds(responseTimeout)
         val call = try {
             val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
-            val body = buildAiTranslationChatRequestJson(model, systemPrompt, userPrompt, images)
+            val body = buildAiTranslationChatRequestJson(
+                model = model,
+                systemPrompt = systemPrompt,
+                userPrompt = userPrompt,
+                images = images,
+                reasoningEffort = reasoningEffort
+            )
                 .toRequestBody("application/json; charset=utf-8".toMediaType())
             val request = Request.Builder()
                 .url(endpoint)
@@ -421,10 +428,14 @@ fun buildAiTranslationChatRequestJson(
     model: String,
     systemPrompt: String,
     userPrompt: String,
-    images: List<AiTranslationImageInput>
+    images: List<AiTranslationImageInput>,
+    reasoningEffort: String = ""
 ): String {
     val root = JsonObject().apply {
         addProperty("model", model)
+        reasoningEffort.trim().takeIf(String::isNotEmpty)?.let {
+            addProperty("reasoning_effort", it)
+        }
         add("messages", JsonArray().apply {
             add(JsonObject().apply {
                 addProperty("role", "system")
