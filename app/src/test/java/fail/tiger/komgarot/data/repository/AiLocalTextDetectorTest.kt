@@ -178,6 +178,30 @@ class AiLocalTextDetectorTest {
     }
 
     @Test
+    fun nearbyHorizontalTextBoxesWithVisibleRowGapRemainSeparate() {
+        val upperBox = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.10f, 0.70f, 0.22f, 0.026f),
+            textDirection = AiTranslationTextDirection.HORIZONTAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.82f
+        )
+        val lowerBox = upperBox.copy(
+            id = "p0-r2",
+            rect = AiTranslationRect(0.08f, 0.755f, 0.28f, 0.026f)
+        )
+
+        val merged = mergeLocalTextRegionsIntoTextBoxes(
+            listOf(lowerBox, upperBox),
+            AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON
+        )
+
+        assertEquals(2, merged.size)
+    }
+
+    @Test
     fun nearbyVerticalDetectionColumnsMergeIntoOneTextBoxRegion() {
         val rightColumn = AiTranslationLocalTextRegion(
             id = "p0-r1",
@@ -923,6 +947,16 @@ class AiLocalTextDetectorTest {
     }
 
     @Test
+    fun koreanHorizontalProfileKeepsTallMultilineRegionHorizontal() {
+        val rect = AiTranslationRect(x = 0.72f, y = 0.68f, width = 0.10f, height = 0.19f)
+
+        assertEquals(
+            AiTranslationTextDirection.HORIZONTAL,
+            detectedTextDirectionForRect(rect, AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON)
+        )
+    }
+
+    @Test
     fun normalHorizontalComicProfilePrefersHorizontalDetectedBoxes() {
         val rect = AiTranslationRect(x = 0.12f, y = 0.20f, width = 0.16f, height = 0.19f)
 
@@ -933,24 +967,26 @@ class AiLocalTextDetectorTest {
     }
 
     @Test
-    fun japaneseWideHorizontalSignKeepsHorizontalDirectionAndSlantedMetadata() {
+    fun horizontalRegionsUseAxisAlignedOverlayGeometry() {
         val signRect = AiTranslationRect(x = 0.12f, y = 0.16f, width = 0.28f, height = 0.08f)
         val direction = detectedTextDirectionForRect(signRect, AiSourceTextProfile.JAPANESE_MANGA)
 
         assertEquals(AiTranslationTextDirection.HORIZONTAL, direction)
-        assertTrue(
+        assertEquals(
+            0f,
             estimatedRegionRotationDegreesForRect(
                 rect = signRect,
                 direction = direction,
                 sourceTextProfile = AiSourceTextProfile.JAPANESE_MANGA
-            ) < -8f
+            )
         )
-        assertTrue(
+        assertEquals(
+            0f,
             estimatedRegionRotationDegreesForRect(
                 rect = signRect,
                 direction = direction,
-                sourceTextProfile = AiSourceTextProfile.AUTO
-            ) < -8f
+                sourceTextProfile = AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON
+            )
         )
     }
 

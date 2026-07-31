@@ -515,11 +515,11 @@ private fun horizontalTextBoxClustersCanMerge(
 ): Boolean {
     val lineHeight = medianRegionThickness(left + right, AiTranslationTextDirection.HORIZONTAL)
     val gap = verticalGap(leftRect, rightRect)
-    val alignedX = axisOverlapRatio(leftRect.x, leftRect.right, rightRect.x, rightRect.right) >= 0.22f ||
-        abs(leftRect.centerX - rightRect.centerX) <= max(max(leftRect.width, rightRect.width) * 0.34f, 0.045f)
+    val alignedX = axisOverlapRatio(leftRect.x, leftRect.right, rightRect.x, rightRect.right) >= 0.55f ||
+        abs(leftRect.centerX - rightRect.centerX) <= max(max(leftRect.width, rightRect.width) * 0.22f, 0.028f)
     val adjacentSameRow = axisOverlapRatio(leftRect.y, leftRect.bottom, rightRect.y, rightRect.bottom) >= 0.42f &&
-        horizontalGap(leftRect, rightRect) <= max(lineHeight * 2.4f, 0.020f)
-    val adjacentRows = alignedX && gap <= max(lineHeight * 1.75f, 0.026f)
+        horizontalGap(leftRect, rightRect) <= max(lineHeight * 1.6f, 0.016f)
+    val adjacentRows = alignedX && gap <= max(lineHeight * 0.95f, 0.014f)
     return adjacentSameRow || adjacentRows
 }
 
@@ -1095,10 +1095,7 @@ internal fun inferTextDirection(
     cluster: AiTextCluster,
     sourceTextProfile: AiSourceTextProfile = AiSourceTextProfile.AUTO
 ): AiTranslationTextDirection {
-    if (
-        sourceTextProfile.usesHorizontalComicRules() &&
-        cluster.height <= cluster.width * 1.45f
-    ) {
+    if (sourceTextProfile.usesHorizontalComicRules()) {
         return AiTranslationTextDirection.HORIZONTAL
     }
     val components = cluster.components
@@ -1191,10 +1188,7 @@ internal fun detectedTextDirectionForRect(
     rect: AiTranslationRect,
     sourceTextProfile: AiSourceTextProfile = AiSourceTextProfile.AUTO
 ): AiTranslationTextDirection =
-    if (
-        sourceTextProfile.usesHorizontalComicRules() &&
-        rect.height <= rect.width * 1.35f
-    ) {
+    if (sourceTextProfile.usesHorizontalComicRules()) {
         AiTranslationTextDirection.HORIZONTAL
     } else if (rect.height > rect.width * 1.15f) {
         AiTranslationTextDirection.VERTICAL
@@ -1202,20 +1196,12 @@ internal fun detectedTextDirectionForRect(
         AiTranslationTextDirection.HORIZONTAL
     }
 
+@Suppress("UNUSED_PARAMETER")
 internal fun estimatedRegionRotationDegreesForRect(
     rect: AiTranslationRect,
     direction: AiTranslationTextDirection,
     sourceTextProfile: AiSourceTextProfile
-): Float {
-    val canUseJapaneseSignHeuristic = !sourceTextProfile.usesHorizontalComicRules()
-    val looksLikeJapaneseHorizontalSign =
-        canUseJapaneseSignHeuristic &&
-            direction == AiTranslationTextDirection.HORIZONTAL &&
-            rect.width >= rect.height * 1.55f &&
-            rect.width in 0.10f..0.46f &&
-            rect.y <= 0.38f
-    return if (looksLikeJapaneseHorizontalSign) -10f else 0f
-}
+): Float = 0f
 
 internal fun normalizedSourceRectFromDetectionPixels(
     left: Int,

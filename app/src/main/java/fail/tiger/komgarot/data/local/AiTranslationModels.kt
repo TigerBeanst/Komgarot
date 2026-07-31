@@ -126,7 +126,7 @@ data class AiTranslationBlock(
         sourceColumns = sourceColumns.mapNotNull { it.sourceColumnSafeOrNull() }.take(24),
         maskAlpha = maskAlpha.coerceIn(0.78f, 0.88f),
         cornerRadius = cornerRadius.coerceIn(0f, 0.12f),
-        rotationDegrees = rotationDegrees.coerceIn(-12f, 12f),
+        rotationDegrees = 0f,
         fontScale = fontScale.coerceIn(0.6f, 1.4f),
         confidence = confidence.coerceIn(0f, 1f)
     )

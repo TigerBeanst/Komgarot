@@ -24,7 +24,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.PlatformTextStyle
@@ -79,6 +78,7 @@ fun AiTranslationOverlay(
         val displayBlocks = remember(page.blocks) { page.blocks.suppressDuplicateRenderedTranslations() }
         displayBlocks.forEach { block ->
             val safe = block.renderSafe()
+            val renderTextDirection = aiTranslationRenderTextDirection(safe)
             val hasTranslatedText = safe.translatedLines.any { it.isNotBlank() }
             val showProcessingPlaceholder = page.status == AiTranslationPageStatus.RUNNING &&
                 (safe.regionStatus == AiTranslationRegionStatus.PENDING ||
@@ -109,13 +109,14 @@ fun AiTranslationOverlay(
                 baseScale = safe.fontScale,
                 rectWidthDp = blockWidth.value,
                 rectHeightDp = blockHeight.value,
-                textDirection = safe.textDirection,
+                textDirection = renderTextDirection,
                 lineCount = safe.translatedLines.size.coerceAtLeast(1),
                 textLength = safe.translatedLines.sumOf { it.length }.coerceAtLeast(1),
                 kind = safe.kind,
                 sourceColumnWidthDp = sourceColumnMetrics.fontWidthDp,
                 sourceColumnHeightDp = sourceColumnMetrics.maxHeightDp,
-                sourceColumnCount = sourceColumnMetrics.columnCount
+                sourceColumnCount = sourceColumnMetrics.columnCount,
+                sourceLineHeightDp = sourceGapMetrics.medianHeightDp
             )
             if (!hasTranslatedText) {
                 sourceMaskPlacements.forEach { sourceMaskPlacement ->
@@ -127,7 +128,6 @@ fun AiTranslationOverlay(
                                 x = bounds.x + bounds.width * sourceMaskPlacement.x.coerceIn(0f, 1f),
                                 y = bounds.y + bounds.height * sourceMaskPlacement.y.coerceIn(0f, 1f)
                             )
-                            .graphicsLayer(rotationZ = safe.rotationDegrees)
                             .width(sourceMaskWidth)
                             .heightIn(min = sourceMaskHeight),
                         contentAlignment = Alignment.TopCenter
@@ -152,20 +152,20 @@ fun AiTranslationOverlay(
                 val inlineTextPadding = if (usesSolidTextBoxMask) 0.dp else 0.5.dp
                 val horizontalLinePadding = if (usesSolidTextBoxMask) 0.dp else 1.dp
                 val verticalColumnHorizontalPadding = if (
-                    safe.textDirection == AiTranslationTextDirection.VERTICAL && usesSolidTextBoxMask
+                    renderTextDirection == AiTranslationTextDirection.VERTICAL && usesSolidTextBoxMask
                 ) {
                     AI_TRANSLATION_VERTICAL_TEXT_COLUMN_HORIZONTAL_PADDING_DP.dp
                 } else {
                     inlineTextPadding
                 }
                 val verticalColumnVerticalPadding = if (
-                    safe.textDirection == AiTranslationTextDirection.VERTICAL && usesSolidTextBoxMask
+                    renderTextDirection == AiTranslationTextDirection.VERTICAL && usesSolidTextBoxMask
                 ) {
                     0.dp
                 } else {
                     inlineTextPadding
                 }
-                val textGroupGap = if (safe.textDirection == AiTranslationTextDirection.VERTICAL) {
+                val textGroupGap = if (renderTextDirection == AiTranslationTextDirection.VERTICAL) {
                     aiTranslationVerticalColumnGapDp(sourceGapMetrics.medianGapDp, safe.kind).dp
                 } else if (usesSolidTextBoxMask) {
                     0.dp
@@ -182,7 +182,6 @@ fun AiTranslationOverlay(
                                     x = bounds.x + bounds.width * sourceMaskPlacement.x.coerceIn(0f, 1f),
                                     y = bounds.y + bounds.height * sourceMaskPlacement.y.coerceIn(0f, 1f)
                                 )
-                                .graphicsLayer(rotationZ = safe.rotationDegrees)
                                 .width(sourceMaskWidth)
                                 .heightIn(min = sourceMaskHeight),
                             contentAlignment = Alignment.TopCenter
@@ -204,12 +203,11 @@ fun AiTranslationOverlay(
                             x = bounds.x + bounds.width * textPlacement.x.coerceIn(0f, 1f),
                             y = bounds.y + bounds.height * textPlacement.y.coerceIn(0f, 1f)
                         )
-                        .graphicsLayer(rotationZ = safe.rotationDegrees)
                         .width(blockWidth)
                         .heightIn(min = blockHeight),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    if (safe.textDirection == AiTranslationTextDirection.VERTICAL) {
+                    if (renderTextDirection == AiTranslationTextDirection.VERTICAL) {
                         val verticalLayout = fitVerticalAiTranslationText(
                             lines = safe.translatedLines,
                             rectWidthDp = blockWidth.value,
@@ -318,8 +316,8 @@ internal fun AiTranslationBlockKind.usesSolidAiTranslationMask(): Boolean = when
     AiTranslationBlockKind.OTHER -> false
 }
 
-internal fun normalAiTranslationMaskAlpha(savedAlpha: Float): Float =
-    maxOf(savedAlpha, AI_TRANSLATION_NORMAL_TEXT_MASK_ALPHA).coerceIn(0.82f, 0.90f)
+@Suppress("UNUSED_PARAMETER")
+internal fun normalAiTranslationMaskAlpha(savedAlpha: Float): Float = 1f
 
 internal fun List<AiTranslationBlock>.withNonOverlappingTranslationRects(
     gap: Float = AI_TRANSLATION_MIN_OVERLAP_GAP,
@@ -580,7 +578,7 @@ private fun aiTranslationTextStyle(
         fontSize = fontSizeSp.sp,
         lineHeight = (fontSizeSp * lineHeightMultiplier).sp,
         letterSpacing = 0.sp,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Normal,
         platformStyle = PlatformTextStyle(includeFontPadding = false)
     )
 }
@@ -612,7 +610,8 @@ internal fun aiTranslationFontSizeSp(
     kind: AiTranslationBlockKind = AiTranslationBlockKind.DIALOGUE,
     sourceColumnWidthDp: Float = 0f,
     sourceColumnHeightDp: Float = 0f,
-    sourceColumnCount: Int = 0
+    sourceColumnCount: Int = 0,
+    sourceLineHeightDp: Float = 0f
 ): Float {
     val safeTextLength = textLength.coerceAtLeast(1)
     val safeLineCount = lineCount.coerceAtLeast(1)
@@ -668,7 +667,13 @@ internal fun aiTranslationFontSizeSp(
         AiTranslationTextDirection.AUTO -> minOf(sizeFromBox, sizeFromTextHeight, sizeFromTextArea * 1.18f)
     }
     val minimumReadableSize = if (textDirection == AiTranslationTextDirection.VERTICAL) 9.2f else 8.8f
-    val scaledSize = rawSize * baseScale
+    val scaledSize = (rawSize * baseScale).let { size ->
+        if (textDirection == AiTranslationTextDirection.HORIZONTAL && sourceLineHeightDp > 0f) {
+            min(size, sourceLineHeightDp * 0.90f)
+        } else {
+            size
+        }
+    }
     val normalSize = if (textDirection == AiTranslationTextDirection.VERTICAL) {
         scaledSize.coerceAtLeast(minimumReadableSize)
     } else {
@@ -695,8 +700,28 @@ internal data class AiVerticalSourceColumnMetrics(
     val medianWidthDp: Float = 0f,
     val fontWidthDp: Float = 0f,
     val maxHeightDp: Float = 0f,
+    val medianHeightDp: Float = 0f,
     val medianGapDp: Float = 0f
 )
+
+internal fun aiTranslationRenderTextDirection(block: AiTranslationBlock): AiTranslationTextDirection {
+    if (block.textDirection == AiTranslationTextDirection.HORIZONTAL) {
+        return AiTranslationTextDirection.HORIZONTAL
+    }
+    val columns = block.sourceColumns.filter { it.width > 0f && it.height > 0f }
+    if (columns.isEmpty()) return block.textDirection
+    val horizontalLines = columns.count { it.width >= it.height * 1.15f }
+    val verticalColumns = columns.count { it.height > it.width * 1.35f }
+    return when {
+        horizontalLines > verticalColumns -> AiTranslationTextDirection.HORIZONTAL
+        block.textDirection == AiTranslationTextDirection.VERTICAL -> AiTranslationTextDirection.VERTICAL
+        verticalColumns > horizontalLines -> AiTranslationTextDirection.VERTICAL
+        block.textDirection == AiTranslationTextDirection.AUTO && block.rect.width >= block.rect.height ->
+            AiTranslationTextDirection.HORIZONTAL
+        block.textDirection == AiTranslationTextDirection.AUTO -> AiTranslationTextDirection.VERTICAL
+        else -> block.textDirection
+    }
+}
 
 internal fun aiTranslationSourceMaskRects(
     block: AiTranslationBlock,
@@ -705,10 +730,19 @@ internal fun aiTranslationSourceMaskRects(
 ): List<AiTranslationRect> {
     val sourceColumns = block.sourceColumns.filter { it.width > 0f && it.height > 0f }
     val rects = sourceColumns.ifEmpty { listOf(block.rect) }
-    if (sourceColumns.isEmpty() || pageWidthDp <= 0f || pageHeightDp <= 0f) return rects
-    val horizontalPadding = AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP / pageWidthDp
-    val verticalPadding = AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP / pageHeightDp
-    return rects.map { it.expandNormalized(horizontalPadding, verticalPadding) }
+    val paddedRects = if (sourceColumns.isEmpty() || pageWidthDp <= 0f || pageHeightDp <= 0f) {
+        rects
+    } else {
+        val horizontalPadding = AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP / pageWidthDp
+        val verticalPadding = AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP / pageHeightDp
+        rects.map { it.expandNormalized(horizontalPadding, verticalPadding) }
+    }
+    val horizontalBlock = aiTranslationRenderTextDirection(block) == AiTranslationTextDirection.HORIZONTAL
+    return if (horizontalBlock && paddedRects.size > 1) {
+        listOfNotNull(paddedRects.boundingRectOrNull())
+    } else {
+        paddedRects
+    }
 }
 
 internal fun aiTranslationTextPlacement(
@@ -729,7 +763,7 @@ internal fun aiTranslationSourceColumnMetrics(
     val validColumns = columns.filter { it.width > 0f && it.height > 0f }
     if (validColumns.isEmpty() || pageWidthDp <= 0f || pageHeightDp <= 0f) return AiVerticalSourceColumnMetrics()
     val widths = validColumns.map { it.width * pageWidthDp }.sorted()
-    val heights = validColumns.map { it.height * pageHeightDp }
+    val heights = validColumns.map { it.height * pageHeightDp }.sorted()
     val gaps = validColumns
         .sortedBy { it.x }
         .zipWithNext { left, right -> (right.x - left.right) * pageWidthDp }
@@ -740,6 +774,7 @@ internal fun aiTranslationSourceColumnMetrics(
         medianWidthDp = widths[widths.size / 2],
         fontWidthDp = widths.lastOrNull() ?: 0f,
         maxHeightDp = heights.maxOrNull() ?: 0f,
+        medianHeightDp = heights[heights.size / 2],
         medianGapDp = gaps.takeIf { it.isNotEmpty() }?.let { it[it.size / 2] } ?: 0f
     )
 }
@@ -1262,7 +1297,6 @@ private fun parseAiColor(value: String): Color =
     runCatching { Color(android.graphics.Color.parseColor(value)) }.getOrDefault(Color.White)
 
 private const val AI_TRANSLATION_PLACEHOLDER_ALPHA = 0.22f
-private const val AI_TRANSLATION_NORMAL_TEXT_MASK_ALPHA = 0.86f
 private const val AI_TRANSLATION_HORIZONTAL_LINE_HEIGHT_MULTIPLIER = 0.96f
 private const val AI_TRANSLATION_HORIZONTAL_CHAR_WIDTH_MULTIPLIER = 1.0f
 private const val AI_TRANSLATION_VERTICAL_LINE_HEIGHT_MULTIPLIER = 0.92f

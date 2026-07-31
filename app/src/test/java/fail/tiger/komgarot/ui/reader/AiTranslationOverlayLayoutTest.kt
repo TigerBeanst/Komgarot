@@ -313,6 +313,75 @@ class AiTranslationOverlayLayoutTest {
     }
 
     @Test
+    fun horizontalOcrLinesUseOneNonOverlappingMask() {
+        val block = AiTranslationBlock(
+            rect = AiTranslationRect(x = 0.62f, y = 0.72f, width = 0.28f, height = 0.15f),
+            sourceColumns = listOf(
+                AiTranslationRect(x = 0.68f, y = 0.74f, width = 0.12f, height = 0.035f),
+                AiTranslationRect(x = 0.64f, y = 0.775f, width = 0.22f, height = 0.040f),
+                AiTranslationRect(x = 0.66f, y = 0.815f, width = 0.18f, height = 0.038f)
+            ),
+            textDirection = AiTranslationTextDirection.HORIZONTAL
+        )
+
+        val masks = aiTranslationSourceMaskRects(
+            block = block,
+            pageWidthDp = 500f,
+            pageHeightDp = 1000f
+        )
+
+        assertEquals(1, masks.size)
+        assertTrue(masks.single().x <= 0.64f)
+        assertTrue(masks.single().x + masks.single().width >= 0.86f)
+        assertTrue(masks.single().y <= 0.74f)
+        assertTrue(masks.single().y + masks.single().height >= 0.853f)
+    }
+
+    @Test
+    fun cachedTallBlockWithHorizontalSourceLinesRendersHorizontally() {
+        val block = AiTranslationBlock(
+            rect = AiTranslationRect(x = 0.72f, y = 0.68f, width = 0.10f, height = 0.19f),
+            sourceColumns = listOf(
+                AiTranslationRect(x = 0.72f, y = 0.69f, width = 0.10f, height = 0.022f),
+                AiTranslationRect(x = 0.73f, y = 0.73f, width = 0.08f, height = 0.022f),
+                AiTranslationRect(x = 0.72f, y = 0.77f, width = 0.10f, height = 0.022f)
+            ),
+            textDirection = AiTranslationTextDirection.VERTICAL
+        )
+
+        assertEquals(AiTranslationTextDirection.HORIZONTAL, aiTranslationRenderTextDirection(block))
+    }
+
+    @Test
+    fun explicitHorizontalDirectionWinsForTallMultilineRegion() {
+        val block = AiTranslationBlock(
+            rect = AiTranslationRect(x = 0.72f, y = 0.68f, width = 0.10f, height = 0.19f),
+            sourceColumns = listOf(
+                AiTranslationRect(x = 0.72f, y = 0.68f, width = 0.10f, height = 0.19f)
+            ),
+            textDirection = AiTranslationTextDirection.HORIZONTAL
+        )
+
+        assertEquals(AiTranslationTextDirection.HORIZONTAL, aiTranslationRenderTextDirection(block))
+    }
+
+    @Test
+    fun horizontalFontSizeTracksDetectedSourceLineHeight() {
+        val fontSize = aiTranslationFontSizeSp(
+            baseScale = 1.4f,
+            rectWidthDp = 180f,
+            rectHeightDp = 100f,
+            textDirection = AiTranslationTextDirection.HORIZONTAL,
+            lineCount = 1,
+            textLength = 8,
+            kind = AiTranslationBlockKind.DIALOGUE,
+            sourceLineHeightDp = 12f
+        )
+
+        assertTrue(fontSize <= 10.81f)
+    }
+
+    @Test
     fun sourceColumnMetricsUseExpandedMaskWidthForFontBaseline() {
         val block = AiTranslationBlock(
             rect = AiTranslationRect(x = 0.10f, y = 0.12f, width = 0.12f, height = 0.32f),
@@ -496,11 +565,11 @@ class AiTranslationOverlayLayoutTest {
         assertTrue(AiTranslationBlockKind.SIGN.usesSolidAiTranslationMask())
         assertTrue(!AiTranslationBlockKind.SFX.usesSolidAiTranslationMask())
         assertTrue(!AiTranslationBlockKind.OTHER.usesSolidAiTranslationMask())
-        assertTrue(normalAiTranslationMaskAlpha(0.78f) >= 0.86f)
+        assertEquals(1f, normalAiTranslationMaskAlpha(0.78f), 0.0001f)
     }
 
     @Test
-    fun verticalColumnWidthLeavesRoomForSemiboldCjkGlyphs() {
+    fun verticalColumnWidthLeavesRoomForCjkGlyphs() {
         val columnWidth = verticalColumnWidthDp(fontSizeSp = 10f)
 
         assertTrue(columnWidth.value >= 11.6f)
