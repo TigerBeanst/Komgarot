@@ -251,6 +251,7 @@
     <string name="settings_ai_source_text_profile_japanese_manga">Japanese manga</string>
     <string name="settings_ai_source_text_profile_korean_horizontal_webtoon">Korean horizontal webtoon</string>
     <string name="settings_ai_section_basic">Basic</string>
+    <string name="settings_ai_section_translation_behavior">Translation behavior</string>
     <string name="settings_ai_section_request">Requests</string>
     <string name="settings_ai_section_image_transport">Image transport</string>
     <string name="settings_ai_section_local_model">Local model</string>
@@ -287,6 +288,14 @@
     <string name="settings_ai_image_max_edge">Model image size</string>
     <string name="settings_ai_prompt_preview">Prompt preview</string>
     <string name="settings_ai_custom_instructions">Custom instructions</string>
+    <string name="settings_ai_skip_sound_effects">Skip sound effects</string>
+    <string name="settings_ai_skip_sound_effects_desc">When enabled, AI identifies sound effects and onomatopoeia and leaves them untranslated.</string>
+    <string name="settings_ai_reasoning_effort">Reasoning effort</string>
+    <string name="settings_ai_reasoning_effort_desc">Enter a level supported by the API. Leave empty to omit the reasoning_effort field.</string>
+    <string name="settings_ai_reasoning_effort_placeholder">For example: low, medium, high</string>
+    <string name="settings_ai_additional_prompt">Additional prompt</string>
+    <string name="settings_ai_additional_prompt_desc">Appended to the end of the built-in translation prompt.</string>
+    <string name="settings_ai_additional_prompt_placeholder">Enter additional translation requirements</string>
     <string name="settings_ai_high_concurrency_warning">High concurrency may spend tokens faster, trigger rate limits, heat the device, and create more failed pages.</string>
     <string name="settings_ai_purge_translation_data">Clean translated data</string>
     <string name="settings_ai_purge_translation_data_desc">Remove cached AI translations for books that no longer exist on the server.</string>

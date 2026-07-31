@@ -20,6 +20,8 @@ data class AiSettings(
     val maxImagesPerRequest: Int,
     val timeoutSeconds: Int,
     val imageMaxEdge: AiImageMaxEdge,
+    val skipSoundEffects: Boolean,
+    val reasoningEffort: String,
     val customInstructions: String,
     val testModeEnabled: Boolean,
     val configurationTestPassed: Boolean
@@ -51,6 +53,8 @@ data class AiSettings(
             maxImagesPerRequest = 20,
             timeoutSeconds = 30,
             imageMaxEdge = AiImageMaxEdge.PX_1600,
+            skipSoundEffects = false,
+            reasoningEffort = "",
             customInstructions = "",
             testModeEnabled = false,
             configurationTestPassed = false

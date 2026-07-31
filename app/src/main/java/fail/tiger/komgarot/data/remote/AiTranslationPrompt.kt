@@ -43,7 +43,7 @@ data class AiTranslationRegionLayoutHints(
     val maxCharsPerLine: Int
 )
 
-fun aiTranslationSystemPrompt(): String = """
+fun aiTranslationSystemPrompt(skipSoundEffects: Boolean = false): String = """
 You are a manga translation engine.
 Each request translates exactly one current text-region crop image.
 Page context images provide scene, speaker, tone, setting, and action context. Use page context for meaning.
@@ -53,8 +53,13 @@ Return only:
 {"pageIndex":number,"translations":[{"sourceText":string|string[],"translatedLines":string[],"kind":"dialogue"|"narration"|"sign"|"SFX","detectedSourceLanguage":string}]}
 Return no localRegionId, id, rect, coordinates, placement, color, or font data.
 Classify the crop as dialogue, narration, sign, or SFX.
-If the crop is dominated by a sound effect, return kind: "SFX".
-SFX translatedLines must stay very short and contain only the sound-effect translation.
+${if (skipSoundEffects) {
+    """If the crop is a sound effect or onomatopoeia, return pageIndex with translations as an empty array.
+Do not translate sound effects or onomatopoeia."""
+} else {
+    """If the crop is dominated by a sound effect, return kind: "SFX".
+SFX translatedLines must stay very short and contain only the sound-effect translation."""
+}}
 If the crop contains dialogue or sign text plus nearby sound effects, translate the main crop text and omit surrounding sound effects.
 If the crop is decorative noise, return sourceText and translatedLines as an empty array.
 If the crop is a pure number such as a page number, chapter number, score, price, or standalone numeric label, return sourceText and translatedLines as an empty array.
@@ -80,6 +85,7 @@ fun aiTranslationUserPrompt(
     translationMode: AiTranslationMode,
     localPageContexts: List<AiTranslationLocalPageContext>,
     customInstructions: String,
+    skipSoundEffects: Boolean = false,
     sourceTextProfile: AiSourceTextProfile = AiSourceTextProfile.AUTO,
     sourceLanguage: AiSeriesSourceLanguageState? = null
 ): String = buildString {
@@ -102,6 +108,10 @@ fun aiTranslationUserPrompt(
             appendLine("Korean horizontal webtoon source profile: read Korean text left-to-right within each line and top-to-bottom across lines.")
             appendLine("Preserve Korean spaces in sourceText, including spacing around names, particles, and short spoken fragments.")
         }
+    }
+    if (skipSoundEffects) {
+        appendLine("skipSoundEffects: true")
+        appendLine("Skip SFX and onomatopoeia. Return the current pageIndex with translations: [] for those crops.")
     }
     if (customInstructions.isNotBlank()) {
         appendLine("Additional user instructions:")

@@ -61,6 +61,8 @@ class AuthPreferences(private val context: Context) {
     private val AI_MAX_IMAGES_PER_REQUEST = intPreferencesKey("ai_max_images_per_request")
     private val AI_TIMEOUT_SECONDS = intPreferencesKey("ai_timeout_seconds")
     private val AI_IMAGE_MAX_EDGE = stringPreferencesKey("ai_image_max_edge")
+    private val AI_SKIP_SOUND_EFFECTS = booleanPreferencesKey("ai_skip_sound_effects")
+    private val AI_REASONING_EFFORT = stringPreferencesKey("ai_reasoning_effort")
     private val AI_CUSTOM_INSTRUCTIONS = stringPreferencesKey("ai_custom_instructions")
     private val AI_TEST_MODE_ENABLED = booleanPreferencesKey("ai_test_mode_enabled")
     private val AI_CONFIGURATION_TEST_PASSED = booleanPreferencesKey("ai_configuration_test_passed")
@@ -129,6 +131,8 @@ class AuthPreferences(private val context: Context) {
     val aiImageMaxEdge: Flow<AiImageMaxEdge> = context.dataStore.data.map {
         AiImageMaxEdge.fromStoredValue(it[AI_IMAGE_MAX_EDGE].orEmpty())
     }
+    val aiSkipSoundEffects: Flow<Boolean> = context.dataStore.data.map { it[AI_SKIP_SOUND_EFFECTS] ?: false }
+    val aiReasoningEffort: Flow<String> = context.dataStore.data.map { it[AI_REASONING_EFFORT] ?: "" }
     val aiCustomInstructions: Flow<String> = context.dataStore.data.map { it[AI_CUSTOM_INSTRUCTIONS] ?: "" }
     val aiTestModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_TEST_MODE_ENABLED] ?: false }
     val aiConfigurationTestPassed: Flow<Boolean> = context.dataStore.data.map { it[AI_CONFIGURATION_TEST_PASSED] ?: false }
@@ -293,6 +297,14 @@ class AuthPreferences(private val context: Context) {
 
     suspend fun setAiImageMaxEdge(value: AiImageMaxEdge) {
         context.dataStore.edit { it[AI_IMAGE_MAX_EDGE] = value.storedValue }
+    }
+
+    suspend fun setAiSkipSoundEffects(value: Boolean) {
+        context.dataStore.edit { it[AI_SKIP_SOUND_EFFECTS] = value }
+    }
+
+    suspend fun setAiReasoningEffort(value: String) {
+        context.dataStore.edit { it[AI_REASONING_EFFORT] = value.trim() }
     }
 
     suspend fun setAiCustomInstructions(value: String) {

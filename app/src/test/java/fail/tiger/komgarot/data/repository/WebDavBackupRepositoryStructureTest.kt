@@ -60,6 +60,12 @@ class WebDavBackupRepositoryStructureTest {
         assertTrue(source.contains("val aiMaxImagesPerRequest: Int = 20"))
         assertTrue(source.contains("aiConcurrentRequests = prefs.aiConcurrentRequests.first()"))
         assertTrue(source.contains("val aiTranslationRequestMode: String = AiTranslationRequestMode.PARALLEL.storedValue"))
-        assertTrue(source.contains("val aiConcurrentRequests: Int = 2"))
+        assertTrue(source.contains("val aiConcurrentRequests: Int = 8"))
+        assertTrue(source.contains("aiSkipSoundEffects = prefs.aiSkipSoundEffects.first()"))
+        assertTrue(source.contains("prefs.setAiSkipSoundEffects(settings.aiSkipSoundEffects)"))
+        assertTrue(source.contains("val aiSkipSoundEffects: Boolean = false"))
+        assertTrue(source.contains("aiReasoningEffort = prefs.aiReasoningEffort.first()"))
+        assertTrue(source.contains("prefs.setAiReasoningEffort(settings.aiReasoningEffort)"))
+        assertTrue(source.contains("val aiReasoningEffort: String = \"\""))
     }
 }

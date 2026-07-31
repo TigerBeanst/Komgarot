@@ -27,6 +27,15 @@ class AiTranslationRepositoryStructureTest {
     private val source = File("src/main/java/fail/tiger/komgarot/data/repository/AiTranslationRepository.kt").readText()
 
     @Test
+    fun repositoryPropagatesTranslationBehaviorSettingsToPromptsAndRequests() {
+        assertTrue(source.contains("skipSoundEffects = prefs.aiSkipSoundEffects.first()"))
+        assertTrue(source.contains("reasoningEffort = prefs.aiReasoningEffort.first()"))
+        assertTrue(source.contains("aiTranslationSystemPrompt(settings.skipSoundEffects)"))
+        assertTrue(source.contains("skipSoundEffects = settings.skipSoundEffects"))
+        assertTrue(source.contains("reasoningEffort = settings.reasoningEffort"))
+    }
+
+    @Test
     fun repositoryExposesBookAndPageActions() {
         assertTrue(source.contains("fun startBookTranslation("))
         assertTrue(source.contains("suspend fun retryPageTranslation("))

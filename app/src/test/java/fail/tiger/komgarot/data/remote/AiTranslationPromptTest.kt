@@ -74,6 +74,26 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("sourceMode: local_detection"))
         assertTrue(!prompt.contains("sourceTextProfile: auto"))
         assertTrue(prompt.contains("保留敬语"))
+        assertTrue(prompt.trimEnd().endsWith("保留敬语"))
+    }
+
+    @Test
+    fun soundEffectSkippingReturnsEmptyTranslations() {
+        val systemPrompt = aiTranslationSystemPrompt(skipSoundEffects = true)
+        val userPrompt = aiTranslationUserPrompt(
+            bookId = "book-sfx",
+            targetLocale = "zh-CN",
+            targetLanguageName = "简体中文",
+            translationMode = AiTranslationMode.LOCAL_DETECTION,
+            localPageContexts = emptyList(),
+            customInstructions = "",
+            skipSoundEffects = true
+        )
+
+        assertTrue(systemPrompt.contains("Do not translate sound effects or onomatopoeia"))
+        assertTrue(systemPrompt.contains("translations as an empty array"))
+        assertTrue(userPrompt.contains("skipSoundEffects: true"))
+        assertTrue(userPrompt.contains("translations: []"))
     }
 
     @Test
@@ -501,6 +521,27 @@ class AiTranslationPromptTest {
         assertTrue(json.contains("\"type\":\"image_url\""))
         assertTrue(json.contains("https://komga.test/page.png?token=abc"))
         assertTrue(json.contains("\"response_format\":{\"type\":\"json_object\"}"))
+    }
+
+    @Test
+    fun chatRequestIncludesReasoningEffortOnlyWhenConfigured() {
+        val configured = buildAiTranslationChatRequestJson(
+            model = "vision-model",
+            systemPrompt = "system",
+            userPrompt = "user",
+            images = emptyList(),
+            reasoningEffort = " high "
+        )
+        val empty = buildAiTranslationChatRequestJson(
+            model = "vision-model",
+            systemPrompt = "system",
+            userPrompt = "user",
+            images = emptyList(),
+            reasoningEffort = " "
+        )
+
+        assertTrue(configured.contains("\"reasoning_effort\":\"high\""))
+        assertTrue(!empty.contains("\"reasoning_effort\""))
     }
 
     @Test
