@@ -173,8 +173,11 @@ fun readerNextQuickPreloadPages(current: Int): Int = when {
 
 fun readerPagerBeyondViewportPageCount(einkMode: Boolean): Int = if (einkMode) 1 else 0
 
-fun readerPagerBeyondViewportPageCount(einkMode: Boolean, hasTiledPages: Boolean): Int =
-    if (einkMode || hasTiledPages) 1 else 0
+fun readerPagerBeyondViewportPageCount(
+    einkMode: Boolean,
+    hasTiledPages: Boolean,
+    hasSplitPages: Boolean = false
+): Int = if (einkMode || hasTiledPages || hasSplitPages) 1 else 0
 
 fun readerPagerBeyondViewportPageCount(
     einkMode: Boolean,

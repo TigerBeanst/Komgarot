@@ -28,8 +28,8 @@ class ReaderImageQualityStructureTest {
         assertTrue(displayRequestBlock.contains("originalSize: Boolean"))
         assertTrue(displayRequestBlock.contains("originalSize = originalSize"))
         assertTrue(pagerRequestSource.contains("originalSize = false"))
-        assertTrue(pagerSource.contains("displayQualityScale = if (isDisplayTarget) 1.25f else 1f"))
-        assertTrue(pagerSource.contains("displayMaxDecodedBytes = if (isDisplayTarget)"))
+        assertTrue(pagerSource.contains("displayQualityScale = if (isSettledPage) 1.25f else 1f"))
+        assertTrue(pagerSource.contains("displayMaxDecodedBytes = if (isSettledPage)"))
         assertTrue(scrollSource.contains("originalSize = false"))
         assertTrue(scrollSource.contains("displayQualityScale = READER_CURRENT_PREVIEW_QUALITY_SCALE"))
         assertTrue(scrollSource.contains("displayMaxDecodedBytes = scrollRenderMemoryBudget.currentPreviewBytes"))
@@ -71,11 +71,19 @@ class ReaderImageQualityStructureTest {
         assertTrue(pagerSource.contains("vm.prefs.splitLandscapePages.collectAsStateWithLifecycle"))
         assertTrue(pagerSource.contains("vm.prefs.landscapePageSplitOrder.collectAsStateWithLifecycle"))
         assertTrue(pagerSource.contains("splitLandscapePages = splitLandscapePages"))
+        assertTrue(pagerSource.contains("observedPageLandscape = vm.observedPageLandscape"))
+        assertTrue(pagerSource.contains("vm.recordPageDisplayDimensions(actualPageIndex, width, height)"))
         assertTrue(pagerSource.contains("val pageSegment = readerPage.segment"))
         assertTrue(pagerSource.contains("viewportWidthPx * 2"))
         assertTrue(pagerSource.contains("pageSegment = pageSegment"))
         assertTrue(pagerSource.contains("forReaderPageSegment(pageSegment)"))
         assertTrue(pagerSource.contains("key(vm.currentBookId, splitLandscapePages, splitOrder)"))
+        assertTrue(pagerSource.contains("key = { page -> pagerPages[page].readerPagerStableKey(splitOrder) }"))
+        assertTrue(pagerSource.contains("onPageSegmentChanged(page.segment)"))
+        assertTrue(pagerSource.contains("LaunchedEffect(pagerState, pagerState.settledPage)"))
+        assertTrue(pagerSource.contains("pagerPages.getOrNull(pagerState.settledPage)"))
+        assertTrue(pagerSource.contains("onNavigationRequestHandled(request.id)"))
+        assertTrue(pagerSource.contains("pagerState.animateScrollToPage(targetPage)"))
     }
 
     @Test
@@ -96,6 +104,7 @@ class ReaderImageQualityStructureTest {
         assertTrue(requestSource.contains("fun readerShouldRetainPageInMemory("))
         assertTrue(source.contains("beyondViewportPageCount = readerPagerBeyondViewportPageCount("))
         assertTrue(source.contains("hasTiledPages = hasTiledPages"))
+        assertTrue(source.contains("hasSplitPages = hasSplitPages"))
         assertTrue(source.contains("retainInMemory = readerShouldRetainPageInMemory("))
     }
 
@@ -270,6 +279,7 @@ class ReaderImageQualityStructureTest {
     @Test
     fun readerPassesActivePageQualityAndUsesStableLargePageComposition() {
         assertTrue(source.contains("val hasTiledPages = vm.pageUrls.indices.any"))
+        assertTrue(source.contains("val hasSplitPages = pagerPages.any"))
         assertTrue(source.contains("direction = targetPreloadDirection"))
         assertTrue(source.contains("previewQualityScale = if (isSettledPage || (isDisplayTarget && !pagerState.isScrollInProgress))"))
         assertTrue(source.contains("previewQualityScale = if (index == vm.currentPage)"))

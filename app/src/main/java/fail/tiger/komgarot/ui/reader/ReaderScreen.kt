@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.*
@@ -58,8 +59,13 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -312,6 +318,11 @@ private fun rememberReaderPagePainterTransform(
 
 private fun BookDto.displayTitle(): String = metadata.title.ifEmpty { name }
 
+data class ReaderPagerNavigationRequest(
+    val id: Int,
+    val delta: Int
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ReaderScreen(
@@ -346,6 +357,12 @@ fun ReaderScreen(
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
     val aiVerticalGlyphSpacingPercent by vm.prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 86)
     val aiVerticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier(aiVerticalGlyphSpacingPercent)
+    val splitOrder by vm.prefs.landscapePageSplitOrder.collectAsStateWithLifecycle(
+        initialValue = LandscapePageSplitOrder.RIGHT_FIRST
+    )
+    var currentPageSegment by remember(bookId) { mutableStateOf(ReaderPageSegment.FULL) }
+    var pagerNavigationRequest by remember(bookId) { mutableStateOf<ReaderPagerNavigationRequest?>(null) }
+    var pagerNavigationRequestId by remember(bookId) { mutableIntStateOf(0) }
     var aiTranslationErrorDialogMessage by remember { mutableStateOf<String?>(null) }
     var readerAiTimingDialog by remember { mutableStateOf<String?>(null) }
     var readerAiFailureDialog by remember { mutableStateOf<String?>(null) }
@@ -355,6 +372,15 @@ fun ReaderScreen(
         stringResource(vm.aiTranslationMessageRes)
     } else {
         ""
+    }
+    val usesPager = einkMode || vm.mode == ReadingMode.PAGER
+    LaunchedEffect(usesPager) {
+        if (!usesPager) currentPageSegment = ReaderPageSegment.FULL
+    }
+
+    fun navigatePagerBy(delta: Int) {
+        pagerNavigationRequestId += 1
+        pagerNavigationRequest = ReaderPagerNavigationRequest(pagerNavigationRequestId, delta)
     }
 
     LaunchedEffect(
@@ -437,7 +463,12 @@ fun ReaderScreen(
                 onSetSeriesCover,
                 canEditMetadata,
                 aiTranslationAvailable = aiTranslationControlsVisible,
-                verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier
+                verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier,
+                navigationRequest = pagerNavigationRequest,
+                onNavigationRequestHandled = { requestId ->
+                    if (pagerNavigationRequest?.id == requestId) pagerNavigationRequest = null
+                },
+                onPageSegmentChanged = { currentPageSegment = it }
             )
         } else {
             when (vm.mode) {
@@ -448,7 +479,12 @@ fun ReaderScreen(
                     onSetSeriesCover,
                     canEditMetadata,
                     aiTranslationAvailable = aiTranslationControlsVisible,
-                    verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier
+                    verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier,
+                    navigationRequest = pagerNavigationRequest,
+                    onNavigationRequestHandled = { requestId ->
+                        if (pagerNavigationRequest?.id == requestId) pagerNavigationRequest = null
+                    },
+                    onPageSegmentChanged = { currentPageSegment = it }
                 )
                 ReadingMode.SCROLL -> ScrollReader(
                     vm,
@@ -504,6 +540,10 @@ fun ReaderScreen(
                     vm = vm,
                     aiTranslationAvailable = aiTranslationControlsVisible,
                     containerAlpha = 0.9f,
+                    pageSegment = currentPageSegment,
+                    splitOrder = splitOrder,
+                    usesPager = usesPager,
+                    onNavigatePagerBy = ::navigatePagerBy,
                     modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
                 )
             }
@@ -514,7 +554,15 @@ fun ReaderScreen(
                 exit = fadeOut() + slideOutVertically { it },
                 modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars)
             ) {
-                ReaderBottomControls(vm = vm, aiTranslationAvailable = aiTranslationControlsVisible, containerAlpha = 0.8f)
+                ReaderBottomControls(
+                    vm = vm,
+                    aiTranslationAvailable = aiTranslationControlsVisible,
+                    containerAlpha = 0.8f,
+                    pageSegment = currentPageSegment,
+                    splitOrder = splitOrder,
+                    usesPager = usesPager,
+                    onNavigatePagerBy = ::navigatePagerBy
+                )
             }
         }
 
@@ -532,7 +580,11 @@ fun ReaderScreen(
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = "${vm.currentPage + 1} / ${vm.pageUrls.size}",
+                    text = readerPageProgressText(
+                        currentPage = vm.currentPage,
+                        pageCount = vm.pageUrls.size,
+                        pageSegment = currentPageSegment
+                    ),
                     color = Color.White,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -865,6 +917,10 @@ private fun ReaderBottomControls(
     vm: ReaderViewModel,
     aiTranslationAvailable: Boolean,
     containerAlpha: Float,
+    pageSegment: ReaderPageSegment,
+    splitOrder: LandscapePageSplitOrder,
+    usesPager: Boolean,
+    onNavigatePagerBy: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(color = Color.Black.copy(alpha = containerAlpha), modifier = modifier.fillMaxWidth()) {
@@ -872,14 +928,19 @@ private fun ReaderBottomControls(
             if (vm.pageUrls.isNotEmpty()) {
                 val scope = rememberCoroutineScope()
                 val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
+                val splitPartNumber = pageSegment.splitPartNumber(splitOrder)
+                val previousEnabled = vm.currentPage > 0 || splitPartNumber == 2
+                val nextEnabled = vm.currentPage < vm.pageUrls.lastIndex || splitPartNumber == 1
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     IconButton(
-                        onClick = { if (vm.currentPage > 0) vm.goToPage(vm.currentPage - 1) },
-                        enabled = vm.currentPage > 0
+                        onClick = {
+                            if (usesPager) onNavigatePagerBy(-1) else vm.goToPage(vm.currentPage - 1)
+                        },
+                        enabled = previousEnabled
                     ) {
                         Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = stringResource(R.string.reader_previous), tint = Color.White)
                     }
@@ -891,13 +952,19 @@ private fun ReaderBottomControls(
                         modifier = Modifier.weight(1f)
                     )
                     Text(
-                        text = "${vm.currentPage + 1}/${vm.pageUrls.size}",
+                        text = readerPageProgressText(
+                            currentPage = vm.currentPage,
+                            pageCount = vm.pageUrls.size,
+                            pageSegment = pageSegment
+                        ),
                         color = Color.White,
                         style = MaterialTheme.typography.labelMedium
                     )
                     IconButton(
-                        onClick = { if (vm.currentPage < vm.pageUrls.size - 1) vm.goToPage(vm.currentPage + 1) },
-                        enabled = vm.currentPage < vm.pageUrls.size - 1
+                        onClick = {
+                            if (usesPager) onNavigatePagerBy(1) else vm.goToPage(vm.currentPage + 1)
+                        },
+                        enabled = nextEnabled
                     ) {
                         Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = stringResource(R.string.reader_next), tint = Color.White)
                     }
@@ -925,6 +992,34 @@ private fun ReaderBottomControls(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun readerPageProgressText(
+    currentPage: Int,
+    pageCount: Int,
+    pageSegment: ReaderPageSegment
+): AnnotatedString {
+    val side = if (pageSegment == ReaderPageSegment.FULL) {
+        null
+    } else {
+        stringResource(
+            if (pageSegment == ReaderPageSegment.RIGHT_HALF) {
+                R.string.reader_split_page_right
+            } else {
+                R.string.reader_split_page_left
+            }
+        )
+    }
+    return buildAnnotatedString {
+        append((currentPage + 1).toString())
+        if (side != null) {
+            withStyle(SpanStyle(fontSize = 8.sp)) {
+                append("($side)")
+            }
+        }
+        append("/$pageCount")
     }
 }
 
@@ -1093,7 +1188,10 @@ fun PagerReader(
     onSetSeriesCover: (String) -> Unit,
     canEditMetadata: Boolean,
     aiTranslationAvailable: Boolean,
-    verticalGlyphSpacingMultiplier: Float
+    verticalGlyphSpacingMultiplier: Float,
+    navigationRequest: ReaderPagerNavigationRequest? = null,
+    onNavigationRequestHandled: (Int) -> Unit = {},
+    onPageSegmentChanged: (ReaderPageSegment) -> Unit = {}
 ) {
     if (vm.pageUrls.isEmpty()) return
     val context = LocalContext.current
@@ -1113,7 +1211,8 @@ fun PagerReader(
         vm.previousBook,
         vm.nextBook,
         splitLandscapePages,
-        splitOrder
+        splitOrder,
+        vm.observedPageLandscape
     ) {
         buildReaderPagerPages(
             pageCount = vm.pageUrls.size,
@@ -1121,6 +1220,7 @@ fun PagerReader(
             nextBook = vm.nextBook,
             splitLandscapePages = splitLandscapePages,
             splitOrder = splitOrder,
+            observedPageLandscape = vm.observedPageLandscape,
             pageInfo = vm::pageInfo
         )
     }
@@ -1137,16 +1237,20 @@ fun PagerReader(
     val hasTiledPages = vm.pageUrls.indices.any { pageIndex ->
         readerPageNeedsStableAdjacentComposition(vm.pageInfo(pageIndex))
     }
+    val hasSplitPages = pagerPages.any { page ->
+        page is ReaderPagerPage.Actual && page.segment != ReaderPageSegment.FULL
+    }
     var preloadDirection by remember(vm.currentBookId) { mutableIntStateOf(1) }
     var lastActualPage by remember(vm.currentBookId) { mutableIntStateOf(vm.currentPage) }
 
-    LaunchedEffect(pagerState.currentPage, pagerPages) {
-        when (val page = pagerPages.getOrNull(pagerState.currentPage)) {
+    LaunchedEffect(pagerState, pagerState.settledPage) {
+        when (val page = pagerPages.getOrNull(pagerState.settledPage)) {
             is ReaderPagerPage.Actual -> {
                 val pageDelta = page.pageIndex - lastActualPage
                 if (pageDelta != 0) preloadDirection = if (pageDelta < 0) -1 else 1
                 lastActualPage = page.pageIndex
                 vm.updatePage(page.pageIndex)
+                onPageSegmentChanged(page.segment)
             }
             is ReaderPagerPage.Trigger -> {
                 if (openedBoundaryBookId != page.target.id) {
@@ -1157,11 +1261,24 @@ fun PagerReader(
             else -> Unit
         }
     }
-    LaunchedEffect(vm.currentPage) {
-        val targetPage = pagerPages.pagerIndexForActualPage(vm.currentPage)
-        if (pagerState.currentPage != targetPage) {
+    LaunchedEffect(vm.currentPage, pagerState) {
+        val currentPagerPage = pagerPages.getOrNull(pagerState.settledPage)
+        if (readerPagerNeedsProgressSync(currentPagerPage, vm.currentPage)) {
+            val targetPage = pagerPages.pagerIndexForActualPage(vm.currentPage)
             pagerState.scrollToPage(targetPage)
         }
+    }
+    LaunchedEffect(navigationRequest?.id) {
+        val request = navigationRequest ?: return@LaunchedEffect
+        val targetPage = (pagerState.settledPage + request.delta).coerceIn(0, pagerPages.lastIndex)
+        if (targetPage != pagerState.settledPage) {
+            if (einkMode) {
+                pagerState.scrollToPage(targetPage)
+            } else {
+                pagerState.animateScrollToPage(targetPage)
+            }
+        }
+        onNavigationRequestHandled(request.id)
     }
     LaunchedEffect(vm.currentPage, memoryAwarePreloadPages, vm.pageUrls) {
         retainedPagePainters.trimReaderPagePainters(vm.pageUrls, vm.currentPage, memoryAwarePreloadPages)
@@ -1233,9 +1350,11 @@ fun PagerReader(
 
     HorizontalPager(
         state = pagerState,
+        key = { page -> pagerPages[page].readerPagerStableKey(splitOrder) },
         beyondViewportPageCount = readerPagerBeyondViewportPageCount(
             einkMode = einkMode,
-            hasTiledPages = hasTiledPages
+            hasTiledPages = hasTiledPages,
+            hasSplitPages = hasSplitPages
         ),
         reverseLayout = readingDirection == "RTL",
         userScrollEnabled = !einkMode,
@@ -1293,8 +1412,8 @@ fun PagerReader(
                         originalSize = false,
                         displayWidthPx = displayWidthPx,
                         displayHeightPx = displayHeightPx,
-                        displayQualityScale = if (isDisplayTarget) 1.25f else 1f,
-                        displayMaxDecodedBytes = if (isDisplayTarget) {
+                        displayQualityScale = if (isSettledPage) 1.25f else 1f,
+                        displayMaxDecodedBytes = if (isSettledPage) {
                             pagerRenderMemoryBudget.currentPreviewBytes
                         } else {
                             pagerRenderMemoryBudget.adjacentPreviewBytes
@@ -1327,6 +1446,11 @@ fun PagerReader(
                         aiDisplayMode = if (aiTranslationAvailable) vm.aiTranslationDisplayModeForPage(actualPageIndex) else AiTranslationDisplayMode.OFF,
                         verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
                         onPainterRetained = { retainedPagePainters[pageRenderKey] = it },
+                        onImageDimensionsResolved = { width, height ->
+                            if (pageSegment == ReaderPageSegment.FULL) {
+                                vm.recordPageDisplayDimensions(actualPageIndex, width, height)
+                            }
+                        },
                         onRetry = { retryKey += 1 },
                         onLongPress = { longPressUrl = pageUrl },
                         onTap = { tapX, width ->
@@ -1407,6 +1531,7 @@ private fun ZoomableReaderPageContent(
     aiDisplayMode: AiTranslationDisplayMode,
     verticalGlyphSpacingMultiplier: Float,
     onPainterRetained: (Painter) -> Unit,
+    onImageDimensionsResolved: (width: Int, height: Int) -> Unit = { _, _ -> },
     onRetry: () -> Unit,
     onLongPress: () -> Unit = {},
     onTap: (tapX: Float, width: Float) -> Unit,
@@ -1512,6 +1637,11 @@ private fun ZoomableReaderPageContent(
                     else -> {
                         val success = state as? AsyncImagePainter.State.Success
                         val drawable = success?.result?.drawable
+                        val drawableWidth = drawable?.intrinsicWidth ?: 0
+                        val drawableHeight = drawable?.intrinsicHeight ?: 0
+                        LaunchedEffect(pageRequestState.request, drawableWidth, drawableHeight) {
+                            onImageDimensionsResolved(drawableWidth, drawableHeight)
+                        }
                         if (readerDrawableExceedsCanvasSafeSize(drawable)) {
                             forceTiledRender = true
                             PageLoadingPlaceholder(
@@ -1702,6 +1832,7 @@ private fun PageContextMenu(
     val pageFit by vm.prefs.pageFit.collectAsStateWithLifecycle(initialValue = "FIT")
     val readingDirection by vm.prefs.readingDirection.collectAsStateWithLifecycle(initialValue = "LTR")
     val tapPageTurn by vm.prefs.tapPageTurn.collectAsStateWithLifecycle(initialValue = false)
+    val splitLandscapePages by vm.prefs.splitLandscapePages.collectAsStateWithLifecycle(initialValue = false)
     val pageCached = ReaderPageCache.hasCachedFile(context, vm.currentSeriesId, vm.currentBookId, url)
     val operationFailed = stringResource(R.string.operation_failed_format)
     val savedToGallery = stringResource(R.string.reader_action_saved_to_gallery)
@@ -1772,6 +1903,16 @@ private fun PageContextMenu(
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.clickable {
                     settingsScope.launch { vm.prefs.setTapPageTurn(!tapPageTurn) }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_split_landscape_pages)) },
+                supportingContent = { Text(stringResource(R.string.settings_split_landscape_pages_desc)) },
+                leadingContent = { Icon(Icons.AutoMirrored.Filled.MenuBook, null) },
+                trailingContent = { Switch(checked = splitLandscapePages, onCheckedChange = null) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.clickable {
+                    settingsScope.launch { vm.prefs.setSplitLandscapePages(!splitLandscapePages) }
                 }
             )
             ListItem(
@@ -2099,15 +2240,18 @@ fun ScrollReader(
                             else -> {
                                 val success = state as? AsyncImagePainter.State.Success
                                 val drawable = success?.result?.drawable
+                                val drawableWidth = drawable?.intrinsicWidth ?: 0
+                                val drawableHeight = drawable?.intrinsicHeight ?: 0
                                 val decodedAspectRatio = readerImageAspectRatio(
-                                    width = drawable?.intrinsicWidth ?: 0,
-                                    height = drawable?.intrinsicHeight ?: 0
+                                    width = drawableWidth,
+                                    height = drawableHeight
                                 )
                                 if (readerDrawableExceedsCanvasSafeSize(drawable)) {
-                                    LaunchedEffect(url, decodedAspectRatio) {
+                                    LaunchedEffect(url, decodedAspectRatio, drawableWidth, drawableHeight) {
                                         if (decodedAspectRatio != null) {
                                             resolvedPageAspectRatios[url] = decodedAspectRatio
                                         }
+                                        vm.recordPageDisplayDimensions(index, drawableWidth, drawableHeight)
                                         forceTiledRender = true
                                     }
                                     PageLoadingPlaceholder(
@@ -2116,10 +2260,11 @@ fun ScrollReader(
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 } else {
-                                    LaunchedEffect(url, decodedAspectRatio) {
+                                    LaunchedEffect(url, decodedAspectRatio, drawableWidth, drawableHeight) {
                                         if (decodedAspectRatio != null) {
                                             resolvedPageAspectRatios[url] = decodedAspectRatio
                                         }
+                                        vm.recordPageDisplayDimensions(index, drawableWidth, drawableHeight)
                                     }
                                     pageImageLoaded = true
                                     if (success != null) retainedPagePainters[url] = success.painter
