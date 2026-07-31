@@ -92,4 +92,47 @@ class MetadataSaveCoordinatorTest {
 
         assertEquals("", savedLanguage)
     }
+
+    @Test
+    fun seriesLanguageSaveUsesFocusedPatchAndUpdatesLocalMetadata() = runBlocking {
+        var savedLanguage = ""
+        var savedLanguageLock = false
+
+        val result = saveSeriesLanguageMetadata(
+            current = SeriesMetadataDto(title = "Series", language = "ja"),
+            language = "ko",
+            languageLock = true,
+            fallbackErrorMessage = "Save failed",
+            forbiddenErrorMessage = "Komga admin permission is required",
+            update = { body ->
+                savedLanguage = body.language
+                savedLanguageLock = body.languageLock
+            }
+        )
+
+        assertEquals("ko", savedLanguage)
+        assertTrue(savedLanguageLock)
+        assertEquals(
+            SeriesMetadataDto(title = "Series", language = "ko", languageLock = true),
+            (result as MetadataSaveResult.Success).metadata
+        )
+    }
+
+    @Test
+    fun seriesLanguageSaveFailureKeepsCurrentMetadata() = runBlocking {
+        val current = SeriesMetadataDto(title = "Series", language = "ja")
+
+        val result = saveSeriesLanguageMetadata(
+            current = current,
+            language = "ko",
+            languageLock = true,
+            fallbackErrorMessage = "Save failed",
+            forbiddenErrorMessage = "Komga admin permission is required",
+            update = { throw IOException() }
+        )
+
+        assertTrue(result is MetadataSaveResult.Failure)
+        assertEquals("Save failed", (result as MetadataSaveResult.Failure).message)
+        assertEquals("ja", current.language)
+    }
 }

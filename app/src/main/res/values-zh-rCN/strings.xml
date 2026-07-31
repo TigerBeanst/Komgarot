@@ -487,6 +487,7 @@
     <string name="metadata_language_japanese">日语</string>
     <string name="metadata_language_korean">韩语</string>
     <string name="metadata_language_thai">泰语</string>
+    <string name="metadata_book_language_series_scope">Komga 将此值保存在所属系列中，修改会应用于系列内全部书本。</string>
     <string name="metadata_age_rating">年龄分级</string>
     <string name="metadata_reading_direction">阅读方向</string>
     <string name="metadata_status">状态</string>

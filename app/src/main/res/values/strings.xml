@@ -490,6 +490,7 @@
     <string name="metadata_language_japanese">Japanese</string>
     <string name="metadata_language_korean">Korean</string>
     <string name="metadata_language_thai">Thai</string>
+    <string name="metadata_book_language_series_scope">Komga stores this value on the book\'s series. Changes apply to every book in the series.</string>
     <string name="metadata_age_rating">Age Rating</string>
     <string name="metadata_reading_direction">Reading Direction</string>
     <string name="metadata_status">Status</string>

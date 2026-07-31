@@ -24,7 +24,11 @@ class MetadataViewModel(
 ) : ViewModel() {
     var seriesMeta by mutableStateOf<SeriesMetadataDto?>(null)
     var bookMeta by mutableStateOf<BookMetadataDto?>(null)
-    var seriesLanguages by mutableStateOf<List<String>>(emptyList())
+    var bookSeriesId by mutableStateOf("")
+        private set
+    var bookSeriesMeta by mutableStateOf<SeriesMetadataDto?>(null)
+        private set
+    var metadataLanguages by mutableStateOf<List<String>>(emptyList())
         private set
     var saving by mutableStateOf(false)
     var saved by mutableStateOf(false)
@@ -33,13 +37,25 @@ class MetadataViewModel(
 
     fun loadSeries(id: String) {
         viewModelScope.launch { runCatching { seriesMeta = repo.getSeriesMetadata(id) } }
-        viewModelScope.launch {
-            seriesLanguages = loadMetadataLanguages { repo.getLanguages() }
-        }
+        loadLanguages()
     }
 
     fun loadBook(id: String) {
-        viewModelScope.launch { runCatching { bookMeta = repo.getBookMetadata(id) } }
+        viewModelScope.launch {
+            runCatching { repo.getBookById(id).getOrThrow() }
+                .onSuccess { book ->
+                    bookMeta = book.metadata
+                    bookSeriesId = book.seriesId
+                    bookSeriesMeta = runCatching { repo.getSeriesMetadata(book.seriesId) }.getOrNull()
+                }
+        }
+        loadLanguages()
+    }
+
+    private fun loadLanguages() {
+        viewModelScope.launch {
+            metadataLanguages = loadMetadataLanguages { repo.getLanguages() }
+        }
     }
 
     fun saveSeriesMeta(id: String, meta: SeriesMetadataDto, onDone: (Boolean) -> Unit = {}) {
@@ -69,7 +85,13 @@ class MetadataViewModel(
         }
     }
 
-    fun saveBookMeta(id: String, meta: BookMetadataDto, onDone: (Boolean) -> Unit = {}) {
+    fun saveBookMeta(
+        id: String,
+        meta: BookMetadataDto,
+        seriesLanguage: String,
+        seriesLanguageLock: Boolean,
+        onDone: (Boolean) -> Unit = {}
+    ) {
         viewModelScope.launch {
             saving = true
             saved = false
@@ -80,10 +102,9 @@ class MetadataViewModel(
                 forbiddenErrorMessage = metadataAdminRequiredMessage,
                 update = { body -> repo.updateBookMetadata(id, body) }
             )
-            val ok = when (result) {
+            val bookSaved = when (result) {
                 is MetadataSaveResult.Success -> {
                     bookMeta = result.metadata
-                    saved = true
                     true
                 }
                 is MetadataSaveResult.Failure -> {
@@ -91,6 +112,36 @@ class MetadataViewModel(
                     false
                 }
             }
+            val currentSeriesMeta = bookSeriesMeta
+            val seriesResult = if (
+                bookSaved &&
+                currentSeriesMeta != null &&
+                bookSeriesId.isNotBlank() &&
+                (currentSeriesMeta.language != seriesLanguage || currentSeriesMeta.languageLock != seriesLanguageLock)
+            ) {
+                saveSeriesLanguageMetadata(
+                    current = currentSeriesMeta,
+                    language = seriesLanguage,
+                    languageLock = seriesLanguageLock,
+                    fallbackErrorMessage = saveFailedMessage,
+                    forbiddenErrorMessage = metadataAdminRequiredMessage,
+                    update = { body -> repo.updateSeriesLanguage(bookSeriesId, body) }
+                )
+            } else {
+                null
+            }
+            val ok = when (seriesResult) {
+                is MetadataSaveResult.Success -> {
+                    bookSeriesMeta = seriesResult.metadata
+                    true
+                }
+                is MetadataSaveResult.Failure -> {
+                    saveError = seriesResult.message
+                    false
+                }
+                null -> bookSaved
+            }
+            saved = ok
             saving = false
             onDone(ok)
         }

@@ -2,6 +2,7 @@ package fail.tiger.komgarot.ui.metadata
 
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
 import fail.tiger.komgarot.data.remote.dto.BookMetadataUpdateDto
+import fail.tiger.komgarot.data.remote.dto.SeriesLanguageUpdateDto
 import fail.tiger.komgarot.data.remote.dto.SeriesMetadataDto
 import fail.tiger.komgarot.data.remote.dto.SeriesMetadataUpdateDto
 import retrofit2.HttpException
@@ -83,6 +84,26 @@ suspend fun saveSeriesMetadata(
     return runCatching { update(body) }
         .fold(
             onSuccess = { MetadataSaveResult.Success(meta) },
+            onFailure = { MetadataSaveResult.Failure(it.metadataSaveFailureMessage(fallbackErrorMessage, forbiddenErrorMessage)) }
+        )
+}
+
+suspend fun saveSeriesLanguageMetadata(
+    current: SeriesMetadataDto,
+    language: String,
+    languageLock: Boolean,
+    fallbackErrorMessage: String,
+    forbiddenErrorMessage: String,
+    update: suspend (SeriesLanguageUpdateDto) -> Unit
+): MetadataSaveResult<SeriesMetadataDto> {
+    val updated = current.copy(language = language, languageLock = languageLock)
+    val body = SeriesLanguageUpdateDto(
+        language = language,
+        languageLock = languageLock
+    )
+    return runCatching { update(body) }
+        .fold(
+            onSuccess = { MetadataSaveResult.Success(updated) },
             onFailure = { MetadataSaveResult.Failure(it.metadataSaveFailureMessage(fallbackErrorMessage, forbiddenErrorMessage)) }
         )
 }
