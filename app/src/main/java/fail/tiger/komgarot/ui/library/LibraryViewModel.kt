@@ -12,6 +12,7 @@ import fail.tiger.komgarot.data.remote.dto.SeriesDto
 import fail.tiger.komgarot.data.repository.AuthRepository
 import fail.tiger.komgarot.data.repository.LibraryHomeSource
 import fail.tiger.komgarot.ui.i18n.UiTextProvider
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,19 +38,27 @@ class LibraryViewModel(
     val loading = _loading.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
+    private var loadJob: Job? = null
+    private var loadGeneration = 0L
 
     fun load() {
-        viewModelScope.launch {
+        val generation = ++loadGeneration
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _loading.value = true
             _error.value = null
-            val result = loadLibraryHome(repo, connectFailedMessage)
-            _libraries.value = result.libraries
-            _continueReadingBooks.value = result.continueReadingBooks
-            _latestBooks.value = result.latestBooks
-            _updatedSeries.value = result.updatedSeries
-            _newSeries.value = result.newSeries
-            _error.value = result.failures.firstOrNull()
-            _loading.value = false
+            try {
+                val result = loadLibraryHome(repo, connectFailedMessage)
+                if (generation != loadGeneration) return@launch
+                _libraries.value = result.libraries
+                _continueReadingBooks.value = result.continueReadingBooks
+                _latestBooks.value = result.latestBooks
+                _updatedSeries.value = result.updatedSeries
+                _newSeries.value = result.newSeries
+                _error.value = result.failures.firstOrNull()
+            } finally {
+                if (generation == loadGeneration) _loading.value = false
+            }
         }
     }
 

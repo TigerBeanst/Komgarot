@@ -31,7 +31,12 @@ class LibraryRepository(private val api: KomgaApi) : LibraryHomeSource {
         ).content
 
     override suspend fun getLatestBooks(size: Int): List<BookDto> =
-        api.getLatestBooks(size = size).content
+        api.getBooks(
+            search = BookSearchDto(),
+            page = 0,
+            size = size,
+            sort = listOf("created,desc")
+        ).content
 
     override suspend fun getUpdatedSeries(size: Int): List<SeriesDto> =
         api.getUpdatedSeries(size = size).content

@@ -16,4 +16,11 @@ class LibraryRepositoryStructureTest {
         assertTrue(source.contains("sort = listOf(\"readProgress.readDate,desc\")"))
         assertFalse(source.contains("override suspend fun getBooksOnDeck("))
     }
+
+    @Test
+    fun recentlyAddedUsesFreshCreatedDateBookSearch() {
+        assertTrue(source.contains("search = BookSearchDto()"))
+        assertTrue(source.contains("sort = listOf(\"created,desc\")"))
+        assertFalse(source.contains("api.getLatestBooks(size = size)"))
+    }
 }
