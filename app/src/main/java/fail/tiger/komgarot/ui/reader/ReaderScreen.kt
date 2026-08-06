@@ -1350,7 +1350,7 @@ fun PagerReader(
 
     HorizontalPager(
         state = pagerState,
-        key = { page -> pagerPages[page].readerPagerStableKey(splitOrder) },
+        key = { page -> pagerPages.readerPagerStableKeyAt(page, splitOrder) },
         beyondViewportPageCount = readerPagerBeyondViewportPageCount(
             einkMode = einkMode,
             hasTiledPages = hasTiledPages,
@@ -1360,7 +1360,7 @@ fun PagerReader(
         userScrollEnabled = !einkMode,
         modifier = Modifier.fillMaxSize()
     ) { page ->
-        when (val readerPage = pagerPages[page]) {
+        when (val readerPage = pagerPages.getOrNull(page)) {
             is ReaderPagerPage.Actual -> {
                 val actualPageIndex = readerPage.pageIndex
                 val pageSegment = readerPage.segment
@@ -1496,6 +1496,7 @@ fun PagerReader(
                     onTap = { vm.toggleControls() }
                 )
             }
+            null -> Unit
         }
     }
 

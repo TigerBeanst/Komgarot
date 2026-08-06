@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.data.remote
 
 import fail.tiger.komgarot.data.local.AiImageTransport
+import fail.tiger.komgarot.data.local.AiGlossaryEntry
 import fail.tiger.komgarot.data.local.AiSeriesSourceLanguageState
 import fail.tiger.komgarot.data.local.AiSourceLanguageOrigin
 import fail.tiger.komgarot.data.local.AiSourceReadingDirection
@@ -21,7 +22,7 @@ class AiTranslationPromptTest {
         val prompt = aiTranslationSystemPrompt()
 
         assertTrue(prompt.contains("page context images"))
-        assertTrue(prompt.contains("current text-region crop image"))
+        assertTrue(prompt.contains("current text-region crop images"))
         assertTrue(prompt.contains("Return only:"))
         assertTrue(prompt.contains("translatedLines"))
         assertTrue(prompt.contains("manga"))
@@ -31,7 +32,9 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("The crop image is the only readable source text"))
         assertTrue(prompt.contains("Page context images provide scene, speaker, tone, setting, and action context"))
         assertTrue(prompt.contains("Use page context for meaning"))
-        assertTrue(prompt.contains("Return no localRegionId, id, rect, coordinates, placement, color, or font data"))
+        assertTrue(prompt.contains("Coordinates, placement, mask, color, and font data are owned by the app"))
+        assertTrue(prompt.contains("Return regionOrdinal for every crop"))
+        assertTrue(prompt.contains("Return one translation item for every crop"))
         assertTrue(prompt.contains("Classify the crop as dialogue, narration, sign, or SFX"))
         assertTrue(prompt.contains("If the crop is dominated by a sound effect"))
         assertTrue(prompt.contains("SFX translatedLines must stay very short"))
@@ -44,7 +47,7 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("translatedLines must be written in targetLanguageName"))
         assertTrue(prompt.contains("IETF BCP 47"))
         assertTrue(prompt.contains("pure number"))
-        assertTrue(prompt.contains("translatedLines as an empty array"))
+        assertTrue(prompt.contains("translatedLines: []"))
         assertTrue(!prompt.contains("Return strict JSON only."))
         assertTrue(!prompt.contains("Return JSON with pageIndex and translations"))
         assertTrue(!prompt.contains("Exactly one translation object"))
@@ -78,6 +81,25 @@ class AiTranslationPromptTest {
     }
 
     @Test
+    fun userPromptIncludesGlossaryForConsistentTerminology() {
+        val prompt = aiTranslationUserPrompt(
+            bookId = "book-glossary",
+            targetLocale = "zh-CN",
+            targetLanguageName = "简体中文",
+            translationMode = AiTranslationMode.LOCAL_DETECTION,
+            localPageContexts = emptyList(),
+            customInstructions = "",
+            glossary = listOf(
+                AiGlossaryEntry(source = "主人公", target = "主角", note = "角色称呼")
+            )
+        )
+
+        assertTrue(prompt.contains("Glossary:"))
+        assertTrue(prompt.contains("主人公 => 主角 (角色称呼)"))
+        assertTrue(prompt.contains("Keep glossary source terms and targets consistent"))
+    }
+
+    @Test
     fun soundEffectSkippingReturnsEmptyTranslations() {
         val systemPrompt = aiTranslationSystemPrompt(skipSoundEffects = true)
         val userPrompt = aiTranslationUserPrompt(
@@ -90,10 +112,10 @@ class AiTranslationPromptTest {
             skipSoundEffects = true
         )
 
-        assertTrue(systemPrompt.contains("Do not translate sound effects or onomatopoeia"))
-        assertTrue(systemPrompt.contains("translations as an empty array"))
+        assertTrue(systemPrompt.contains("Short calls, interjections, greetings, and spoken fragments remain dialogue"))
+        assertTrue(systemPrompt.contains("status: \"skipped_sfx\""))
         assertTrue(userPrompt.contains("skipSoundEffects: true"))
-        assertTrue(userPrompt.contains("translations: []"))
+        assertTrue(userPrompt.contains("one skipped_sfx response item for each crop"))
     }
 
     @Test
@@ -129,7 +151,27 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("Korean horizontal webtoon"))
         assertTrue(prompt.contains("left-to-right"))
         assertTrue(prompt.contains("top-to-bottom"))
-        assertTrue(prompt.contains("Preserve Korean spaces"))
+        assertTrue(prompt.contains("preserve Korean word spaces"))
+        assertTrue(prompt.contains("Hangul text"))
+        assertTrue(prompt.contains("mixed Hanja"))
+    }
+
+    @Test
+    fun koreanSourceLanguageActivatesKoreanProfileWhenSettingsProfileIsAuto() {
+        val prompt = aiTranslationUserPrompt(
+            bookId = "book-korean-source",
+            targetLocale = "zh-CN",
+            targetLanguageName = "简体中文",
+            translationMode = AiTranslationMode.LOCAL_DETECTION,
+            localPageContexts = emptyList(),
+            customInstructions = "",
+            sourceTextProfile = AiSourceTextProfile.AUTO,
+            sourceLanguage = AiSeriesSourceLanguageState(normalizedCode = "ko")
+        )
+
+        assertTrue(prompt.contains("sourceLanguage: ko"))
+        assertTrue(prompt.contains("sourceTextProfile: korean_horizontal_webtoon"))
+        assertTrue(prompt.contains("Hangul syllable blocks"))
     }
 
     @Test
@@ -203,7 +245,12 @@ class AiTranslationPromptTest {
             )
 
             assertTrue(prompt.contains(expectedInstruction))
-            assertTrue(prompt.contains("sourceTextProfile: horizontal_comic"))
+            val expectedProfile = if (language == "ko") {
+                "sourceTextProfile: korean_horizontal_webtoon"
+            } else {
+                "sourceTextProfile: horizontal_comic"
+            }
+            assertTrue(prompt.contains(expectedProfile))
         }
     }
 
@@ -254,7 +301,7 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("Translate the current crop."))
         assertTrue(!prompt.contains("Return localRegionId"))
         assertTrue(prompt.contains("Image 1: context"))
-        assertTrue(prompt.contains("Image 2: crop"))
+        assertTrue(prompt.contains("Images 2-2: crop images in regionOrdinal order"))
         assertTrue(!prompt.contains("Attached images: page context image first, current crop image last"))
         assertTrue(prompt.contains("Use page context for scene, speaker, tone, and action"))
         assertTrue(prompt.contains("Read sourceText from the crop image"))
@@ -349,7 +396,8 @@ class AiTranslationPromptTest {
         assertTrue(!source.contains("private data class PromptLocalRegion"))
         assertTrue(prompt.contains("\"pageIndex\":4"))
         assertTrue(prompt.contains("currentRegion:"))
-        assertTrue(!prompt.contains("\"regions\""))
+        assertTrue(prompt.contains("\"regions\""))
+        assertTrue(prompt.contains("\"regionOrdinal\":0"))
         assertTrue(!prompt.contains("\"imageWidth\""))
         assertTrue(!prompt.contains("\"imageHeight\""))
         assertTrue(!prompt.contains("\"rect\""))
@@ -412,7 +460,8 @@ class AiTranslationPromptTest {
         assertTrue(!prompt.contains("p0-r2"))
         assertTrue(!prompt.contains("p0-r3"))
         assertTrue(prompt.contains("currentRegion:"))
-        assertTrue(!prompt.contains("\"regions\""))
+        assertTrue(prompt.contains("\"regions\""))
+        assertTrue(prompt.contains("\"regionOrdinal\":0"))
         assertTrue(!prompt.contains("\"imageWidth\""))
         assertTrue(!prompt.contains("\"imageHeight\""))
         assertTrue(!prompt.contains("\"rect\""))
@@ -570,13 +619,25 @@ class AiTranslationPromptTest {
                     mimeType = "image/jpeg",
                     base64 = "crop",
                     imageUrl = "",
-                    localRegionId = "p0-r1"
+                    localRegionId = "p0-r1",
+                    regionOrdinal = 0
+                ),
+                AiTranslationImageInput(
+                    pageIndex = 0,
+                    transport = AiImageTransport.BASE64,
+                    mimeType = "image/jpeg",
+                    base64 = "crop2",
+                    imageUrl = "",
+                    localRegionId = "p0-r2",
+                    regionOrdinal = 1
                 )
             )
         )
 
         assertTrue(json.contains("Image 1: context; page=0"))
         assertTrue(json.contains("Image 2: crop; page=0"))
+        assertTrue(json.contains("Image 2: crop; page=0; regionOrdinal=0"))
+        assertTrue(json.contains("Image 3: crop; page=0; regionOrdinal=1"))
         assertTrue(!json.contains("imageRole=page_context"))
         assertTrue(!json.contains("sceneContextOnly=true"))
         assertTrue(!json.contains("imageRole=text_region"))
@@ -585,6 +646,7 @@ class AiTranslationPromptTest {
         assertTrue(!json.contains("textSourceOnlyForLocalRegionId=p0-r1"))
         assertTrue(json.indexOf("Image 1: context") < json.indexOf("data:image/jpeg;base64,page"))
         assertTrue(json.indexOf("Image 2: crop") < json.indexOf("data:image/jpeg;base64,crop"))
+        assertTrue(json.indexOf("Image 3: crop") < json.indexOf("data:image/jpeg;base64,crop2"))
     }
 
     @Test

@@ -5,6 +5,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 class PagingTest {
@@ -99,6 +101,32 @@ class PagingTest {
 
         assertTrue(state.hasLoadedOnce)
         assertTrue(state.items.isEmpty())
+    }
+
+    @Test
+    fun resetIgnoresLateLoadResultFromPreviousGeneration() = runBlocking {
+        val state = PagedListState<Item, String>({ it.id }, "failed")
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val oldJob = launch {
+            state.loadMore {
+                started.complete(Unit)
+                release.await()
+                PagedDto(listOf(Item("old")), totalPages = 1, totalElements = 1, number = 0, size = 1)
+            }
+        }
+
+        started.await()
+        state.reset()
+        release.complete(Unit)
+        oldJob.join()
+
+        assertTrue(state.items.isEmpty())
+        assertFalse(state.hasLoadedOnce)
+        state.loadMore {
+            PagedDto(listOf(Item("new")), totalPages = 1, totalElements = 1, number = 0, size = 1)
+        }
+        assertEquals(listOf("new"), state.items.map { it.id })
     }
 
     private data class Item(val id: String)

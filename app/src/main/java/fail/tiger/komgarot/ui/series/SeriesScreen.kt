@@ -63,7 +63,7 @@ fun SeriesScreen(
     var hasSeenInitialResume by remember { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         if (hasSeenInitialResume) {
-            vm.refreshVisibleOneShotTitles()
+            vm.resumeAfterBackground()
         } else {
             hasSeenInitialResume = true
         }

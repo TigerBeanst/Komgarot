@@ -62,7 +62,7 @@ data class AiSettings(
 
         fun normalizePagesPerRequest(value: Int): Int = value.coerceAtLeast(1)
         fun normalizeConcurrentRequests(value: Int): Int = value.coerceIn(1, 32)
-        fun normalizeMaxImagesPerRequest(value: Int): Int = value.coerceAtLeast(2)
+        fun normalizeMaxImagesPerRequest(value: Int): Int = value.coerceIn(1, 80)
         fun normalizeTimeoutSeconds(value: Int): Int = value.coerceAtLeast(0)
     }
 }

@@ -838,7 +838,9 @@ private fun SettingsContent(
             )
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_ai_max_images_per_request)) },
-                supportingContent = { Text(aiMaxImagesPerRequest.toString()) },
+                supportingContent = {
+                    Text(stringResource(R.string.settings_ai_max_images_per_request_value, aiMaxImagesPerRequest))
+                },
                 modifier = Modifier.clickable { showAiMaxImagesPerRequestDialog = true }
             )
             ListItem(

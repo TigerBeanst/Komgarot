@@ -115,6 +115,18 @@ class ReaderPageRequestsTest {
     }
 
     @Test
+    fun pagerKeyHandlesIndexFromPreviousSplitLayout() {
+        val pages = buildReaderPagerPages(
+            pageCount = 12,
+            previousBook = null,
+            nextBook = null,
+            splitLandscapePages = false
+        )
+
+        assertEquals("stale:${pages.size}", pages.readerPagerStableKeyAt(pages.size, LandscapePageSplitOrder.RIGHT_FIRST))
+    }
+
+    @Test
     fun imageAspectRatioRequiresUsableDimensions() {
         assertEquals(0.5f, readerImageAspectRatio(width = 1000, height = 2000) ?: 0f, 0.001f)
         assertNull(readerImageAspectRatio(width = 0, height = 2000))

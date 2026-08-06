@@ -256,9 +256,10 @@
     <string name="settings_ai_section_image_transport">Image transport</string>
     <string name="settings_ai_section_local_model">Local model</string>
     <string name="settings_ai_section_data">Data</string>
-    <string name="settings_ai_local_detection_pipeline_desc">Local models find text regions and placement; the remote vision model reads each crop and translates with the full page as context.</string>
+    <string name="settings_ai_local_detection_pipeline_desc">Local models own text regions, masks, and placement; the remote vision model reads each crop, classifies it, and translates it with the full page as context.</string>
     <string name="settings_ai_pages_per_request">Pages per request</string>
-    <string name="settings_ai_max_images_per_request">Images per AI request</string>
+    <string name="settings_ai_max_images_per_request">Text bubbles per AI request</string>
+    <string name="settings_ai_max_images_per_request_value">%1$d bubbles; 1 sends each bubble separately</string>
     <string name="settings_ai_request_mode">AI request mode</string>
     <string name="settings_ai_request_mode_serial">Serial</string>
     <string name="settings_ai_request_mode_parallel">Parallel</string>

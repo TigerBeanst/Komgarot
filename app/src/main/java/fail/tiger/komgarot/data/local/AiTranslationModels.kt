@@ -93,8 +93,12 @@ enum class AiTranslationRegionStatus {
     PENDING,
     RUNNING,
     DONE,
+    SKIPPED,
     FAILED
 }
+
+internal fun AiTranslationRegionStatus.isTerminal(): Boolean =
+    this == AiTranslationRegionStatus.DONE || this == AiTranslationRegionStatus.SKIPPED
 
 enum class AiTranslationTextDirection {
     AUTO,
@@ -163,9 +167,7 @@ private fun AiTranslationBlock.hasEquivalentTranslationNear(other: AiTranslation
     if (!equivalentText) return false
     val sourceOverlap = rect.overlapRatioAgainstSmaller(other.rect)
     val renderOverlap = effectiveTranslationRect().overlapRatioAgainstSmaller(other.effectiveTranslationRect())
-    if (sourceOverlap >= 0.32f || renderOverlap >= 0.42f) return true
-    val textLength = maxOf(translated.length, otherTranslated.length)
-    return textLength >= 6 && rect.isCloselyAdjacentTo(other.rect)
+    return sourceOverlap >= 0.55f || renderOverlap >= 0.65f
 }
 
 private fun AiTranslationBlock.mergeDuplicateTranslationMask(other: AiTranslationBlock): AiTranslationBlock {
@@ -212,18 +214,6 @@ private fun AiTranslationRect.overlapRatioAgainstSmaller(other: AiTranslationRec
     return overlapWidth * overlapHeight / smallerArea
 }
 
-private fun AiTranslationRect.isCloselyAdjacentTo(other: AiTranslationRect): Boolean {
-    val horizontalGap = maxOf(maxOf(x, other.x) - minOf(x + width, other.x + other.width), 0f)
-    val verticalGap = maxOf(maxOf(y, other.y) - minOf(y + height, other.y + other.height), 0f)
-    val horizontalOverlap = (minOf(x + width, other.x + other.width) - maxOf(x, other.x)).coerceAtLeast(0f)
-    val verticalOverlap = (minOf(y + height, other.y + other.height) - maxOf(y, other.y)).coerceAtLeast(0f)
-    val sameTextRow = verticalOverlap / minOf(height, other.height).coerceAtLeast(0.000001f) >= 0.55f &&
-        horizontalGap <= maxOf(minOf(width, other.width) * 0.30f, 0.012f)
-    val sameTextColumn = horizontalOverlap / minOf(width, other.width).coerceAtLeast(0.000001f) >= 0.55f &&
-        verticalGap <= maxOf(minOf(height, other.height) * 0.30f, 0.012f)
-    return sameTextRow || sameTextColumn
-}
-
 private fun AiTranslationRect.union(other: AiTranslationRect): AiTranslationRect {
     val left = minOf(x, other.x)
     val top = minOf(y, other.y)
@@ -240,7 +230,7 @@ internal fun AiTranslatedPage.pausedForRegionResume(): AiTranslatedPage {
             block
         }
     }
-    val allDone = pausedBlocks.isNotEmpty() && pausedBlocks.all { it.regionStatus == AiTranslationRegionStatus.DONE }
+    val allDone = pausedBlocks.isNotEmpty() && pausedBlocks.all { it.regionStatus.isTerminal() }
     return copy(
         status = if (allDone) AiTranslationPageStatus.DONE else AiTranslationPageStatus.PENDING,
         blocks = pausedBlocks,
@@ -256,7 +246,7 @@ internal fun AiTranslatedPage.runningForRegionResume(mode: AiTranslationMode): A
     copy(
         status = AiTranslationPageStatus.RUNNING,
         blocks = blocks.map { block ->
-            if (block.regionStatus == AiTranslationRegionStatus.DONE) {
+            if (block.regionStatus.isTerminal()) {
                 block
             } else {
                 block.copy(regionStatus = AiTranslationRegionStatus.PENDING)

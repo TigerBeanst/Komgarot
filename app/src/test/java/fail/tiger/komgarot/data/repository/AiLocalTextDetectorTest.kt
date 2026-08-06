@@ -947,6 +947,44 @@ class AiLocalTextDetectorTest {
     }
 
     @Test
+    fun koreanProfileNormalizesMixedCachedDirectionsToHorizontal() {
+        val regions = listOf(
+            AiTranslationLocalTextRegion(
+                id = "p0-r1",
+                rect = AiTranslationRect(0.10f, 0.20f, 0.24f, 0.08f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.9f,
+                estimatedFontScale = 1f,
+                rotationDegrees = 8f,
+                sourceColumns = listOf(AiTranslationRect(0.10f, 0.20f, 0.03f, 0.08f))
+            ),
+            AiTranslationLocalTextRegion(
+                id = "p0-r2",
+                rect = AiTranslationRect(0.10f, 0.30f, 0.24f, 0.08f),
+                textDirection = AiTranslationTextDirection.HORIZONTAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.9f,
+                estimatedFontScale = 1f
+            )
+        )
+
+        val normalized = normalizeLocalTextDirectionsForProfile(
+            regions,
+            AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON
+        )
+
+        assertEquals(
+            listOf(AiTranslationTextDirection.HORIZONTAL, AiTranslationTextDirection.HORIZONTAL),
+            normalized.map { it.textDirection }
+        )
+        assertEquals(0f, normalized.first().rotationDegrees)
+        assertTrue(normalized.first().sourceColumns.isEmpty())
+    }
+
+    @Test
     fun koreanHorizontalProfileKeepsTallMultilineRegionHorizontal() {
         val rect = AiTranslationRect(x = 0.72f, y = 0.68f, width = 0.10f, height = 0.19f)
 

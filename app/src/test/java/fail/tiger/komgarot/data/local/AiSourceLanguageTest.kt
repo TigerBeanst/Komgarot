@@ -64,6 +64,18 @@ class AiSourceLanguageTest {
     }
 
     @Test
+    fun koreanLanguageUsesKoreanHorizontalWebtoonProfile() {
+        assertEquals(
+            AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON,
+            AiSeriesSourceLanguageState(normalizedCode = "ko").sourceTextProfile
+        )
+        assertEquals(
+            AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON,
+            AiSeriesSourceLanguageState(normalizedCode = "ko-KR").sourceTextProfile
+        )
+    }
+
+    @Test
     fun twoMatchingDetectionsWithinThreeEvidenceConfirmAiLanguage() {
         val pending = AiSeriesSourceLanguageState(seriesId = "series-1")
 

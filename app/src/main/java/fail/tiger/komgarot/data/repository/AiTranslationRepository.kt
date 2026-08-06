@@ -30,6 +30,7 @@ import fail.tiger.komgarot.data.local.AiTranslationRegionStatus
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationRequestMode
 import fail.tiger.komgarot.data.local.AiTranslationMode
+import fail.tiger.komgarot.data.local.isTerminal
 import fail.tiger.komgarot.data.local.AiTranslationStore
 import fail.tiger.komgarot.data.local.AiTranslationTaskStatus
 import fail.tiger.komgarot.data.local.AiTranslationTaskSummary
@@ -849,7 +850,7 @@ class AiTranslationRepository(
                 val pageFragmentsLock = Any()
                 val initialBlocksByRegion = preparedPage.initialPage.blocks.associateBy { it.localRegionId }
                 val remainingRegions = preparedPage.localContext.regions.filter { region ->
-                    initialBlocksByRegion[region.id]?.regionStatus != AiTranslationRegionStatus.DONE
+                    initialBlocksByRegion[region.id]?.regionStatus?.isTerminal() != true
                 }
                 if (remainingRegions.isEmpty()) {
                     translatedPages += mergeTranslatedPageFragments(
@@ -1142,9 +1143,11 @@ class AiTranslationRepository(
                             localPageContexts = listOf(chunkContext),
                             mode = runMode
                         ).firstOrNull()
-                        PreparedRegionChunkResult.Success(
-                            pageFragment ?: emptyTranslatedRegionPage(chunkContext, runMode)
-                        )
+                        pageFragment?.let(PreparedRegionChunkResult::Success)
+                            ?: PreparedRegionChunkResult.Failed(
+                                summary = "AI response did not bind a translation item to page=${preparedPage.localContext.pageIndex}.",
+                                category = AiTranslationErrorCategory.JSON_VALIDATION_FAILED
+                            )
                     }
                 }
             }
@@ -1186,7 +1189,8 @@ class AiTranslationRepository(
                     customInstructions = settings.customInstructions,
                     skipSoundEffects = settings.skipSoundEffects,
                     sourceTextProfile = sourceLanguage.sourceTextProfile,
-                    sourceLanguage = sourceLanguage
+                    sourceLanguage = sourceLanguage,
+                    glossary = store.readBook(book.id)?.glossary.orEmpty()
                 ),
                 images = images,
                 timeoutSeconds = settings.timeoutSeconds,
@@ -1428,7 +1432,10 @@ class AiTranslationRepository(
         val cachedPageFile = timedAiTranslationStep(timingRecorder, AI_TIMING_PAGE_IMAGE_CACHE) {
             ensureCachedPageFile(book.seriesId, bookId, url)
         }
-        val sourceSettings = settings.copy(sourceTextProfile = sourceLanguage.sourceTextProfile)
+        val effectiveSourceTextProfile = sourceLanguage.sourceTextProfile
+            .takeUnless { it == AiSourceTextProfile.AUTO }
+            ?: settings.sourceTextProfile
+        val sourceSettings = settings.copy(sourceTextProfile = effectiveSourceTextProfile)
         val localContextCacheKey = aiLocalContextCacheKey(cachedPageFile, sourceSettings, sourceLanguage)
         val cachedLocalContext = timedAiTranslationStep(timingRecorder, AI_TIMING_LOCAL_DETECTION_CACHE) {
             store.readLocalPageContext(bookId, pageIndex, localContextCacheKey)
@@ -1442,9 +1449,10 @@ class AiTranslationRepository(
                 onDetectionStats = timingRecorder::setLocalDetectionStats
             )
         val localContext = detectedLocalContext.copy(
-            regions = detectedLocalContext.regions.sortedWith(
-                localRegionReadingOrder(sourceLanguage.readingDirection)
-            )
+            regions = normalizeLocalTextDirectionsForProfile(
+                regions = detectedLocalContext.regions,
+                sourceTextProfile = sourceSettings.sourceTextProfile
+            ).sortedWith(localRegionReadingOrder(sourceLanguage.readingDirection))
         )
         timingRecorder.setRegionCount(localContext.regions.size)
         currentCoroutineContext().ensureActive()
@@ -1483,7 +1491,8 @@ class AiTranslationRepository(
                 file = cachedPageFile,
                 pageIndex = pageIndex,
                 imageTransport = settings.imageTransport,
-                s3Uploader = s3Uploader
+                s3Uploader = s3Uploader,
+                sourceTextProfile = sourceSettings.sourceTextProfile
             ),
             initialPage = resumablePage,
             timingRecorder = timingRecorder
@@ -1809,7 +1818,7 @@ internal fun mergeLocalDetectionPageForRegionResume(
     val completedByRegion = existingPage
         ?.blocks
         .orEmpty()
-        .filter { it.localRegionId.isNotBlank() && it.regionStatus == AiTranslationRegionStatus.DONE }
+        .filter { it.localRegionId.isNotBlank() && it.regionStatus.isTerminal() }
         .associateBy { it.localRegionId }
     return AiTranslatedPage(
         pageIndex = localContext.pageIndex,
@@ -1844,34 +1853,23 @@ internal fun buildTranslatedPageFromLocalContext(
     translations: List<AiLocalRegionTranslation>,
     mode: AiTranslationMode
 ): AiTranslatedPage? {
-    val usableTranslations = translations
-        .filter {
-            it.translatedLines.any { line -> line.isNotBlank() } &&
-                !isPureNumberAiTranslationSource(it.sourceText)
-        }
-    val translationsForRegions = if (localContext.regions.size == 1) {
-        listOf(
-            (usableTranslations.firstOrNull() ?: return null).copy(
-                localRegionId = localContext.regions.single().id
-            )
-        )
-    } else {
-        usableTranslations
-    }
-    val translationsByRegion = translationsForRegions
-        .filter {
-            it.localRegionId.isNotBlank() &&
-                it.translatedLines.any { line -> line.isNotBlank() }
-        }
-        .associateBy { it.localRegionId }
+    val translationsByRegion = alignTranslationsToLocalRegions(localContext.regions, translations)
     val blocks = localContext.regions.mapNotNull { region ->
         val translation = translationsByRegion[region.id] ?: return@mapNotNull null
+        val responseLines = translation.translatedLines.map { it.trim() }.filter { it.isNotBlank() }
+        val regionStatus = when {
+            isPureNumberAiTranslationSource(translation.sourceText) -> AiTranslationRegionStatus.SKIPPED
+            translation.status == AiTranslationRegionStatus.SKIPPED -> AiTranslationRegionStatus.SKIPPED
+            responseLines.isNotEmpty() -> AiTranslationRegionStatus.DONE
+            else -> AiTranslationRegionStatus.SKIPPED
+        }
+        val translatedLines = responseLines.takeUnless { regionStatus == AiTranslationRegionStatus.SKIPPED }.orEmpty()
         AiTranslationBlock(
             localRegionId = region.id,
-            regionStatus = AiTranslationRegionStatus.DONE,
+            regionStatus = regionStatus,
             kind = translation.kind,
             sourceText = translation.sourceText,
-            translatedLines = translation.translatedLines.map { it.trim() }.filter { it.isNotBlank() },
+            translatedLines = translatedLines,
             rect = region.effectiveSourceMaskBounds(),
             translationRect = region.effectiveRenderBoundsForKind(translation.kind),
             sourceColumns = region.effectiveSourceColumns(),
@@ -1895,6 +1893,25 @@ internal fun buildTranslatedPageFromLocalContext(
         blocks = blocks,
         mode = mode.storedValue
     )
+}
+
+private fun alignTranslationsToLocalRegions(
+    regions: List<AiTranslationLocalTextRegion>,
+    translations: List<AiLocalRegionTranslation>
+): Map<String, AiLocalRegionTranslation> {
+    val remaining = translations.toMutableList()
+    val aligned = linkedMapOf<String, AiLocalRegionTranslation>()
+    regions.forEachIndexed { index, region ->
+        val matchIndex = remaining.indexOfFirst { it.localRegionId == region.id }
+            .takeIf { it >= 0 }
+            ?: remaining.indexOfFirst { it.regionOrdinal == index }
+                .takeIf { it >= 0 }
+            ?: 0.takeIf { remaining.isNotEmpty() }
+        if (matchIndex != null) {
+            aligned[region.id] = remaining.removeAt(matchIndex).copy(localRegionId = region.id)
+        }
+    }
+    return aligned
 }
 
 internal fun isPureNumberAiTranslationSource(value: String): Boolean {
@@ -1958,6 +1975,8 @@ internal data class AiLocalRegionTranslation(
     val sourceText: String,
     val translatedLines: List<String>,
     val kind: AiTranslationBlockKind = AiTranslationBlockKind.DIALOGUE,
+    val regionOrdinal: Int? = null,
+    val status: AiTranslationRegionStatus = AiTranslationRegionStatus.DONE,
     val detectedSourceLanguage: String = ""
 )
 
@@ -1980,6 +1999,7 @@ internal fun parseLocalRegionTranslationResponse(text: String): List<AiLocalRegi
 private fun parseLocalRegionTranslationElement(element: JsonElement): AiLocalRegionTranslation? {
     val obj = element.asJsonObjectOrNull() ?: return null
     val localRegionId = obj.stringOrNull("localRegionId") ?: obj.stringOrNull("id").orEmpty()
+    val kind = parseLocalRegionTranslationKind(obj.stringOrNull("kind"))
     val translatedLines = obj.jsonArrayOrNull("translatedLines")
         ?.mapNotNull { it.asStringOrNull() }
         ?.filter { it.isNotBlank() }
@@ -1987,13 +2007,37 @@ private fun parseLocalRegionTranslationElement(element: JsonElement): AiLocalReg
             ?.takeIf { it.isNotBlank() }
             ?.let { listOf(it) }
         ?: emptyList()
+    val sourceText = obj.stringOrNull("sourceText")
+        ?: obj.jsonArrayOrNull("sourceText")
+            ?.mapNotNull { it.asStringOrNull() }
+            ?.filter { it.isNotBlank() }
+            ?.joinToString("\n")
+        ?: ""
     return AiLocalRegionTranslation(
         localRegionId = localRegionId,
-        sourceText = obj.stringOrNull("sourceText").orEmpty(),
+        sourceText = sourceText,
         translatedLines = translatedLines,
-        kind = parseLocalRegionTranslationKind(obj.stringOrNull("kind")),
+        kind = kind,
+        regionOrdinal = obj.intOrNull("regionOrdinal"),
+        status = parseLocalRegionTranslationStatus(
+            value = obj.stringOrNull("status"),
+            translatedLines = translatedLines
+        ),
         detectedSourceLanguage = normalizeAiSourceLanguageTag(obj.stringOrNull("detectedSourceLanguage"))
     )
+}
+
+private fun parseLocalRegionTranslationStatus(
+        value: String?,
+    translatedLines: List<String>
+): AiTranslationRegionStatus = when (value?.uppercase()) {
+    "SKIPPED", "SKIPPED_SFX", "SKIPPED_NON_TEXT" -> AiTranslationRegionStatus.SKIPPED
+    "TRANSLATED", "DONE" -> AiTranslationRegionStatus.DONE
+    else -> if (translatedLines.any { it.isNotBlank() }) {
+        AiTranslationRegionStatus.DONE
+    } else {
+        AiTranslationRegionStatus.SKIPPED
+    }
 }
 
 internal fun isEligibleAiSourceLanguageEvidence(translation: AiLocalRegionTranslation): Boolean =
@@ -2135,17 +2179,17 @@ private fun mergeTranslatedPageFragments(
     val orderedBlocks = localContext.regions.map { region ->
         val current = blocksByRegion[region.id] ?: localDetectionPlaceholderBlock(region)
         when (status) {
-            AiTranslationPageStatus.DONE -> if (current.regionStatus == AiTranslationRegionStatus.DONE) {
+            AiTranslationPageStatus.DONE -> if (current.regionStatus.isTerminal()) {
                 current
             } else {
-                localDetectionPlaceholderBlock(region, AiTranslationRegionStatus.DONE)
+                localDetectionPlaceholderBlock(region, AiTranslationRegionStatus.PENDING)
             }
-            AiTranslationPageStatus.FAILED -> if (current.regionStatus == AiTranslationRegionStatus.DONE) {
+            AiTranslationPageStatus.FAILED -> if (current.regionStatus.isTerminal()) {
                 current
             } else {
                 current.copy(regionStatus = AiTranslationRegionStatus.FAILED)
             }
-            AiTranslationPageStatus.PENDING -> if (current.regionStatus == AiTranslationRegionStatus.DONE) {
+            AiTranslationPageStatus.PENDING -> if (current.regionStatus.isTerminal()) {
                 current
             } else {
                 current.copy(regionStatus = AiTranslationRegionStatus.PENDING)
@@ -2154,9 +2198,16 @@ private fun mergeTranslatedPageFragments(
         }
     }.suppressDuplicateRenderedTranslations()
     if (orderedBlocks.isEmpty()) return null
+    val effectiveStatus = if (
+        status == AiTranslationPageStatus.DONE && orderedBlocks.any { !it.regionStatus.isTerminal() }
+    ) {
+        AiTranslationPageStatus.PENDING
+    } else {
+        status
+    }
     return AiTranslatedPage(
         pageIndex = localContext.pageIndex,
-        status = status,
+        status = effectiveStatus,
         updatedAt = System.currentTimeMillis(),
         imageWidth = localContext.imageWidth,
         imageHeight = localContext.imageHeight,
@@ -2200,7 +2251,8 @@ private class AiRegionImageInputProvider(
     private val file: File,
     private val pageIndex: Int,
     private val imageTransport: AiImageTransport,
-    private val s3Uploader: AiS3ImageUploader?
+    private val s3Uploader: AiS3ImageUploader?,
+    private val sourceTextProfile: AiSourceTextProfile
 ) : AutoCloseable {
     private val decoderMutex = Mutex()
     private val bounds = BitmapFactory.Options().apply {
@@ -2211,22 +2263,23 @@ private class AiRegionImageInputProvider(
 
     suspend fun build(regions: List<AiTranslationLocalTextRegion>): List<AiTranslationImageInput> {
         if (regions.isEmpty() || bounds.outWidth <= 0 || bounds.outHeight <= 0) return emptyList()
-        return regions.mapNotNull { region ->
+        return regions.mapIndexedNotNull { regionOrdinal, region ->
             yield()
             val cropRect = region.effectiveAiCropBounds().toAiCropRect(bounds.outWidth, bounds.outHeight)
-                ?: return@mapNotNull null
-            val cropCacheKey = aiRegionCropCacheKey(file, cropRect)
+                ?: return@mapIndexedNotNull null
+            val cropCacheKey = aiRegionCropCacheKey(file, cropRect, sourceTextProfile)
             val bytes = store.readRegionCrop(bookId, pageIndex, region.id, cropCacheKey)
                 ?: decoderMutex.withLock {
                     store.readRegionCrop(bookId, pageIndex, region.id, cropCacheKey)
                         ?: decodeAndCacheRegion(region, cropRect, cropCacheKey)
                 }
-                ?: return@mapNotNull null
+                ?: return@mapIndexedNotNull null
             imageInputFromBytes(
                 bytes = bytes,
                 pageIndex = pageIndex,
                 mimeType = "image/jpeg",
                 localRegionId = region.id,
+                regionOrdinal = regionOrdinal,
                 objectKey = s3Uploader?.objectKey(bookId, pageIndex, region.id, "jpg"),
                 imageTransport = imageTransport,
                 s3Uploader = s3Uploader
@@ -2246,7 +2299,7 @@ private class AiRegionImageInputProvider(
             cropRect,
             BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }
         ) ?: return null
-        return compressTextRegionCropBitmap(bitmap).also { compressed ->
+        return compressTextRegionCropBitmap(bitmap, sourceTextProfile).also { compressed ->
             store.saveRegionCrop(bookId, pageIndex, region.id, cropCacheKey, compressed)
         }
     }
@@ -2264,10 +2317,11 @@ private fun imageInputFromBytes(
     localRegionId: String,
     objectKey: String?,
     imageTransport: AiImageTransport,
-    s3Uploader: AiS3ImageUploader?
+    s3Uploader: AiS3ImageUploader?,
+    regionOrdinal: Int? = null
 ): AiTranslationImageInput {
     if (imageTransport == AiImageTransport.BASE64) {
-        return fallbackBase64Input(bytes, pageIndex, mimeType, localRegionId)
+        return fallbackBase64Input(bytes, pageIndex, mimeType, localRegionId, regionOrdinal)
     }
     val uploader = s3Uploader ?: error("Image URL transport requires complete S3 image URL settings.")
     val key = objectKey ?: error("Image URL transport requires an S3 object key.")
@@ -2282,6 +2336,7 @@ private fun imageInputFromBytes(
         base64 = "",
         imageUrl = imageUrl,
         localRegionId = localRegionId,
+        regionOrdinal = regionOrdinal,
         fallbackBase64 = Base64.getEncoder().encodeToString(bytes)
     )
 }
@@ -2295,14 +2350,16 @@ private fun fallbackBase64Input(
     bytes: ByteArray,
     pageIndex: Int,
     mimeType: String,
-    localRegionId: String = ""
+    localRegionId: String = "",
+    regionOrdinal: Int? = null
 ): AiTranslationImageInput = AiTranslationImageInput(
     pageIndex = pageIndex,
     transport = AiImageTransport.BASE64,
     mimeType = mimeType,
     base64 = Base64.getEncoder().encodeToString(bytes),
     imageUrl = "",
-    localRegionId = localRegionId
+    localRegionId = localRegionId,
+    regionOrdinal = regionOrdinal
 )
 
 private fun AiTranslationRect.toAiCropRect(imageWidth: Int, imageHeight: Int): Rect? {
@@ -2323,11 +2380,18 @@ private fun AiTranslationRect.toAiCropRect(imageWidth: Int, imageHeight: Int): R
     )
 }
 
-private fun compressTextRegionCropBitmap(bitmap: Bitmap): ByteArray {
-    val scaled = bitmap.scaledForAiTextRegionCrop()
+private fun compressTextRegionCropBitmap(
+    bitmap: Bitmap,
+    sourceTextProfile: AiSourceTextProfile
+): ByteArray {
+    val scaled = bitmap.scaledForAiTextRegionCrop(sourceTextProfile)
     return try {
         ByteArrayOutputStream().use { output ->
-            scaled.compress(Bitmap.CompressFormat.JPEG, AI_REGION_CROP_JPEG_QUALITY, output)
+            scaled.compress(
+                Bitmap.CompressFormat.JPEG,
+                aiRegionCropJpegQuality(sourceTextProfile),
+                output
+            )
             output.toByteArray()
         }
     } finally {
@@ -2336,11 +2400,11 @@ private fun compressTextRegionCropBitmap(bitmap: Bitmap): ByteArray {
     }
 }
 
-private fun Bitmap.scaledForAiTextRegionCrop(): Bitmap {
+private fun Bitmap.scaledForAiTextRegionCrop(sourceTextProfile: AiSourceTextProfile): Bitmap {
     val longest = max(width, height).coerceAtLeast(1)
     val shortest = min(width, height).coerceAtLeast(1)
-    val minScale = AI_REGION_CROP_MIN_SHORT_EDGE / shortest.toFloat()
-    val maxScale = AI_REGION_CROP_MAX_LONG_EDGE / longest.toFloat()
+    val minScale = aiRegionCropMinShortEdge(sourceTextProfile) / shortest.toFloat()
+    val maxScale = aiRegionCropMaxLongEdge(sourceTextProfile) / longest.toFloat()
     val scale = min(max(minScale, 1f), maxScale).coerceIn(0.25f, 4f)
     if (scale in 0.98f..1.02f) return this
     return Bitmap.createScaledBitmap(
@@ -2351,7 +2415,8 @@ private fun Bitmap.scaledForAiTextRegionCrop(): Bitmap {
     )
 }
 
-internal fun regionImagesPerRequest(settings: AiSettings): Int = 1
+internal fun regionImagesPerRequest(settings: AiSettings): Int =
+    settings.maxImagesPerRequest.coerceIn(1, 80)
 
 internal fun aiTranslationRetryDelayMs(
     failure: AiTranslationRequestResult.Failure,
@@ -2453,17 +2518,33 @@ private fun aiLocalContextCacheKey(
 private fun aiTranslationTimingKey(bookId: String, pageIndex: Int): String =
     "$bookId:$pageIndex"
 
-private fun aiRegionCropCacheKey(file: File, rect: Rect): String =
+private fun aiRegionCropCacheKey(
+    file: File,
+    rect: Rect,
+    sourceTextProfile: AiSourceTextProfile
+): String =
     listOf(
-        "region-v2",
+        "region-v3",
         file.length(),
         file.lastModified(),
         rect.left,
         rect.top,
         rect.right,
         rect.bottom,
-        AI_REGION_CROP_JPEG_QUALITY
+        sourceTextProfile.storedValue,
+        aiRegionCropJpegQuality(sourceTextProfile),
+        aiRegionCropMinShortEdge(sourceTextProfile),
+        aiRegionCropMaxLongEdge(sourceTextProfile)
     ).joinToString(":")
+
+private fun aiRegionCropJpegQuality(sourceTextProfile: AiSourceTextProfile): Int =
+    if (sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON) 92 else 88
+
+private fun aiRegionCropMinShortEdge(sourceTextProfile: AiSourceTextProfile): Int =
+    if (sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON) 224 else 180
+
+private fun aiRegionCropMaxLongEdge(sourceTextProfile: AiSourceTextProfile): Int =
+    if (sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON) 1152 else 1024
 
 private fun localRegionReadingOrder(
     readingDirection: AiSourceReadingDirection = AiSourceReadingDirection.UNKNOWN
@@ -2480,12 +2561,9 @@ private fun localRegionReadingOrder(
 
 private const val AI_IMAGE_JPEG_QUALITY = 82
 private const val AI_PAGE_CONTEXT_JPEG_QUALITY = 75
-private const val AI_REGION_CROP_JPEG_QUALITY = 88
 private const val AI_REGION_CROP_PADDING_RATIO = 0.08f
 private const val AI_REGION_CROP_MIN_PADDING_PX = 2
 private const val AI_REGION_CROP_MAX_PADDING_PX = 48
-private const val AI_REGION_CROP_MIN_SHORT_EDGE = 180
-private const val AI_REGION_CROP_MAX_LONG_EDGE = 1024
 private const val AI_TIMING_PAGE_IMAGE_CACHE = "page_image_cache"
 private const val AI_TIMING_LOCAL_DETECTION_CACHE = "local_detection_cache"
 private const val AI_TIMING_PAGE_IMAGE_INPUT = "page_image_input"
