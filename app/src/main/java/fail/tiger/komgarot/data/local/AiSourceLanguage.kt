@@ -46,6 +46,7 @@ data class AiSeriesSourceLanguageState(
     val sourceTextProfile: AiSourceTextProfile
         get() = when (normalizedCode.substringBefore('-')) {
             "ja" -> AiSourceTextProfile.JAPANESE_MANGA
+            "ko" -> AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON
             "" -> AiSourceTextProfile.AUTO
             else -> AiSourceTextProfile.HORIZONTAL_COMIC
         }

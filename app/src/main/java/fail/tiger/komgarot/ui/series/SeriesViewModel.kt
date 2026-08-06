@@ -60,6 +60,7 @@ class SeriesViewModel(
     val hasMore: Boolean get() = paging.hasMore
     val loading: Boolean get() = paging.loading
     val error: String? get() = paging.error
+    val hasLoadedOnce: Boolean get() = paging.hasLoadedOnce
     var searchQuery by mutableStateOf("")
     var searchByAuthor by mutableStateOf(false)
     var currentSort by mutableStateOf(sortStore.load())
@@ -186,6 +187,15 @@ class SeriesViewModel(
             oneShotTitleOverrides.remove(it.id)
         }
         requestOneShotTitles(currentOneShots)
+    }
+
+    fun resumeAfterBackground() {
+        if (series.isEmpty() && !hasLoadedOnce) {
+            resetPaging()
+            loadMore()
+        } else {
+            refreshVisibleOneShotTitles()
+        }
     }
 
     private fun resetPaging() {

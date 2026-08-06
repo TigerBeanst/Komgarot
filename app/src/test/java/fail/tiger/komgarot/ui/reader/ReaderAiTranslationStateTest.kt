@@ -628,7 +628,10 @@ class ReaderAiTranslationStateTest {
             AiTranslatedPage(
                 pageIndex = 3,
                 status = AiTranslationPageStatus.DONE,
-                blocks = listOf(AiTranslationBlock(localRegionId = "p3-r1", regionStatus = AiTranslationRegionStatus.DONE))
+                blocks = listOf(
+                    AiTranslationBlock(localRegionId = "p3-r1", regionStatus = AiTranslationRegionStatus.DONE),
+                    AiTranslationBlock(localRegionId = "p3-r2", regionStatus = AiTranslationRegionStatus.SKIPPED)
+                )
             ),
             AiTranslatedPage(
                 pageIndex = 4,
@@ -662,6 +665,7 @@ class ReaderAiTranslationStateTest {
         assertEquals(1, status.failedPages)
         assertEquals(1, status.pausedPages)
         assertEquals(3, status.completedRegions)
+        assertEquals(1, status.skippedRegions)
         assertEquals(2, status.runningRegions)
         assertEquals(1, status.failedRegions)
         assertEquals(1, status.pausedRegions)

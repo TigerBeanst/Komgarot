@@ -86,7 +86,7 @@ class AiTranslationRepositoryStructureTest {
 
         assertTrue(resumeSource.contains("translatePages("))
         assertTrue(!resumeSource.contains("deletePageTranslation("))
-        assertTrue(source.contains("initialBlocksByRegion[region.id]?.regionStatus != AiTranslationRegionStatus.DONE"))
+        assertTrue(source.contains("initialBlocksByRegion[region.id]?.regionStatus?.isTerminal() != true"))
         assertTrue(source.contains("val regionChunks = remainingRegions.chunked(regionImagesPerRequest(settings))"))
     }
 
@@ -219,7 +219,7 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("readRegionCrop("))
         assertTrue(source.contains("saveRegionCrop("))
         assertTrue(source.contains("aiRegionCropCacheKey("))
-        assertTrue(source.contains("\"region-v2\""))
+        assertTrue(source.contains("\"region-v3\""))
     }
 
     @Test
@@ -428,15 +428,15 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
-    fun emptyChunkTranslationCompletesRegionWithoutVisibleText() {
+    fun incompleteChunkTranslationIsRejectedForRetry() {
         val chunkStart = source.indexOf("private suspend fun translatePreparedRegionChunk(")
         val chunkEnd = source.indexOf("private suspend fun translateRegionChunkImages(", chunkStart)
         assertTrue(chunkStart >= 0)
         assertTrue(chunkEnd > chunkStart)
         val chunkSource = source.substring(chunkStart, chunkEnd)
 
-        assertTrue(chunkSource.contains("pageFragment ?: emptyTranslatedRegionPage(chunkContext, runMode)"))
-        assertFalse(chunkSource.contains("AI response did not bind a translation to region="))
+        assertTrue(chunkSource.contains("pageFragment?.let(PreparedRegionChunkResult::Success)"))
+        assertTrue(chunkSource.contains("AI response did not bind a translation item to page="))
         assertTrue(source.contains("if (chunkResult is PreparedRegionChunkResult.Success)"))
         assertTrue(source.contains("chunkResults.filterIsInstance<PreparedRegionChunkResult.Failed>()"))
         assertTrue(source.contains("requestControl.stop(chunkResult)"))
@@ -766,7 +766,7 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
-    fun localRegionChunksUseOneRegionImagePerAiRequestForAllProfiles() {
+    fun localRegionChunksUseConfiguredBubbleBatchSizeForAllProfiles() {
         val japaneseSettings = AiSettings.defaults().copy(
             sourceTextProfile = AiSourceTextProfile.JAPANESE_MANGA,
             maxImagesPerRequest = 20
@@ -775,10 +775,12 @@ class AiTranslationRepositoryStructureTest {
         val horizontalSettings = japaneseSettings.copy(sourceTextProfile = AiSourceTextProfile.HORIZONTAL_COMIC)
         val autoSettings = japaneseSettings.copy(sourceTextProfile = AiSourceTextProfile.AUTO)
 
-        assertEquals(1, regionImagesPerRequest(japaneseSettings))
-        assertEquals(1, regionImagesPerRequest(koreanSettings))
-        assertEquals(1, regionImagesPerRequest(horizontalSettings))
-        assertEquals(1, regionImagesPerRequest(autoSettings))
+        assertEquals(20, regionImagesPerRequest(japaneseSettings))
+        assertEquals(20, regionImagesPerRequest(koreanSettings))
+        assertEquals(20, regionImagesPerRequest(horizontalSettings))
+        assertEquals(20, regionImagesPerRequest(autoSettings))
+        assertEquals(1, regionImagesPerRequest(japaneseSettings.copy(maxImagesPerRequest = 1)))
+        assertEquals(4, regionImagesPerRequest(japaneseSettings.copy(maxImagesPerRequest = 4)))
     }
 
     @Test
@@ -1171,6 +1173,66 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
+    fun batchedResponseUsesLocalRegionOrdinalForLocalPlacement() {
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 3,
+            imageWidth = 1200,
+            imageHeight = 1800,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p3-r1",
+                    rect = AiTranslationRect(x = 0.10f, y = 0.20f, width = 0.12f, height = 0.18f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.91f,
+                    estimatedFontScale = 0.96f
+                ),
+                AiTranslationLocalTextRegion(
+                    id = "p3-r2",
+                    rect = AiTranslationRect(x = 0.60f, y = 0.40f, width = 0.18f, height = 0.10f),
+                    textDirection = AiTranslationTextDirection.HORIZONTAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.89f,
+                    estimatedFontScale = 1.02f
+                )
+            )
+        )
+        val json = """
+            {
+              "pageIndex": 3,
+              "translations": [
+                {
+                  "regionOrdinal": 1,
+                  "sourceText": "Second source",
+                  "translatedLines": ["第二处译文"],
+                  "kind": "dialogue"
+                },
+                {
+                  "regionOrdinal": 0,
+                  "sourceText": "First source",
+                  "translatedLines": ["第一处译文"],
+                  "kind": "dialogue"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val page = translatedPagesFromLocalRegionResponse(
+            normalizedJson = json,
+            fallbackPageIndexes = listOf(3),
+            localPageContexts = listOf(context),
+            mode = AiTranslationMode.LOCAL_DETECTION
+        ).single()
+
+        assertEquals(listOf("p3-r1", "p3-r2"), page.blocks.map { it.localRegionId })
+        assertEquals(listOf("第一处译文", "第二处译文"), page.blocks.map { it.translatedLines.single() })
+        assertEquals(context.regions[0].effectiveSourceMaskBounds(), page.blocks[0].rect)
+        assertEquals(context.regions[1].effectiveSourceMaskBounds(), page.blocks[1].rect)
+    }
+
+    @Test
     fun emptyRegionTranslationMarksLocalRegionDoneWithoutRenderedText() {
         val context = AiTranslationLocalPageContext(
             pageIndex = 3,
@@ -1381,6 +1443,8 @@ class AiTranslationRepositoryStructureTest {
             mode = AiTranslationMode.LOCAL_DETECTION
         )
 
-        assertTrue(pages.isEmpty())
+        assertEquals(1, pages.size)
+        assertEquals(AiTranslationRegionStatus.SKIPPED, pages.single().blocks.single().regionStatus)
+        assertTrue(pages.single().blocks.single().translatedLines.isEmpty())
     }
 }

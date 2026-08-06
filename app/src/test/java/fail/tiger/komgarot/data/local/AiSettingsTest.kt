@@ -61,9 +61,9 @@ class AiSettingsTest {
     }
 
     @Test
-    fun maxImagesPerRequestKeepsRoomForPageContextAndOneCrop() {
-        assertEquals(2, AiSettings.normalizeMaxImagesPerRequest(-3))
-        assertEquals(2, AiSettings.normalizeMaxImagesPerRequest(1))
+    fun maxImagesPerRequestControlsBubbleBatchSize() {
+        assertEquals(1, AiSettings.normalizeMaxImagesPerRequest(-3))
+        assertEquals(1, AiSettings.normalizeMaxImagesPerRequest(1))
         assertEquals(20, AiSettings.normalizeMaxImagesPerRequest(20))
         assertEquals(80, AiSettings.normalizeMaxImagesPerRequest(80))
     }

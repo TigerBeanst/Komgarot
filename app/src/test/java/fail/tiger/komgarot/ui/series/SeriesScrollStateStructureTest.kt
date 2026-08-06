@@ -16,4 +16,12 @@ class SeriesScrollStateStructureTest {
         assertTrue(screenSource.contains("listState.scrollToItem(position.index, position.offset)"))
         assertTrue(screenSource.contains("vm.updateScrollPosition(index, offset)"))
     }
+
+    @Test
+    fun seriesResumeRestartsInterruptedInitialLoad() {
+        assertTrue(screenSource.contains("vm.resumeAfterBackground()"))
+        assertTrue(viewModelSource.contains("series.isEmpty() && !hasLoadedOnce"))
+        assertTrue(viewModelSource.contains("resetPaging()\n            loadMore()"))
+        assertTrue(viewModelSource.contains("refreshVisibleOneShotTitles()"))
+    }
 }

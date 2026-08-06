@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.data.remote
 
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import fail.tiger.komgarot.data.local.AiSeriesSourceLanguageState
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
@@ -9,6 +10,7 @@ import fail.tiger.komgarot.data.local.AiSourceReadingDirection
 import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
+import fail.tiger.komgarot.data.local.AiGlossaryEntry
 import java.util.Locale
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -45,24 +47,25 @@ data class AiTranslationRegionLayoutHints(
 
 fun aiTranslationSystemPrompt(skipSoundEffects: Boolean = false): String = """
 You are a manga translation engine.
-Each request translates exactly one current text-region crop image.
+Each request translates the current text-region crop images in their supplied order.
 Page context images provide scene, speaker, tone, setting, and action context. Use page context for meaning.
 The page context images are supporting context for the current crop.
 The crop image is the only readable source text. Read the full crop as one coherent unit before translating.
 Return only:
-{"pageIndex":number,"translations":[{"sourceText":string|string[],"translatedLines":string[],"kind":"dialogue"|"narration"|"sign"|"SFX","detectedSourceLanguage":string}]}
-Return no localRegionId, id, rect, coordinates, placement, color, or font data.
+{"pageIndex":number,"translations":[{"regionOrdinal":number,"sourceText":string|string[],"translatedLines":string[],"kind":"dialogue"|"narration"|"sign"|"SFX","status":"translated"|"skipped_sfx"|"skipped_non_text","detectedSourceLanguage":string}]}
+Return regionOrdinal for every crop. Coordinates, placement, mask, color, and font data are owned by the app and stay out of the response.
+Return one translation item for every crop, including skipped crops.
 Classify the crop as dialogue, narration, sign, or SFX.
 ${if (skipSoundEffects) {
-    """If the crop is a sound effect or onomatopoeia, return pageIndex with translations as an empty array.
-Do not translate sound effects or onomatopoeia."""
+    """Short calls, interjections, greetings, and spoken fragments remain dialogue even when they are visually isolated or contain only a few characters.
+If the crop is a visual sound effect or onomatopoeia, return kind: "SFX", status: "skipped_sfx", sourceText, and translatedLines: []."""
 } else {
     """If the crop is dominated by a sound effect, return kind: "SFX".
 SFX translatedLines must stay very short and contain only the sound-effect translation."""
 }}
 If the crop contains dialogue or sign text plus nearby sound effects, translate the main crop text and omit surrounding sound effects.
-If the crop is decorative noise, return sourceText and translatedLines as an empty array.
-If the crop is a pure number such as a page number, chapter number, score, price, or standalone numeric label, return sourceText and translatedLines as an empty array.
+If the crop is decorative noise, return status: "skipped_non_text", sourceText, and translatedLines: [].
+If the crop is a pure number such as a page number, chapter number, score, price, or standalone numeric label, return status: "skipped_non_text", sourceText, and translatedLines: [].
 Translate dialogue balloons, narration boxes, signs, and important in-image text in a natural manga style.
 Keep character voice, pauses, shouting, hesitation, short punchy lines, and comic timing.
 Use the supplied targetLocale and targetLanguageName as the translation language.
@@ -87,13 +90,16 @@ fun aiTranslationUserPrompt(
     customInstructions: String,
     skipSoundEffects: Boolean = false,
     sourceTextProfile: AiSourceTextProfile = AiSourceTextProfile.AUTO,
-    sourceLanguage: AiSeriesSourceLanguageState? = null
+    sourceLanguage: AiSeriesSourceLanguageState? = null,
+    glossary: List<AiGlossaryEntry> = emptyList()
 ): String = buildString {
     appendLine("bookId: $bookId")
     appendLine("targetLocale: $targetLocale")
     appendLine("targetLanguageName: $targetLanguageName")
     appendLine("sourceMode: ${translationMode.storedValue}")
-    val effectiveSourceTextProfile = sourceLanguage?.sourceTextProfile ?: sourceTextProfile
+    val effectiveSourceTextProfile = sourceLanguage?.sourceTextProfile
+        ?.takeUnless { it == AiSourceTextProfile.AUTO }
+        ?: sourceTextProfile
     appendSourceLanguageIfPresent(sourceLanguage)
     appendSourceTextProfileIfNeeded(effectiveSourceTextProfile)
     if (localPageContexts.isNotEmpty()) {
@@ -101,18 +107,30 @@ fun aiTranslationUserPrompt(
         appendLine(localContextGson.toJson(localPageContexts.toPromptCurrentRegionJson(effectiveSourceTextProfile)))
         appendLine("Translate the current crop.")
         appendLine("Image 1: context")
-        appendLine("Image 2: crop")
+        appendLine("Images 2-${localPageContexts.first().regions.size + 1}: crop images in regionOrdinal order")
         appendLine("Use page context for scene, speaker, tone, and action.")
         appendLine("Read sourceText from the crop image.")
-        if (sourceLanguage == null && sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON) {
-            appendLine("Korean horizontal webtoon source profile: read Korean text left-to-right within each line and top-to-bottom across lines.")
-            appendLine("Preserve Korean spaces in sourceText, including spacing around names, particles, and short spoken fragments.")
+        appendLine("Use regionOrdinal to associate each response item with the corresponding crop. Keep all regionOrdinal values in request order.")
+        if (effectiveSourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON) {
+            appendLine("Korean horizontal webtoon source profile: read Hangul text left-to-right within each line and top-to-bottom across lines.")
+            appendLine("Keep each Hangul syllable block intact and preserve Korean word spaces, particles, endings, names, honorifics, mixed Hanja, Latin text, and digits in sourceText.")
+            appendLine("Use the complete crop to recover small Hangul strokes and distinguish adjacent syllable blocks before translating.")
         }
     }
     if (skipSoundEffects) {
         appendLine("skipSoundEffects: true")
-        appendLine("Skip SFX and onomatopoeia. Return the current pageIndex with translations: [] for those crops.")
+        appendLine("Skip visual SFX and onomatopoeia while retaining one skipped_sfx response item for each crop.")
     }
+    glossary.filter { it.source.isNotBlank() && it.target.isNotBlank() }
+        .take(32)
+        .takeIf { it.isNotEmpty() }
+        ?.let { entries ->
+            appendLine("Glossary:")
+            entries.forEach { entry ->
+                appendLine("- ${entry.source} => ${entry.target}${entry.note.takeIf { it.isNotBlank() }?.let { note -> " ($note)" }.orEmpty()}")
+            }
+            appendLine("Keep glossary source terms and targets consistent across the current page.")
+        }
     if (customInstructions.isNotBlank()) {
         appendLine("Additional user instructions:")
         appendLine(customInstructions)
@@ -153,8 +171,8 @@ private fun StringBuilder.appendKnownSourceLanguageInstructions(normalizedCode: 
             appendLine("Preserve Japanese corner quotes 「」 and nested corner quotes 『』 when they carry source style or emphasis.")
         }
         "ko" -> {
-            appendLine("Korean source: read each line left-to-right and lines top-to-bottom.")
-            appendLine("Preserve Korean word spacing, names, particles, honorifics, and short spoken fragments in sourceText.")
+            appendLine("Korean source: read Hangul syllable blocks left-to-right within each line and lines top-to-bottom.")
+            appendLine("Preserve Korean word spaces, particles, endings, names, honorifics, mixed Hanja, Latin text, digits, and short spoken fragments in sourceText.")
         }
         "en" -> appendLine("English source: preserve capitalization, contractions, slang, emphasis, and short comic timing.")
         "zh" -> appendLine("Chinese source: preserve the visible script, names, punctuation, and concise comic phrasing.")
@@ -176,6 +194,16 @@ private fun List<AiTranslationLocalPageContext>.toPromptCurrentRegionJson(
     val region = page?.regions?.firstOrNull()
     if (page != null) {
         addProperty("pageIndex", page.pageIndex)
+        addProperty("regionCount", page.regions.size)
+        add("regions", JsonArray().apply {
+            page.regions.forEachIndexed { index, region ->
+                add(JsonObject().apply {
+                    addProperty("regionOrdinal", index)
+                    addProperty("textDirection", region.textDirection.toPromptValue())
+                    add("layoutHints", aiTranslationRegionLayoutHints(page.imageWidth, page.imageHeight, region).toCompactPromptJson(region.textDirection))
+                })
+            }
+        })
     }
     if (sourceTextProfile != AiSourceTextProfile.AUTO) {
         addProperty("sourceTextProfile", sourceTextProfile.storedValue)

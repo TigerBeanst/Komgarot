@@ -29,6 +29,7 @@ data class AiTranslationImageInput(
     val base64: String,
     val imageUrl: String,
     val localRegionId: String = "",
+    val regionOrdinal: Int? = null,
     val fallbackBase64: String = base64
 ) {
     fun toOpenAiImageUrl(): String =
@@ -47,7 +48,8 @@ data class AiTranslationImageInput(
     fun metadataText(): String = if (localRegionId.isBlank()) {
         "Image 1: context; page=$pageIndex"
     } else {
-        "Image 2: crop; page=$pageIndex"
+        val ordinal = regionOrdinal ?: 0
+        "Image ${ordinal + 2}: crop; page=$pageIndex; regionOrdinal=$ordinal"
     }
 }
 

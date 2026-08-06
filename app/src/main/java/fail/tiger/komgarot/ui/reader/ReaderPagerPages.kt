@@ -75,6 +75,13 @@ fun ReaderPagerPage.readerPagerStableKey(splitOrder: LandscapePageSplitOrder): S
     is ReaderPagerPage.Trigger -> "trigger:${direction.name.lowercase()}:${target.id}"
 }
 
+fun List<ReaderPagerPage>.readerPagerStableKeyAt(
+    pagerIndex: Int,
+    splitOrder: LandscapePageSplitOrder
+): String = getOrNull(pagerIndex)
+    ?.readerPagerStableKey(splitOrder)
+    ?: "stale:$pagerIndex"
+
 fun readerPagerNeedsProgressSync(
     currentPagerPage: ReaderPagerPage?,
     actualPageIndex: Int

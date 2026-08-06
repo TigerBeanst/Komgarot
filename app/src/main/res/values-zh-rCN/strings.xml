@@ -253,9 +253,10 @@
     <string name="settings_ai_section_image_transport">图片传输</string>
     <string name="settings_ai_section_local_model">本地模型</string>
     <string name="settings_ai_section_data">数据</string>
-    <string name="settings_ai_local_detection_pipeline_desc">本地模型负责文本区域和位置，远端视觉模型读取每个区域截图并结合整页语境翻译。</string>
+    <string name="settings_ai_local_detection_pipeline_desc">本地模型负责文本区域、涂抹范围和译文位置；远端视觉模型负责读取每个区域、判断类别并结合整页语境翻译。</string>
     <string name="settings_ai_pages_per_request">每次请求页数</string>
-    <string name="settings_ai_max_images_per_request">单次 AI 请求图片数</string>
+    <string name="settings_ai_max_images_per_request">单次 AI 请求气泡数</string>
+    <string name="settings_ai_max_images_per_request_value">%1$d 个气泡；设置为 1 时逐个请求</string>
     <string name="settings_ai_request_mode">AI 请求方式</string>
     <string name="settings_ai_request_mode_serial">串行</string>
     <string name="settings_ai_request_mode_parallel">并发</string>

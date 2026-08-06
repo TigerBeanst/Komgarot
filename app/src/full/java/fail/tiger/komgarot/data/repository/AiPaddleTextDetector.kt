@@ -8,6 +8,7 @@ import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import fail.tiger.komgarot.data.local.AiSettings
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
+import fail.tiger.komgarot.data.local.usesHorizontalComicRules
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
@@ -479,7 +480,7 @@ internal fun paddleDbPostProcessParameters(
     return when {
         language == "ja" || sourceTextProfile == AiSourceTextProfile.JAPANESE_MANGA ->
             PaddleDbPostProcessParameters(0.27f, 0.49f, 1.24f, 5)
-        language == "ko" ->
+        language == "ko" || sourceTextProfile == AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON ->
             PaddleDbPostProcessParameters(0.29f, 0.52f, 1.18f, 6)
         language == "en" ->
             PaddleDbPostProcessParameters(0.32f, 0.56f, 1.12f, 6)
@@ -609,7 +610,7 @@ internal fun splitPaddleTextRectIntoInkTextLineRects(
     val verticalClusters = components.toPaddleVerticalInkLineClusters()
     val horizontalClusters = components.toPaddleHorizontalInkLineClusters()
     val prefersVerticalInkLines =
-        sourceTextProfile != AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON &&
+        !sourceTextProfile.usesHorizontalComicRules() &&
             verticalClusters.size >= 2 &&
             verticalClusters.size >= horizontalClusters.size
     val direction = if (prefersVerticalInkLines) {

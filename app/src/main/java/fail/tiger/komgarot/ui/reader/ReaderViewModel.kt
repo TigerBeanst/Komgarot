@@ -19,6 +19,7 @@ import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationFailureCategory
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import fail.tiger.komgarot.data.local.AiTranslationRegionStatus
+import fail.tiger.komgarot.data.local.isTerminal
 import fail.tiger.komgarot.data.local.pausedForRegionResume
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.PageDto
@@ -886,6 +887,7 @@ data class ReaderAiTranslationWindowStatus(
     val failedPages: Int = 0,
     val pausedPages: Int = 0,
     val completedRegions: Int = 0,
+    val skippedRegions: Int = 0,
     val runningRegions: Int = 0,
     val failedRegions: Int = 0,
     val pausedRegions: Int = 0
@@ -904,6 +906,7 @@ internal fun readerAiTranslationWindowStatus(
     var runningRegions = 0
     var failedRegions = 0
     var pausedRegions = 0
+    var skippedRegions = 0
     pageIndexes.distinct().forEach { pageIndex ->
         val page = pagesByIndex[pageIndex]
         when (page?.status) {
@@ -915,6 +918,7 @@ internal fun readerAiTranslationWindowStatus(
         page?.blocks.orEmpty().forEach { block ->
             when (block.regionStatus) {
                 AiTranslationRegionStatus.DONE -> completedRegions += 1
+                AiTranslationRegionStatus.SKIPPED -> skippedRegions += 1
                 AiTranslationRegionStatus.RUNNING -> runningRegions += 1
                 AiTranslationRegionStatus.FAILED -> failedRegions += 1
                 AiTranslationRegionStatus.PENDING -> {
@@ -934,6 +938,7 @@ internal fun readerAiTranslationWindowStatus(
         failedPages = failedPages,
         pausedPages = pausedPages,
         completedRegions = completedRegions,
+        skippedRegions = skippedRegions,
         runningRegions = runningRegions,
         failedRegions = failedRegions,
         pausedRegions = pausedRegions
@@ -1043,12 +1048,12 @@ internal fun mergeAiTranslationPageUpdate(
     val existingDoneByRegion = existing
         ?.blocks
         .orEmpty()
-        .filter { it.localRegionId.isNotBlank() && it.regionStatus == AiTranslationRegionStatus.DONE }
+        .filter { it.localRegionId.isNotBlank() && it.regionStatus.isTerminal() }
         .associateBy { it.localRegionId }
     val incomingRegionIds = page.blocks.map { it.localRegionId }.toSet()
     val mergedPage = page.copy(
         blocks = page.blocks.map { incoming ->
-            if (incoming.regionStatus == AiTranslationRegionStatus.DONE) {
+            if (incoming.regionStatus.isTerminal()) {
                 incoming
             } else {
                 existingDoneByRegion[incoming.localRegionId] ?: incoming

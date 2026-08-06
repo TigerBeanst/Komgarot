@@ -186,11 +186,36 @@ internal fun selectLocalTextDetectionRegions(
     maxRegions: Int
 ): List<AiTranslationLocalTextRegion> {
     if (paddleRegions.isNotEmpty()) {
-        return mergeLocalTextRegionsIntoTextBoxes(paddleRegions, sourceTextProfile)
+        return mergeLocalTextRegionsIntoTextBoxes(
+            normalizeLocalTextDirectionsForProfile(paddleRegions, sourceTextProfile),
+            sourceTextProfile
+        )
             .take(maxRegions)
     }
-    return mergeLocalTextRegionsIntoTextBoxes(heuristicRegions(), sourceTextProfile)
+    return mergeLocalTextRegionsIntoTextBoxes(
+        normalizeLocalTextDirectionsForProfile(heuristicRegions(), sourceTextProfile),
+        sourceTextProfile
+    )
         .take(maxRegions)
+}
+
+internal fun normalizeLocalTextDirectionsForProfile(
+    regions: List<AiTranslationLocalTextRegion>,
+    sourceTextProfile: AiSourceTextProfile
+): List<AiTranslationLocalTextRegion> = if (sourceTextProfile.usesHorizontalComicRules()) {
+    regions.map { region ->
+        if (region.textDirection == AiTranslationTextDirection.HORIZONTAL && region.rotationDegrees == 0f) {
+            region
+        } else {
+            region.copy(
+                textDirection = AiTranslationTextDirection.HORIZONTAL,
+                rotationDegrees = 0f,
+                sourceColumns = emptyList()
+            )
+        }
+    }
+} else {
+    regions
 }
 
 private data class AiDetectionBitmap(
