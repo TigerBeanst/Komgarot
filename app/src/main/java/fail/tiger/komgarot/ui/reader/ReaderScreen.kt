@@ -1033,8 +1033,14 @@ private fun ReaderAiTranslationProgressControl(
 ) {
     val page = vm.currentAiTranslatedPage(vm.currentPage)
     val windowStatus = vm.currentAiTranslationWindowStatus(preloadPages)
-    val activePageNumbers = listOfNotNull(vm.aiTranslationPriorityPageIndex.takeIf { it >= 0 }?.plus(1))
     val pageRunning = page?.status == AiTranslationPageStatus.RUNNING
+    val activePageNumbers = listOfNotNull(
+        readerAiTranslationProgressPageIndex(
+            currentPage = vm.currentPage,
+            currentPageStatus = page?.status,
+            priorityPageIndex = vm.aiTranslationPriorityPageIndex
+        )?.plus(1)
+    )
     val running = pageRunning || windowStatus.runningPages > 0
     val failed = page?.status == AiTranslationPageStatus.FAILED
     val active = vm.currentAiTranslationDisplayMode == AiTranslationDisplayMode.ON

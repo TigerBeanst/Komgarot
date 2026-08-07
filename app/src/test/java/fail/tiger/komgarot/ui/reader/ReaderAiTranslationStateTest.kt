@@ -107,6 +107,37 @@ class ReaderAiTranslationStateTest {
     }
 
     @Test
+    fun runningCurrentPageWinsOverStalePriorityPageForProgressLabel() {
+        val screenSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+
+        assertEquals(
+            4,
+            readerAiTranslationProgressPageIndex(
+                currentPage = 4,
+                currentPageStatus = AiTranslationPageStatus.RUNNING,
+                priorityPageIndex = 5
+            )
+        )
+        assertEquals(
+            5,
+            readerAiTranslationProgressPageIndex(
+                currentPage = 4,
+                currentPageStatus = AiTranslationPageStatus.PENDING,
+                priorityPageIndex = 5
+            )
+        )
+        assertEquals(
+            null,
+            readerAiTranslationProgressPageIndex(
+                currentPage = 4,
+                currentPageStatus = AiTranslationPageStatus.PENDING,
+                priorityPageIndex = -1
+            )
+        )
+        assertTrue(screenSource.contains("readerAiTranslationProgressPageIndex("))
+    }
+
+    @Test
     fun runningPartialUpdateKeepsFinishedPageState() {
         val current = AiTranslatedBook(
             bookId = "book-1",
