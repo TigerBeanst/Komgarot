@@ -880,6 +880,16 @@ internal fun readerAiTranslationPageRange(currentPage: Int, pageCount: Int, prel
     return (start..end).toList()
 }
 
+internal fun readerAiTranslationProgressPageIndex(
+    currentPage: Int,
+    currentPageStatus: AiTranslationPageStatus?,
+    priorityPageIndex: Int
+): Int? = when {
+    currentPageStatus == AiTranslationPageStatus.RUNNING -> currentPage.takeIf { it >= 0 }
+    priorityPageIndex >= 0 -> priorityPageIndex
+    else -> null
+}
+
 data class ReaderAiTranslationWindowStatus(
     val totalPages: Int = 0,
     val completedPages: Int = 0,
