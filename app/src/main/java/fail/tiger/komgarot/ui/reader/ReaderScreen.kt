@@ -1366,7 +1366,7 @@ fun PagerReader(
                 val pageSegment = readerPage.segment
                 val zoomState = rememberZoomState(maxScale = 5f)
                 LaunchedEffect(actualPageIndex, pageSegment) { zoomState.reset() }
-                val pageUrl = vm.pageUrls[actualPageIndex]
+                val pageUrl = vm.pageUrls.getOrNull(actualPageIndex) ?: return@HorizontalPager
                 val pageRenderKey = readerPagePainterKey(pageUrl, pageSegment)
                 val pageInfo = vm.pageInfo(actualPageIndex)
                 val renderMode = if (pageSegment == ReaderPageSegment.FULL && pageInfo != null) {
