@@ -100,6 +100,8 @@ androidComponents {
         val releaseArtifactSuffix = if (edition == "lite") "_lite" else ""
         val outputMetadataFileName = "output-metadata$releaseArtifactSuffix.json"
         val baselineProfilesDirectoryName = "baselineProfiles$releaseArtifactSuffix"
+        val mappingFileName = "mapping$releaseArtifactSuffix.txt"
+        val mappingOutputDirectory = layout.buildDirectory.dir("outputs/mapping/$variantName")
         val releaseApkIncludePattern = if (edition == "lite") "Komgarot_lite_*.apk" else "Komgarot_*.apk"
         val releaseApkExcludePattern = if (edition == "lite") null else "Komgarot_lite_*.apk"
         val deleteExistingProjectReleaseArtifacts = tasks.register<Delete>("delete${capitalizedVariantName}ExistingProjectReleaseArtifacts") {
@@ -109,6 +111,7 @@ androidComponents {
             })
             delete(releaseDirectory.file(outputMetadataFileName))
             delete(releaseDirectory.dir(baselineProfilesDirectoryName))
+            delete(releaseDirectory.file(mappingFileName))
             delete(releaseDirectory.dir(requireNotNull(edition)))
         }
         copyReleaseArtifactsToProjectRelease.configure {
@@ -133,6 +136,11 @@ androidComponents {
             }
             from(layout.buildDirectory.dir("$apkOutputDirectory/baselineProfiles")) {
                 into(baselineProfilesDirectoryName)
+            }
+
+            from(mappingOutputDirectory) {
+                include("mapping.txt")
+                rename { mappingFileName }
             }
         }
         val deleteProjectFlavorReleaseDirectory = tasks.register<Delete>("delete${capitalizedVariantName}ProjectReleaseDirectory") {

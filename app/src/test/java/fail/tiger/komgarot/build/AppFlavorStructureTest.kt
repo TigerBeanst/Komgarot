@@ -77,4 +77,14 @@ class AppFlavorStructureTest {
         assertTrue(buildFile.contains("dependsOn(deleteExistingProjectReleaseArtifacts)"))
         assertTrue(buildFile.contains("finalizedBy(deleteProjectFlavorReleaseDirectory)"))
     }
+
+    @Test
+    fun releaseBuildsPublishVariantMappingFilesWithLiteSuffix() {
+        assertTrue(buildFile.contains("val mappingFileName = \"mapping${'$'}releaseArtifactSuffix.txt\""))
+        assertTrue(buildFile.contains("delete(releaseDirectory.file(mappingFileName))"))
+        assertTrue(buildFile.contains("val mappingOutputDirectory = layout.buildDirectory.dir(\"outputs/mapping/${'$'}variantName\")"))
+        assertTrue(buildFile.contains("from(mappingOutputDirectory)"))
+        assertTrue(buildFile.contains("include(\"mapping.txt\")"))
+        assertTrue(buildFile.contains("rename { mappingFileName }"))
+    }
 }
