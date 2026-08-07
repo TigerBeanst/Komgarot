@@ -211,6 +211,16 @@ class ReaderPageRequestsTest {
     }
 
     @Test
+    fun pagerSkipsActualPageWhenSourceUrlsShrinkDuringLayoutChange() {
+        val source = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderScreen.kt").readText()
+        val pagerContentStart = source.indexOf("when (val readerPage = pagerPages.getOrNull(page))")
+        val pagerContentEnd = source.indexOf("\n    longPressUrl?.let", pagerContentStart)
+        val pagerContent = source.substring(pagerContentStart, pagerContentEnd)
+
+        assertTrue(pagerContent.contains("vm.pageUrls.getOrNull(actualPageIndex) ?: return@HorizontalPager"))
+    }
+
+    @Test
     fun readerPreloadBudgetShrinksOnSmallHeaps() {
         assertEquals(2, readerMemoryAwarePreloadPages(requestedPreloadPages = 8, maxMemoryBytes = 192L * 1024L * 1024L))
         assertEquals(3, readerMemoryAwarePreloadPages(requestedPreloadPages = 8, maxMemoryBytes = 384L * 1024L * 1024L))
