@@ -1078,14 +1078,23 @@ class AiTranslationRepository(
     ): PreparedRegionChunkResult {
         requestControl.stoppingFailure()?.let { return it }
         awaitAiTranslationTaskResumed()
-        val regionImages = timedAiTranslationStep(preparedPage.timingRecorder, AI_TIMING_REGION_CROP_IMAGES) {
-            preparedPage.regionImageProvider.build(regionChunk)
+        val regionImageResult = timedAiTranslationStep(preparedPage.timingRecorder, AI_TIMING_REGION_CROP_IMAGES) {
+            buildAiTranslationRegionImagesSafely(
+                pageIndex = preparedPage.localContext.pageIndex,
+                expectedRegionCount = regionChunk.size
+            ) {
+                preparedPage.regionImageProvider.build(regionChunk)
+            }
         }
-        if (regionImages.size != regionChunk.size) {
-            return PreparedRegionChunkResult.Failed(
-                summary = "Failed to build text-region crop images for page=${preparedPage.localContext.pageIndex}.",
-                category = AiTranslationErrorCategory.JSON_VALIDATION_FAILED
-            )
+        val regionImages = when (regionImageResult) {
+            is AiTranslationRegionImageBuildResult.Failure -> {
+                return PreparedRegionChunkResult.Failed(
+                    summary = regionImageResult.summary,
+                    category = regionImageResult.category,
+                    httpStatusCode = regionImageResult.httpStatusCode
+                )
+            }
+            is AiTranslationRegionImageBuildResult.Success -> regionImageResult.images
         }
         val chunkContext = preparedPage.localContext.copy(regions = regionChunk)
         val chunkImages = listOf(preparedPage.pageImageInput) + regionImages
@@ -2841,6 +2850,42 @@ private data class AiTranslationRunResult(
     val ok: Boolean,
     val summary: String = ""
 )
+
+internal sealed interface AiTranslationRegionImageBuildResult {
+    data class Success(
+        val images: List<AiTranslationImageInput>
+    ) : AiTranslationRegionImageBuildResult
+
+    data class Failure(
+        val summary: String,
+        val category: AiTranslationErrorCategory,
+        val httpStatusCode: Int? = null
+    ) : AiTranslationRegionImageBuildResult
+}
+
+internal suspend fun buildAiTranslationRegionImagesSafely(
+    pageIndex: Int,
+    expectedRegionCount: Int,
+    build: suspend () -> List<AiTranslationImageInput>
+): AiTranslationRegionImageBuildResult {
+    val images = try {
+        build()
+    } catch (exception: Exception) {
+        if (exception is CancellationException) throw exception
+        return AiTranslationRegionImageBuildResult.Failure(
+            summary = "Failed to build text-region crop images for page=$pageIndex: ${exception.message.orEmpty()}",
+            category = AiTranslationErrorCategory.NETWORK_OR_API
+        )
+    }
+    return if (images.size == expectedRegionCount) {
+        AiTranslationRegionImageBuildResult.Success(images)
+    } else {
+        AiTranslationRegionImageBuildResult.Failure(
+            summary = "Failed to build text-region crop images for page=$pageIndex.",
+            category = AiTranslationErrorCategory.JSON_VALIDATION_FAILED
+        )
+    }
+}
 
 internal fun alignReturnedPagesToRequestedIndexes(
     returnedPages: List<AiTranslatedPage>,
