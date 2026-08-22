@@ -200,6 +200,7 @@ class AiTranslationPromptTest {
         assertTrue(prompt.contains("Preserve Japanese corner quotes"))
         assertTrue(prompt.contains("sourceReadingDirection: right_to_left"))
         assertTrue(prompt.contains("sourceTextProfile: japanese_manga"))
+        assertTrue(prompt.contains("vertical columns from right to left"))
     }
 
     @Test
@@ -251,6 +252,9 @@ class AiTranslationPromptTest {
                 "sourceTextProfile: horizontal_comic"
             }
             assertTrue(prompt.contains(expectedProfile))
+            if (language == "en") {
+                assertTrue(prompt.contains("whole English words"))
+            }
         }
     }
 

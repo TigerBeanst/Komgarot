@@ -2513,7 +2513,7 @@ private fun aiLocalContextCacheKey(
     sourceLanguage: AiSeriesSourceLanguageState
 ): String =
     listOf(
-        "local-v15",
+        "local-v16-stable-background-color",
         file.length(),
         file.lastModified(),
         settings.localModelSource.storedValue,

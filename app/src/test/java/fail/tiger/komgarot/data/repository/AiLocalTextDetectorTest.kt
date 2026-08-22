@@ -1164,8 +1164,32 @@ class AiLocalTextDetectorTest {
         )
 
         assertEquals("#F2F2F2", region.textColor)
-        assertEquals("#111111", region.backgroundColor)
+        assertEquals("#0C0C0C", region.backgroundColor)
         assertEquals(AiTranslationTextDirection.VERTICAL, region.textDirection)
+    }
+
+    @Test
+    fun localRegionPreservesStableGrayBackgroundAndUsesDarkText() {
+        val width = 120
+        val height = 120
+        val pixels = IntArray(width * height) { 0xFF999999.toInt() }
+        val cluster = AiTextCluster(
+            listOf(
+                AiTextComponent(left = 40, top = 30, right = 48, bottom = 44, area = 40, darkPixels = 40, lightPixels = 0),
+                AiTextComponent(left = 40, top = 52, right = 48, bottom = 66, area = 42, darkPixels = 42, lightPixels = 0),
+                AiTextComponent(left = 40, top = 74, right = 48, bottom = 88, area = 41, darkPixels = 41, lightPixels = 0)
+            )
+        )
+
+        val region = cluster.toLocalTextRegion(
+            id = "gray-panel",
+            pixels = pixels,
+            detectionImageWidth = width,
+            detectionImageHeight = height
+        )
+
+        assertEquals("#999999", region.backgroundColor)
+        assertEquals("#111111", region.textColor)
     }
 
     @Test

@@ -185,17 +185,7 @@ class AiTranslationStore(private val filesDir: File) {
     fun saveRegionCrop(bookId: String, pageIndex: Int, regionId: String, cacheKey: String, bytes: ByteArray) {
         if (bytes.isEmpty()) return
         val file = cacheFile(regionCropDir, bookId, pageIndex, regionId, cacheKey, "jpg")
-        file.parentFile?.mkdirs()
-        val tmp = File.createTempFile("${file.name}.", ".tmp", file.parentFile)
-        try {
-            tmp.writeBytes(bytes)
-            if (!tmp.renameTo(file)) {
-                file.delete()
-                if (!tmp.renameTo(file)) error("failed to replace ${file.name}")
-            }
-        } finally {
-            tmp.delete()
-        }
+        saveBytesAtomically(file, bytes)
     }
 
     @Synchronized
@@ -249,6 +239,20 @@ class AiTranslationStore(private val filesDir: File) {
                 }
             } else {
                 error("refusing to write blank ${file.name}")
+            }
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    private fun saveBytesAtomically(file: File, bytes: ByteArray) {
+        file.parentFile?.mkdirs()
+        val tmp = File.createTempFile("${file.name}.", ".tmp", file.parentFile)
+        try {
+            tmp.writeBytes(bytes)
+            if (!tmp.renameTo(file)) {
+                file.delete()
+                if (!tmp.renameTo(file)) error("failed to replace ${file.name}")
             }
         } finally {
             tmp.delete()
