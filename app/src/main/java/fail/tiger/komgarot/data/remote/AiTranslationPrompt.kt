@@ -184,6 +184,18 @@ private fun StringBuilder.appendKnownSourceLanguageInstructions(normalizedCode: 
 private fun StringBuilder.appendSourceTextProfileIfNeeded(sourceTextProfile: AiSourceTextProfile) {
     if (sourceTextProfile != AiSourceTextProfile.AUTO) {
         appendLine("sourceTextProfile: ${sourceTextProfile.storedValue}")
+        when (sourceTextProfile) {
+            AiSourceTextProfile.JAPANESE_MANGA -> {
+                appendLine("Japanese manga layout: preserve vertical columns from right to left, vertical punctuation, and short horizontal fragments inside vertical text.")
+            }
+            AiSourceTextProfile.KOREAN_HORIZONTAL_WEBTOON -> {
+                appendLine("Korean webtoon layout: keep horizontal lines top-to-bottom and size each response for its supplied render bounds.")
+            }
+            AiSourceTextProfile.HORIZONTAL_COMIC -> {
+                appendLine("Horizontal comic layout: wrap on whole English words when the source is English and keep dialogue within the supplied render bounds.")
+            }
+            AiSourceTextProfile.AUTO -> Unit
+        }
     }
 }
 

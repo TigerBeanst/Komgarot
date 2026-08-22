@@ -1180,8 +1180,16 @@ internal fun AiTextCluster.toLocalTextRegion(
         right = safeRight,
         bottom = safeBottom
     )
-    val detectedTextColor = if (darkPixels >= lightPixels) "#111111" else "#F2F2F2"
-    val textColor = ensureReadableAiTextColor(detectedTextColor, background)
+    val textColor = estimateTextColor(
+        pixels = pixels,
+        imageWidth = detectionImageWidth,
+        imageHeight = detectionImageHeight,
+        left = safeLeft,
+        top = safeTop,
+        right = safeRight,
+        bottom = safeBottom,
+        backgroundColor = background
+    )
     val rect = normalizedSourceRectFromDetectionPixels(
         left = safeLeft,
         top = safeTop,
@@ -1271,9 +1279,8 @@ private fun estimateBackgroundColor(
     right: Int,
     bottom: Int
 ): String {
-    val margin = max(3, min(right - left + 1, bottom - top + 1) / 3)
-    var sum = 0L
-    var count = 0
+    val margin = max(4, min(right - left + 1, bottom - top + 1) / 2)
+    val samples = ArrayList<AiRgb>()
     val sampleLeft = (left - margin).coerceAtLeast(0)
     val sampleTop = (top - margin).coerceAtLeast(0)
     val sampleRight = (right + margin).coerceAtMost(imageWidth - 1)
@@ -1281,14 +1288,18 @@ private fun estimateBackgroundColor(
     for (y in sampleTop..sampleBottom step 2) {
         for (x in sampleLeft..sampleRight step 2) {
             if (x in left..right && y in top..bottom) continue
-            val value = gray(pixels[y * imageWidth + x])
-            sum += value
-            count += 1
+            val color = pixels[y * imageWidth + x]
+            samples += AiRgb(red(color), green(color), blue(color))
         }
     }
-    val average = if (count == 0) 245 else (sum / count).toInt()
-    return if (average >= 132) "#FFFFFF" else "#111111"
+    if (samples.isEmpty()) return "#F5F5F5"
+    val red = samples.map(AiRgb::red).medianChannel()
+    val green = samples.map(AiRgb::green).medianChannel()
+    val blue = samples.map(AiRgb::blue).medianChannel()
+    return "#%02X%02X%02X".format(red, green, blue)
 }
+
+private fun List<Int>.medianChannel(): Int = sorted()[size / 2].coerceIn(0, 255)
 
 private fun estimateTextColor(
     pixels: IntArray,
@@ -1454,6 +1465,10 @@ internal fun ensureReadableAiTextColor(textColor: String, backgroundColor: Strin
 }
 
 private data class AiRgb(val red: Int, val green: Int, val blue: Int)
+
+private fun red(color: Int): Int = color ushr 16 and 0xFF
+private fun green(color: Int): Int = color ushr 8 and 0xFF
+private fun blue(color: Int): Int = color and 0xFF
 
 private fun parseHexRgb(value: String): AiRgb? {
     val hex = value.trim().removePrefix("#")

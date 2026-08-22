@@ -214,7 +214,7 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("readLocalPageContext("))
         assertTrue(source.contains("saveLocalPageContext("))
         assertTrue(source.contains("aiLocalContextCacheKey("))
-        assertTrue(source.contains("\"local-v15\""))
+        assertTrue(source.contains("\"local-v16-stable-background-color\""))
         assertTrue(source.contains("sourceLanguage.detectionCacheKey()"))
         assertTrue(source.contains("readRegionCrop("))
         assertTrue(source.contains("saveRegionCrop("))
