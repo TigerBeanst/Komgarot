@@ -12,6 +12,10 @@ import kotlin.math.roundToInt
 enum class CoverCrop { Full, LeftHalf, RightHalf }
 
 const val CoverUploadMaxEdge = 2048
+const val CoverUploadMaxBytes = 900 * 1024
+
+private val CoverUploadQualitySteps = intArrayOf(90, 82, 74, 66, 58, 50)
+private val CoverUploadEdgeSteps = intArrayOf(2048, 1792, 1536, 1280, 1024, 768)
 
 data class CoverSize(
     val width: Int,
@@ -68,6 +72,62 @@ fun bitmapToJpegBytes(bitmap: Bitmap, quality: Int = 90): ByteArray {
     val out = ByteArrayOutputStream()
     bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
     return out.toByteArray()
+}
+
+internal data class CoverEncodedImage(
+    val size: CoverSize,
+    val quality: Int,
+    val bytes: ByteArray
+)
+
+internal fun encodeCoverWithinByteLimit(
+    initialSize: CoverSize,
+    maxBytes: Int = CoverUploadMaxBytes,
+    qualitySteps: IntArray = CoverUploadQualitySteps,
+    edgeSteps: IntArray = CoverUploadEdgeSteps,
+    encoder: (CoverSize, Int) -> ByteArray
+): CoverEncodedImage {
+    require(maxBytes > 0)
+    require(qualitySteps.isNotEmpty())
+    require(edgeSteps.isNotEmpty())
+
+    var last: CoverEncodedImage? = null
+    edgeSteps
+        .map { scaledCoverSize(initialSize.width, initialSize.height, it) }
+        .distinct()
+        .forEach { size ->
+            qualitySteps.forEach { quality ->
+                val candidate = CoverEncodedImage(size, quality, encoder(size, quality))
+                last = candidate
+                if (candidate.bytes.size <= maxBytes) return candidate
+            }
+        }
+    return requireNotNull(last)
+}
+
+fun bitmapToJpegBytesWithinLimit(
+    bitmap: Bitmap,
+    maxBytes: Int = CoverUploadMaxBytes
+): ByteArray {
+    val initialSize = scaledCoverSize(bitmap.width, bitmap.height)
+    val scaledBitmaps = mutableMapOf<CoverSize, Bitmap>()
+    val encoded = try {
+        encodeCoverWithinByteLimit(initialSize, maxBytes) { size, quality ->
+            val candidate = scaledBitmaps.getOrPut(size) {
+                if (size.width == bitmap.width && size.height == bitmap.height) {
+                    bitmap
+                } else {
+                    bitmap.scale(size.width, size.height)
+                }
+            }
+            bitmapToJpegBytes(candidate, quality)
+        }
+    } finally {
+        scaledBitmaps.values
+            .filter { it !== bitmap }
+            .forEach(Bitmap::recycle)
+    }
+    return encoded.bytes
 }
 
 fun writeTemporaryCoverImage(context: Context, bitmap: Bitmap): Uri {

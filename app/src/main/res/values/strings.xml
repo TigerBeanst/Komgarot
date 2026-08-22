@@ -527,6 +527,7 @@
     <string name="metadata_cover_from_reader">Reader page</string>
     <string name="metadata_cover_saved">Cover updated</string>
     <string name="metadata_cover_save_failed">Cover update failed</string>
+    <string name="metadata_cover_payload_too_large">The server rejected this cover because it is too large. Increase the Komga or reverse-proxy upload limit.</string>
     <string name="metadata_cover_image_failed">Image loading failed</string>
     <string name="metadata_cover_pick_image">Choose cover image</string>
 
