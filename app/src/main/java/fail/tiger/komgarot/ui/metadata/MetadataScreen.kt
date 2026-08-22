@@ -86,9 +86,8 @@ import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
 import fail.tiger.komgarot.data.remote.dto.SeriesMetadataDto
 import fail.tiger.komgarot.data.remote.dto.WebLinkDto
 import fail.tiger.komgarot.ui.cover.CoverCrop
-import fail.tiger.komgarot.ui.cover.bitmapToJpegBytes
+import fail.tiger.komgarot.ui.cover.bitmapToJpegBytesWithinLimit
 import fail.tiger.komgarot.ui.cover.cropCoverBitmap
-import fail.tiger.komgarot.ui.cover.scaleCoverBitmapForUpload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -520,7 +519,6 @@ private fun MetadataCoverSection(
         if (uri != null) candidate = CoverCandidate(uri, R.string.metadata_cover_candidate)
     }
     val savedMessage = stringResource(R.string.metadata_cover_saved)
-    val failedMessage = stringResource(R.string.metadata_cover_save_failed)
     val imageFailedMessage = stringResource(R.string.metadata_cover_image_failed)
 
     LaunchedEffect(candidate, crop) {
@@ -595,10 +593,14 @@ private fun MetadataCoverSection(
                             return@launch
                         }
                         val bytes = withContext(Dispatchers.Default) {
-                            bitmapToJpegBytes(scaleCoverBitmapForUpload(cropCoverBitmap(bitmap, crop)))
+                            bitmapToJpegBytesWithinLimit(cropCoverBitmap(bitmap, crop))
                         }
-                        val onDone: (Boolean) -> Unit = { ok ->
-                            Toast.makeText(context, if (ok) savedMessage else failedMessage, Toast.LENGTH_SHORT).show()
+                        val onDone: (CoverUploadResult) -> Unit = { result ->
+                            val message = when (result) {
+                                CoverUploadResult.Success -> savedMessage
+                                is CoverUploadResult.Failure -> result.message
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                         }
                         if (targetType == "series") {
                             vm.uploadSeriesCover(id, bytes, onDone)

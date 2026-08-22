@@ -524,6 +524,7 @@
     <string name="metadata_cover_from_reader">阅读页</string>
     <string name="metadata_cover_saved">已更新封面</string>
     <string name="metadata_cover_save_failed">封面更新失败</string>
+    <string name="metadata_cover_payload_too_large">服务器拒绝了过大的封面，请提高 Komga 或反向代理的上传大小上限。</string>
     <string name="metadata_cover_image_failed">图片加载失败</string>
     <string name="metadata_cover_pick_image">选择封面图片</string>
 

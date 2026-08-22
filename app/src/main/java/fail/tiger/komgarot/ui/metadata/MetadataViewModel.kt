@@ -15,12 +15,20 @@ import fail.tiger.komgarot.data.remote.dto.SeriesMetadataDto
 import fail.tiger.komgarot.data.repository.BookRepository
 import fail.tiger.komgarot.ui.i18n.UiTextProvider
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
+
+sealed interface CoverUploadResult {
+    data object Success : CoverUploadResult
+    data class Failure(val message: String) : CoverUploadResult
+}
 
 class MetadataViewModel(
     private val repo: BookRepository,
     private val imageCacheInvalidator: ImageCacheInvalidator,
     private val saveFailedMessage: String,
-    private val metadataAdminRequiredMessage: String
+    private val metadataAdminRequiredMessage: String,
+    private val coverSaveFailedMessage: String,
+    private val coverPayloadTooLargeMessage: String
 ) : ViewModel() {
     var seriesMeta by mutableStateOf<SeriesMetadataDto?>(null)
     var bookMeta by mutableStateOf<BookMetadataDto?>(null)
@@ -159,29 +167,53 @@ class MetadataViewModel(
         }
     }
 
-    fun uploadBookCover(id: String, imageBytes: ByteArray, onDone: (Boolean) -> Unit = {}) {
+    fun uploadBookCover(id: String, imageBytes: ByteArray, onDone: (CoverUploadResult) -> Unit = {}) {
         viewModelScope.launch {
             coverSaving = true
             val seriesId = repo.getBookById(id).getOrNull()?.seriesId
-            val ok = runCatching { repo.uploadBookThumbnail(id, imageBytes, "image/jpeg") }
+            val result = runCatching { repo.uploadBookThumbnail(id, imageBytes, "image/jpeg") }
                 .onSuccess {
                     imageCacheInvalidator.invalidateBookThumbnail(id)
                     seriesId?.takeIf { it.isNotBlank() }?.let { imageCacheInvalidator.invalidateSeriesThumbnail(it) }
                 }
-                .isSuccess
+                .fold(
+                    onSuccess = { CoverUploadResult.Success },
+                    onFailure = {
+                        CoverUploadResult.Failure(
+                            coverUploadFailureMessage(
+                                error = it,
+                                fallbackMessage = coverSaveFailedMessage,
+                                forbiddenMessage = metadataAdminRequiredMessage,
+                                payloadTooLargeMessage = coverPayloadTooLargeMessage
+                            )
+                        )
+                    }
+                )
             coverSaving = false
-            onDone(ok)
+            onDone(result)
         }
     }
 
-    fun uploadSeriesCover(id: String, imageBytes: ByteArray, onDone: (Boolean) -> Unit = {}) {
+    fun uploadSeriesCover(id: String, imageBytes: ByteArray, onDone: (CoverUploadResult) -> Unit = {}) {
         viewModelScope.launch {
             coverSaving = true
-            val ok = runCatching { repo.uploadSeriesThumbnail(id, imageBytes, "image/jpeg") }
+            val result = runCatching { repo.uploadSeriesThumbnail(id, imageBytes, "image/jpeg") }
                 .onSuccess { imageCacheInvalidator.invalidateSeriesThumbnail(id) }
-                .isSuccess
+                .fold(
+                    onSuccess = { CoverUploadResult.Success },
+                    onFailure = {
+                        CoverUploadResult.Failure(
+                            coverUploadFailureMessage(
+                                error = it,
+                                fallbackMessage = coverSaveFailedMessage,
+                                forbiddenMessage = metadataAdminRequiredMessage,
+                                payloadTooLargeMessage = coverPayloadTooLargeMessage
+                            )
+                        )
+                    }
+                )
             coverSaving = false
-            onDone(ok)
+            onDone(result)
         }
     }
 
@@ -195,8 +227,49 @@ class MetadataViewModel(
                 repo,
                 imageCacheInvalidator,
                 textProvider.get(R.string.save_failed),
-                textProvider.get(R.string.metadata_admin_required)
+                textProvider.get(R.string.metadata_admin_required),
+                textProvider.get(R.string.metadata_cover_save_failed),
+                textProvider.get(R.string.metadata_cover_payload_too_large)
             )
         }
     })
 }
+
+internal fun coverUploadFailureMessage(
+    error: Throwable,
+    fallbackMessage: String,
+    forbiddenMessage: String,
+    payloadTooLargeMessage: String = fallbackMessage
+): String {
+    if (error is HttpException) {
+        val status = buildString {
+            append("HTTP ").append(error.code())
+            error.response()?.message()
+                ?.trim()
+                ?.takeIf { it.isNotBlank() && it != "Response.error()" }
+                ?.let {
+                    append(" ").append(it)
+                }
+        }
+        val body = runCatching { error.response()?.errorBody()?.string().orEmpty() }
+            .getOrDefault("")
+            .compactCoverFailureDetail()
+        val detail = listOf(status, body)
+            .filter(String::isNotBlank)
+            .joinToString(": ")
+        return when (error.code()) {
+            403 -> "$forbiddenMessage ($detail)"
+            413 -> "$payloadTooLargeMessage ($detail)"
+            else -> "$fallbackMessage: $detail"
+        }
+    }
+
+    val detail = error.message
+        ?.compactCoverFailureDetail()
+        ?.takeIf(String::isNotBlank)
+        ?: error.javaClass.simpleName
+    return "$fallbackMessage: $detail"
+}
+
+private fun String.compactCoverFailureDetail(): String =
+    trim().replace(Regex("\\s+"), " ").take(240)
