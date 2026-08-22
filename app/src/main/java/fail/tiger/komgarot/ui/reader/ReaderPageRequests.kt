@@ -80,7 +80,7 @@ fun readerPageRequest(
         .setParameter("reader_retry_key", retryKey, memoryCacheKey = null)
         .memoryCachePolicy(if (retainInMemory) CachePolicy.ENABLED else CachePolicy.DISABLED)
         .diskCachePolicy(CachePolicy.DISABLED)
-        .networkCachePolicy(if (cachedFile == null) CachePolicy.ENABLED else CachePolicy.DISABLED)
+        .networkCachePolicy(if (data is String) CachePolicy.ENABLED else CachePolicy.DISABLED)
         .allowHardware(allowHardware)
         .allowRgb565(false)
         .apply {
@@ -102,7 +102,7 @@ fun readerPageRequest(
                 this.listener(listener)
             }
         }
-    if (cachedFile == null) {
+    if (data is String) {
         builder.tag(
             ReaderPageCache.Entry::class.java,
             when {

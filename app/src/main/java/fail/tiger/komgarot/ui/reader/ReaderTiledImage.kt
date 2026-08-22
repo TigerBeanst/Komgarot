@@ -92,7 +92,7 @@ fun ReaderTiledImage(
     }
 
     val file = cachedFile
-    var previewReady by remember(file) { mutableStateOf(false) }
+    var previewReady by remember(url, seriesId, bookId, retryKey) { mutableStateOf(false) }
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         when {
             file != null -> key(retryKey) {
@@ -220,6 +220,7 @@ class ReaderTiledImageView @JvmOverloads constructor(
     private var imageFile: File? = null
     private var decoder: BitmapRegionDecoder? = null
     private var previewBitmap: Bitmap? = null
+    private var previewBitmapFromCache = false
     private var previewKey: String = ""
     private var previewCacheKey: String = ""
     private var pendingPreviewKey: String = ""
@@ -268,6 +269,7 @@ class ReaderTiledImageView @JvmOverloads constructor(
         contentVersion: Int
     ) {
         val sameFile = imageFile?.absolutePath == file.absolutePath
+        val contentChanged = this.contentVersion != contentVersion
         val normalizedZoomScale = zoomScale.coerceAtLeast(1f)
         val normalizedPreviewQualityScale = previewQualityScale.coerceAtLeast(READER_ADJACENT_PREVIEW_QUALITY_SCALE)
         val previewQualityChanged = normalizedPreviewQualityScale != this.previewQualityScale
@@ -315,13 +317,24 @@ class ReaderTiledImageView @JvmOverloads constructor(
                 contentVersion
             )
             readerPreviewBitmapCache.get(cachedPreviewKey)?.let { cachedPreview ->
+                if (previewBitmap != null && previewBitmap !== cachedPreview && !previewBitmapFromCache) {
+                    previewBitmap?.let(::recycleBitmap)
+                }
                 previewBitmap = cachedPreview
+                previewBitmapFromCache = true
                 previewCacheKey = cachedPreviewKey
             }
             openImageAsync(file, decoderGeneration)
         } else {
             this.previewQualityScale = normalizedPreviewQualityScale
-            if ((isActive && (decoder == null || decoderReleasePending)) || previewBitmap == null || becameActive) {
+            if (contentChanged) {
+                if (previewBitmapFromCache && previewCacheKey.isNotBlank()) {
+                    val detachedPreview = readerPreviewBitmapCache.detach(previewCacheKey)
+                    if (detachedPreview === previewBitmap || detachedPreview == null) previewBitmapFromCache = false
+                }
+                releaseDecoder(clearPreview = false)
+                openImageAsync(file, decoderGeneration)
+            } else if ((isActive && (decoder == null || decoderReleasePending)) || previewBitmap == null || becameActive) {
                 openImageAsync(file, decoderGeneration)
             } else if (previewQualityChanged && width > 0 && height > 0) {
                 requestPreviewDecode(
@@ -427,7 +440,12 @@ class ReaderTiledImageView @JvmOverloads constructor(
                     return@post
                 }
                 if (openedPreviewResult != null) {
-                    publishOpenedPreview(openedPreviewResult, openedPreviewKey, openedPreviewCacheKey)
+                    publishOpenedPreview(
+                        result = openedPreviewResult,
+                        key = openedPreviewKey,
+                        cacheKey = openedPreviewCacheKey,
+                        fromCache = true
+                    )
                 }
                 if (
                     openedPreviewQualityScale != previewQualityScale ||
@@ -463,9 +481,15 @@ class ReaderTiledImageView @JvmOverloads constructor(
     private fun publishOpenedPreview(
         result: ReaderPreviewDecodeResult,
         key: String,
-        cacheKey: String
+        cacheKey: String,
+        fromCache: Boolean
     ) {
+        val previousBitmap = previewBitmap
+        if (previousBitmap != null && previousBitmap !== result.bitmap && !previewBitmapFromCache) {
+            recycleBitmap(previousBitmap)
+        }
         previewBitmap = result.bitmap
+        previewBitmapFromCache = fromCache
         previewKey = key
         previewCacheKey = cacheKey
         previewNeedsDetailTiles = !result.meetsDisplayTarget
@@ -482,6 +506,7 @@ class ReaderTiledImageView @JvmOverloads constructor(
         if (cacheKey.isNotBlank() && previewCacheKey != cacheKey) {
             readerPreviewBitmapCache.get(cacheKey)?.let { cachedPreview ->
                 previewBitmap = cachedPreview
+                previewBitmapFromCache = true
                 previewKey = key
                 previewCacheKey = cacheKey
                 previewNeedsDetailTiles = !readerPreviewBitmapMeetsDisplayTarget(
@@ -644,6 +669,7 @@ class ReaderTiledImageView @JvmOverloads constructor(
         readerPreviewBitmapCache.get(cacheKey)?.let { cachedPreview ->
             pendingPreviewKey = ""
             previewBitmap = cachedPreview
+            previewBitmapFromCache = true
             previewKey = key
             previewCacheKey = cacheKey
             previewNeedsDetailTiles = !readerPreviewBitmapMeetsDisplayTarget(
@@ -701,6 +727,7 @@ class ReaderTiledImageView @JvmOverloads constructor(
                 if (queuedCachedPreview == null) decodeResult?.bitmap?.let(::recycleBitmap)
                 return@executePreview
             }
+            val decodedPreviewFromCache = queuedCachedPreview != null || decodeResult != null
             if (decodeResult != null && queuedCachedPreview == null) {
                 readerPreviewBitmapCache.put(cacheKey, decodeResult.bitmap)
             }
@@ -720,7 +747,12 @@ class ReaderTiledImageView @JvmOverloads constructor(
                     return@post
                 }
                 val cachedBitmap = readerPreviewBitmapCache.get(cacheKey) ?: decodeResult.bitmap
+                val previousBitmap = previewBitmap
+                if (previousBitmap != null && previousBitmap !== cachedBitmap && !previewBitmapFromCache) {
+                    recycleBitmap(previousBitmap)
+                }
                 previewBitmap = cachedBitmap
+                previewBitmapFromCache = decodedPreviewFromCache
                 previewKey = key
                 previewCacheKey = cacheKey
                 previewNeedsDetailTiles = !decodeResult.meetsDisplayTarget
@@ -858,9 +890,13 @@ class ReaderTiledImageView @JvmOverloads constructor(
         }
         if (clearPreview) {
             val hadPreview = previewBitmap != null
+            if (hadPreview && !previewBitmapFromCache) {
+                previewBitmap?.let(::recycleBitmap)
+            }
             previewKey = ""
             previewCacheKey = ""
             previewBitmap = null
+            previewBitmapFromCache = false
             previewNeedsDetailTiles = false
             imageWidth = 0
             imageHeight = 0
@@ -1264,6 +1300,16 @@ private const val READER_TILE_DECODE_ATTEMPTS = 2
 
 private val readerPreviewBitmapCache = object : LruCache<String, Bitmap>(readerPreviewCacheBytes()) {
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+
+    fun detach(key: String): Bitmap? = synchronized(this) {
+        val value = get(key)
+        if (value == null) {
+            null
+        } else {
+            remove(key)
+            value
+        }
+    }
 }
 
 private fun invalidateReaderPreviewCache(file: File) {
