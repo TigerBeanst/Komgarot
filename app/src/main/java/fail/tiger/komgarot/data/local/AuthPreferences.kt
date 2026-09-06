@@ -55,6 +55,7 @@ class AuthPreferences(private val context: Context) {
     private val AI_DOWNLOAD_LATEST_MODEL = booleanPreferencesKey("ai_download_latest_model")
     private val AI_AUTO_SELECT_DEVICE_TIER = booleanPreferencesKey("ai_auto_select_device_tier")
     private val AI_IMAGE_TRANSPORT = stringPreferencesKey("ai_image_transport")
+    private val AI_TRANSLATION_MODE = stringPreferencesKey("ai_translation_mode")
     private val AI_TRANSLATION_REQUEST_MODE = stringPreferencesKey("ai_translation_request_mode")
     private val AI_PAGES_PER_REQUEST = intPreferencesKey("ai_pages_per_request")
     private val AI_CONCURRENT_REQUESTS = intPreferencesKey("ai_concurrent_requests")
@@ -113,6 +114,9 @@ class AuthPreferences(private val context: Context) {
     val aiImageTransport: Flow<AiImageTransport> = context.dataStore.data.map {
         AiImageTransport.fromStoredValue(it[AI_IMAGE_TRANSPORT].orEmpty())
     }
+    val aiTranslationMode: Flow<AiTranslationMode> = context.dataStore.data.map {
+        AiTranslationMode.fromStoredValue(it[AI_TRANSLATION_MODE].orEmpty())
+    }
     val aiTranslationRequestMode: Flow<AiTranslationRequestMode> = context.dataStore.data.map {
         AiTranslationRequestMode.fromStoredValue(it[AI_TRANSLATION_REQUEST_MODE].orEmpty())
     }
@@ -164,6 +168,7 @@ class AuthPreferences(private val context: Context) {
     val coverCacheSizeBytesBlocking: Long get() = CacheSizeOption.fromMb(runBlocking { coverCacheSizeMb.first() }).bytes
     val readerCacheSizeBytesBlocking: Long get() = CacheSizeOption.fromMb(runBlocking { readerCacheSizeMb.first() }).bytes
     val clearCacheOnStartupBlocking: Boolean get() = runBlocking { clearCacheOnStartup.first() }
+    val aiTranslationModeBlocking: AiTranslationMode get() = runBlocking { aiTranslationMode.first() }
 
     suspend fun save(url: String, user: String, pass: String) {
         val cleanUrl = url.trimEnd('/')
@@ -273,6 +278,10 @@ class AuthPreferences(private val context: Context) {
 
     suspend fun setAiImageTransport(value: AiImageTransport) {
         context.dataStore.edit { it[AI_IMAGE_TRANSPORT] = value.storedValue }
+    }
+
+    suspend fun setAiTranslationMode(value: AiTranslationMode) {
+        context.dataStore.edit { it[AI_TRANSLATION_MODE] = value.storedValue }
     }
 
     suspend fun setAiTranslationRequestMode(value: AiTranslationRequestMode) {

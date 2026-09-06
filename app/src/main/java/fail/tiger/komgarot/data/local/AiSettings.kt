@@ -68,7 +68,8 @@ data class AiSettings(
 }
 
 enum class AiTranslationMode(val storedValue: String) {
-    LOCAL_DETECTION("local_detection");
+    LOCAL_DETECTION("local_detection"),
+    HIGH_ACCURACY("high_accuracy");
 
     companion object {
         fun fromStoredValue(value: String): AiTranslationMode =

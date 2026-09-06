@@ -7,6 +7,7 @@ import fail.tiger.komgarot.data.local.AiLocalModelSource
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.AiTranslatedBook
 import fail.tiger.komgarot.data.local.AiTranslationRequestMode
+import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationStore
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.SecureAiSettings
@@ -140,6 +141,7 @@ class WebDavBackupRepository(
             aiDownloadLatestModel = prefs.aiDownloadLatestModel.first(),
             aiAutoSelectDeviceTier = prefs.aiAutoSelectDeviceTier.first(),
             aiImageTransport = prefs.aiImageTransport.first().storedValue,
+            aiTranslationMode = prefs.aiTranslationMode.first().storedValue,
             aiTranslationRequestMode = prefs.aiTranslationRequestMode.first().storedValue,
             aiSourceTextProfile = prefs.aiSourceTextProfile.first().storedValue,
             aiPagesPerRequest = prefs.aiPagesPerRequest.first(),
@@ -243,6 +245,7 @@ class WebDavBackupRepository(
         prefs.setAiDownloadLatestModel(settings.aiDownloadLatestModel)
         prefs.setAiAutoSelectDeviceTier(settings.aiAutoSelectDeviceTier)
         prefs.setAiImageTransport(AiImageTransport.fromStoredValue(settings.aiImageTransport))
+        prefs.setAiTranslationMode(AiTranslationMode.fromStoredValue(settings.aiTranslationMode))
         prefs.setAiTranslationRequestMode(AiTranslationRequestMode.fromStoredValue(settings.aiTranslationRequestMode))
         prefs.setAiSourceTextProfile(AiSourceTextProfile.fromStoredValue(settings.aiSourceTextProfile))
         prefs.setAiPagesPerRequest(settings.aiPagesPerRequest)
@@ -296,6 +299,7 @@ data class WebDavBackupSettings(
     val aiDownloadLatestModel: Boolean = true,
     val aiAutoSelectDeviceTier: Boolean = true,
     val aiImageTransport: String = "",
+    val aiTranslationMode: String = AiTranslationMode.LOCAL_DETECTION.storedValue,
     val aiTranslationRequestMode: String = AiTranslationRequestMode.PARALLEL.storedValue,
     val aiSourceTextProfile: String = AiSourceTextProfile.AUTO.storedValue,
     val aiPagesPerRequest: Int = 10,

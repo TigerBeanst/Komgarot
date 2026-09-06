@@ -250,6 +250,7 @@
     <string name="settings_ai_source_text_profile_auto">Auto</string>
     <string name="settings_ai_source_text_profile_japanese_manga">Japanese manga</string>
     <string name="settings_ai_source_text_profile_korean_horizontal_webtoon">Korean horizontal webtoon</string>
+    <string name="settings_ai_default_mode">Translation quality</string>
     <string name="settings_ai_section_basic">Basic</string>
     <string name="settings_ai_section_translation_behavior">Translation behavior</string>
     <string name="settings_ai_section_request">Requests</string>
@@ -325,6 +326,15 @@
     <string name="settings_ai_model_delete_title">Delete local AI models</string>
     <string name="settings_ai_model_delete_message">This removes the downloaded detection model files for the current tier. AI translation will need the model downloaded again before local detection can run.</string>
     <string name="settings_ai_model_delete_confirm">Delete models</string>
+    <string name="settings_ai_mangalens_model">MangaLens bubble model</string>
+    <string name="settings_ai_mangalens_model_missing">High-accuracy bubble geometry · CC BY-NC 4.0 · tap to download</string>
+    <string name="settings_ai_mangalens_model_installed">Installed · tap to remove the local model</string>
+    <string name="settings_ai_mangalens_model_remove">Remove local model</string>
+    <string name="settings_ai_mangalens_model_remove_message">Removing the local MangaLens model switches high-accuracy translation to text-region geometry. Tap the model entry to download it again.</string>
+    <string name="settings_ai_mangalens_model_download_success">MangaLens bubble model downloaded</string>
+    <string name="settings_ai_mangalens_model_download_failed">MangaLens bubble model download failed: %1$s</string>
+    <string name="settings_ai_mangalens_model_remove_success">Local MangaLens model removed</string>
+    <string name="settings_ai_mangalens_model_remove_failed">Failed to remove local MangaLens model</string>
     <string name="settings_ai_model_delete_success">Local AI models deleted</string>
     <string name="settings_ai_model_delete_failed">Local AI model deletion failed</string>
     <string name="settings_ai_model_installed">Installed</string>
@@ -349,6 +359,8 @@
     <string name="ai_translate_cache_progress_with_mode">Caching images %1$d / %2$d · %3$s</string>
     <string name="ai_translation_mode_local_detection">Local detection + AI translation</string>
     <string name="ai_translation_mode_local_detection_short">Detect</string>
+    <string name="ai_translation_mode_high_accuracy">High-accuracy translation</string>
+    <string name="ai_translation_mode_high_accuracy_short">High accuracy</string>
     <string name="ai_translate_delete_title">Delete book AI translation</string>
     <string name="ai_translate_delete_message_first">This deletes saved AI translation data for this book. AI translation data is usually small, and the reader overlay will disappear immediately.</string>
     <string name="ai_translate_delete_continue">Continue</string>

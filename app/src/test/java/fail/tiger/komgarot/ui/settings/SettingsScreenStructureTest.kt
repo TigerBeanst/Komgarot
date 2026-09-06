@@ -1,11 +1,18 @@
 package fail.tiger.komgarot.ui.settings
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsScreenStructureTest {
     private val source = File("src/main/java/fail/tiger/komgarot/ui/settings/SettingsScreen.kt").readText()
+
+    @Test
+    fun mangaLensModelActionFollowsInstallState() {
+        assertEquals(AiMangaLensModelAction.DOWNLOAD, aiMangaLensModelAction(installed = false))
+        assertEquals(AiMangaLensModelAction.DELETE, aiMangaLensModelAction(installed = true))
+    }
 
     @Test
     fun settingsContentUsesSectionHeadersAndDividers() {
@@ -129,11 +136,11 @@ class SettingsScreenStructureTest {
         assertTrue(source.contains("purgeMissingBookTranslations(candidates)"))
         assertTrue(source.contains("aiTranslationPurgeCandidates"))
         assertTrue(source.contains("settings_ai_purge_translation_data_confirm_message"))
-        assertTrue(!source.contains("R.string.ai_translation_mode_local_detection"))
-        assertTrue(!source.contains("settings_ai_local_detection_pipeline_desc"))
-        assertTrue(!source.contains("R.string.settings_ai_default_mode"))
-        assertTrue(!source.contains("showAiModeDialog"))
-        assertTrue(!source.contains("AiTranslationMode.entries"))
+        assertTrue(source.contains("R.string.ai_translation_mode_local_detection"))
+        assertTrue(source.contains("R.string.ai_translation_mode_high_accuracy"))
+        assertTrue(source.contains("R.string.settings_ai_default_mode"))
+        assertTrue(source.contains("showAiModeDialog"))
+        assertTrue(source.contains("prefs.setAiTranslationMode"))
     }
 
     @Test
