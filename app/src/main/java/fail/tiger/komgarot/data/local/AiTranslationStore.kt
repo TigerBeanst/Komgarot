@@ -144,9 +144,9 @@ class AiTranslationStore(private val filesDir: File) {
 
     @Synchronized
     fun deletePage(bookId: String, pageIndex: Int) {
+        deletePageCacheFiles(bookId, pageIndex)
         val existing = readBook(bookId) ?: return
         saveBookNow(existing.copy(pages = existing.pages.filterNot { it.pageIndex == pageIndex }))
-        deletePageCacheFiles(bookId, pageIndex)
     }
 
     @Synchronized
@@ -165,7 +165,17 @@ class AiTranslationStore(private val filesDir: File) {
     fun readLocalPageContext(bookId: String, pageIndex: Int, cacheKey: String): AiTranslationLocalPageContext? {
         val file = cacheFile(localContextDir, bookId, pageIndex, "context", cacheKey, "json")
         if (!file.isFile) return null
-        return runCatching { storeGson.fromJson(file.readText(), AiTranslationLocalPageContext::class.java) }.getOrNull()
+        return runCatching {
+            val context = storeGson.fromJson(file.readText(), AiTranslationLocalPageContext::class.java)
+            context.copy(
+                regions = context.regions.orEmpty().map { region ->
+                    region.copy(
+                        sourceColumns = region.sourceColumns.orEmpty(),
+                        bubbleOutline = region.bubbleOutline.orEmpty()
+                    )
+                }
+            )
+        }.getOrNull()
     }
 
     @Synchronized
@@ -363,6 +373,17 @@ private fun toAiTranslatedBookJson(book: AiTranslatedBook): String {
                                         }
                                     })
                                 }
+                                if (block.bubbleOutline.isNotEmpty()) {
+                                    add("bubbleOutline", JsonArray().apply {
+                                        block.bubbleOutline.forEach { point ->
+                                            add(JsonObject().apply {
+                                                addProperty("x", point.x)
+                                                addProperty("y", point.y)
+                                            })
+                                        }
+                                    })
+                                }
+                                if (block.bubbleSolidFill) addProperty("bubbleSolidFill", true)
                                 addProperty("textColor", block.textColor)
                                 addProperty("maskColor", block.maskColor)
                                 addProperty("maskAlpha", block.maskAlpha)
@@ -570,6 +591,8 @@ private fun parseAiTranslationBlockElement(
             rect = parseAiTranslationRect(obj.getByAliases("rect", "d")),
             translationRect = parseAiTranslationRect(obj.getByAliases("translationRect", "m")),
             sourceColumns = parseAiTranslationRectList(obj.getByAliases("sourceColumns", "o")),
+            bubbleOutline = parseAiTranslationPointList(obj.get("bubbleOutline")),
+            bubbleSolidFill = obj.getBooleanByAliases("bubbleSolidFill").orFalse(),
             textColor = obj.getStringByAliases("textColor", "e") ?: "#111111",
             maskColor = obj.getStringByAliases("maskColor", "f") ?: "#FFFFFF",
             maskAlpha = obj.getFloatByAliases("maskAlpha", "g") ?: 0.72f,
@@ -581,6 +604,17 @@ private fun parseAiTranslationBlockElement(
         ).renderSafe()
     }.getOrNull()
 }
+
+private fun parseAiTranslationPointList(element: JsonElement?): List<AiTranslationPoint> =
+    element?.takeIf(JsonElement::isJsonArray)?.asJsonArray
+        ?.mapNotNull { item ->
+            val point = item.asObjectOrNull() ?: return@mapNotNull null
+            val x = point.getFloatByAliases("x") ?: return@mapNotNull null
+            val y = point.getFloatByAliases("y") ?: return@mapNotNull null
+            AiTranslationPoint(x.coerceIn(0f, 1f), y.coerceIn(0f, 1f))
+        }
+        ?.take(64)
+        .orEmpty()
 
 private fun parseAiTranslationRegionStatus(
     value: String?,

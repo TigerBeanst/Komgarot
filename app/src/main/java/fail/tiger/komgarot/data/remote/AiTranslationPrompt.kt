@@ -8,6 +8,7 @@ import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.AiSourceLanguageOrigin
 import fail.tiger.komgarot.data.local.AiSourceReadingDirection
 import fail.tiger.komgarot.data.local.AiTranslationMode
+import fail.tiger.komgarot.data.local.AiTranslationPoint
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
 import fail.tiger.komgarot.data.local.AiGlossaryEntry
@@ -34,7 +35,9 @@ data class AiTranslationLocalTextRegion(
     val textBounds: AiTranslationRect = AiTranslationRect(),
     val renderBounds: AiTranslationRect = AiTranslationRect(),
     val aiCropBounds: AiTranslationRect = AiTranslationRect(),
-    val sourceColumns: List<AiTranslationRect> = emptyList()
+    val sourceColumns: List<AiTranslationRect> = emptyList(),
+    val bubbleOutline: List<AiTranslationPoint> = emptyList(),
+    val bubbleSolidFill: Boolean = false
 )
 
 data class AiTranslationRegionLayoutHints(
@@ -79,6 +82,8 @@ Punctuation attaches to the preceding word or phrase.
 Line breaks must preserve word and phrase cohesion.
 Use layoutHints for visual wrapping: maxCharsPerColumn for vertical text and maxCharsPerLine for horizontal text.
 Prefer suggestedColumns and suggestedLines, while keeping connected phrases together.
+Use layoutHints as a compactness target and keep the complete translation within it whenever possible.
+Translate every readable source phrase completely. Preserve source meaning and tone without abbreviating, summarizing, omitting content, or adding ellipses to satisfy layoutHints.
 """.trimIndent()
 
 fun aiTranslationUserPrompt(
