@@ -74,7 +74,7 @@ internal fun buildSeriesSearch(
 
     return SeriesSearchDto(
         condition = condition,
-        fullTextSearch = authorSearch?.let { "author:(${it.name})" }
+        fullTextSearch = authorSearch?.let { "author:(${escapeLuceneQueryTerm(it.name)})" }
             ?: trimmedSearch?.takeIf { !hasAuthorPrefix }
     )
 }
@@ -101,6 +101,15 @@ data class SeriesFilters(
 }
 
 private data class AuthorSearch(val name: String)
+
+private const val LUCENE_SPECIAL_CHARACTERS = "+-&|!(){}[]^\"~*?:\\/"
+
+internal fun escapeLuceneQueryTerm(value: String): String = buildString(value.length) {
+    value.forEach { char ->
+        if (char in LUCENE_SPECIAL_CHARACTERS) append('\\')
+        append(char)
+    }
+}
 
 private fun String.parseAuthorSearch(): AuthorSearch? {
     if (!startsWith("author:", ignoreCase = true)) return null

@@ -23,6 +23,13 @@ class SeriesRepositoryTest {
     }
 
     @Test
+    fun authorSearchEscapesLuceneSpecialCharacters() {
+        val search = buildSeriesSearch(libraryId = null, search = "author:Artist!")
+
+        assertEquals("author:(Artist\\!)", search.fullTextSearch)
+    }
+
+    @Test
     fun regularSearchUsesFullTextSearch() {
         val search = buildSeriesSearch(libraryId = null, search = "Batman")
 
