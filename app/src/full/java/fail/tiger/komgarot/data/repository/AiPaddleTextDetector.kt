@@ -8,6 +8,7 @@ import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import fail.tiger.komgarot.data.local.AiSettings
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
+import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.usesHorizontalComicRules
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
@@ -52,7 +53,8 @@ class AiPaddleTextDetector(
                 assets = assets,
                 maxRegions = maxRegions,
                 sourceTextProfile = settings.sourceTextProfile,
-                sourceLanguageTag = sourceLanguageTag
+                sourceLanguageTag = sourceLanguageTag,
+                translationMode = settings.preferredMode
             )
         }.getOrElse { AiPaddleDetectionOutput.EMPTY }
     }
@@ -87,7 +89,8 @@ class AiPaddleTextDetector(
         assets: PaddleModelAssets,
         maxRegions: Int,
         sourceTextProfile: AiSourceTextProfile,
-        sourceLanguageTag: String
+        sourceLanguageTag: String,
+        translationMode: AiTranslationMode
     ): AiPaddleDetectionOutput {
         val preferredConfig = paddleOnnxExecutionConfig(
             tier = assets.tier,
@@ -104,6 +107,7 @@ class AiPaddleTextDetector(
                 maxRegions = maxRegions,
                 sourceTextProfile = sourceTextProfile,
                 sourceLanguageTag = sourceLanguageTag,
+                translationMode = translationMode,
                 executionConfig = preferredConfig
             )
         } catch (error: Exception) {
@@ -119,6 +123,7 @@ class AiPaddleTextDetector(
                 maxRegions = maxRegions,
                 sourceTextProfile = sourceTextProfile,
                 sourceLanguageTag = sourceLanguageTag,
+                translationMode = translationMode,
                 executionConfig = paddleOnnxExecutionConfig(assets.tier, AiPaddleExecutionProvider.CPU)
             )
         }
@@ -134,10 +139,17 @@ class AiPaddleTextDetector(
         maxRegions: Int,
         sourceTextProfile: AiSourceTextProfile,
         sourceLanguageTag: String,
+        translationMode: AiTranslationMode,
         executionConfig: PaddleOnnxExecutionConfig
     ): AiPaddleDetectionOutput {
         val preprocessStartedAt = System.nanoTime()
-        val input = bitmap.toPaddleDetectorInput(maxSide = paddleDetectorInputMaxSide(assets.tier, sourceTextProfile))
+        val input = bitmap.toPaddleDetectorInput(
+            maxSide = paddleDetectorInputMaxSide(
+                tier = assets.tier,
+                sourceTextProfile = sourceTextProfile,
+                translationMode = translationMode
+            )
+        )
         val preprocessMs = elapsedMilliseconds(preprocessStartedAt)
         val sessionAccess = sessionCache.acquire(assets.detectionModelFile, executionConfig)
         OnnxTensor.createTensor(
