@@ -247,6 +247,7 @@
     <string name="settings_ai_source_text_profile_auto">自动</string>
     <string name="settings_ai_source_text_profile_japanese_manga">日文漫画</string>
     <string name="settings_ai_source_text_profile_korean_horizontal_webtoon">韩文横排条漫</string>
+    <string name="settings_ai_default_mode">翻译质量</string>
     <string name="settings_ai_section_basic">基础</string>
     <string name="settings_ai_section_translation_behavior">翻译行为</string>
     <string name="settings_ai_section_request">请求</string>
@@ -322,6 +323,15 @@
     <string name="settings_ai_model_delete_title">删除本地 AI 模型</string>
     <string name="settings_ai_model_delete_message">将删除当前档位已下载的检测模型文件。之后使用 AI 翻译前，需要重新下载本地模型。</string>
     <string name="settings_ai_model_delete_confirm">删除模型</string>
+    <string name="settings_ai_mangalens_model">MangaLens 气泡模型</string>
+    <string name="settings_ai_mangalens_model_missing">用于高精度气泡定位 · CC BY-NC 4.0 · 点击下载</string>
+    <string name="settings_ai_mangalens_model_installed">已安装 · 点击移除本地模型</string>
+    <string name="settings_ai_mangalens_model_remove">移除本地模型</string>
+    <string name="settings_ai_mangalens_model_remove_message">移除 MangaLens 本地模型后，高精度翻译会使用文字区域几何。再次点击可重新下载。</string>
+    <string name="settings_ai_mangalens_model_download_success">MangaLens 气泡模型下载完成</string>
+    <string name="settings_ai_mangalens_model_download_failed">MangaLens 气泡模型下载失败：%1$s</string>
+    <string name="settings_ai_mangalens_model_remove_success">MangaLens 本地模型已移除</string>
+    <string name="settings_ai_mangalens_model_remove_failed">MangaLens 本地模型移除失败</string>
     <string name="settings_ai_model_delete_success">本地 AI 模型已删除</string>
     <string name="settings_ai_model_delete_failed">本地 AI 模型删除失败</string>
     <string name="settings_ai_model_installed">已下载</string>
@@ -346,6 +356,8 @@
     <string name="ai_translate_cache_progress_with_mode">正在缓存图片 %1$d / %2$d · %3$s</string>
     <string name="ai_translation_mode_local_detection">本地检测 + AI 翻译</string>
     <string name="ai_translation_mode_local_detection_short">检测</string>
+    <string name="ai_translation_mode_high_accuracy">高精度翻译</string>
+    <string name="ai_translation_mode_high_accuracy_short">高精度</string>
     <string name="ai_translate_delete_title">删除本书 AI 翻译</string>
     <string name="ai_translate_delete_message_first">将删除这本书已保存的 AI 翻译数据。AI 翻译数据通常占用空间较小，删除后阅读器会立即失去已翻译覆盖层。</string>
     <string name="ai_translate_delete_continue">继续</string>

@@ -61,6 +61,14 @@ class AiSettingsTest {
     }
 
     @Test
+    fun translationModeParsesHighAccuracyAndKeepsSafeDefault() {
+        assertEquals(AiTranslationMode.LOCAL_DETECTION, AiTranslationMode.fromStoredValue(""))
+        assertEquals(AiTranslationMode.LOCAL_DETECTION, AiTranslationMode.fromStoredValue("unknown"))
+        assertEquals(AiTranslationMode.LOCAL_DETECTION, AiTranslationMode.fromStoredValue("local_detection"))
+        assertEquals(AiTranslationMode.HIGH_ACCURACY, AiTranslationMode.fromStoredValue("high_accuracy"))
+    }
+
+    @Test
     fun maxImagesPerRequestControlsBubbleBatchSize() {
         assertEquals(1, AiSettings.normalizeMaxImagesPerRequest(-3))
         assertEquals(1, AiSettings.normalizeMaxImagesPerRequest(1))

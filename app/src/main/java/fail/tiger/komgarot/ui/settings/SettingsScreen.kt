@@ -52,6 +52,7 @@ import fail.tiger.komgarot.data.local.AiSettings
 import fail.tiger.komgarot.data.local.AiImageTransport
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.AiTranslationRequestMode
+import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AuthPreferences
 import fail.tiger.komgarot.data.local.BookDownloadIndex
 import fail.tiger.komgarot.data.local.CacheClearTarget
@@ -319,6 +320,7 @@ private fun SettingsContent(
     val aiModelRevision by prefs.aiModelRevision.collectAsStateWithLifecycle(initialValue = "main")
     val aiAutoSelectDeviceTier by prefs.aiAutoSelectDeviceTier.collectAsStateWithLifecycle(initialValue = true)
     val aiImageTransport by prefs.aiImageTransport.collectAsStateWithLifecycle(initialValue = AiImageTransport.BASE64)
+    val aiTranslationMode by prefs.aiTranslationMode.collectAsStateWithLifecycle(initialValue = AiTranslationMode.LOCAL_DETECTION)
     val aiTranslationRequestMode by prefs.aiTranslationRequestMode.collectAsStateWithLifecycle(initialValue = AiSettings.defaults().requestMode)
     val aiPagesPerRequest by prefs.aiPagesPerRequest.collectAsStateWithLifecycle(initialValue = 10)
     val aiConcurrentRequests by prefs.aiConcurrentRequests.collectAsStateWithLifecycle(initialValue = AiSettings.defaults().concurrentRequests)
@@ -341,6 +343,7 @@ private fun SettingsContent(
     var showAiTargetLanguageMenu by remember { mutableStateOf(false) }
     var showAiSourceTextProfileDialog by remember { mutableStateOf(false) }
     var showAiImageTransportDialog by remember { mutableStateOf(false) }
+    var showAiModeDialog by remember { mutableStateOf(false) }
     var showAiRequestModeDialog by remember { mutableStateOf(false) }
     var showAiS3EndpointDialog by remember { mutableStateOf(false) }
     var showAiS3RegionDialog by remember { mutableStateOf(false) }
@@ -360,6 +363,7 @@ private fun SettingsContent(
     var showAiAdditionalPromptDialog by remember { mutableStateOf(false) }
     var showAiVerticalGlyphSpacingDialog by remember { mutableStateOf(false) }
     var showDeleteLocalModelsDialog by remember { mutableStateOf(false) }
+    var showDeleteMangaLensDialog by remember { mutableStateOf(false) }
     var purgingAiTranslations by remember { mutableStateOf(false) }
     var aiTranslationPurgeCandidates by remember { mutableStateOf<List<String>>(emptyList()) }
     var showWebDavUrlDialog by remember { mutableStateOf(false) }
@@ -370,6 +374,8 @@ private fun SettingsContent(
     var webDavBackupLoading by remember { mutableStateOf(false) }
     var localModelDownloading by remember { mutableStateOf(false) }
     var localModelsInstalled by remember { mutableStateOf(false) }
+    var mangaLensModelDownloading by remember { mutableStateOf(false) }
+    var mangaLensModelInstalled by remember { mutableStateOf(false) }
     fun saveS3Settings(next: SecureAiSettings) {
         app?.secureAiSettingsStore?.saveS3Settings(next)
         secureAiSettings = app?.secureAiSettingsStore?.read() ?: next
@@ -396,6 +402,7 @@ private fun SettingsContent(
     }
     LaunchedEffect(app, recommendedLocalModelPlan, aiModelRevision) {
         localModelsInstalled = app?.aiLocalModelRepository?.isPlanInstalled(recommendedLocalModelPlan, aiModelRevision) == true
+        mangaLensModelInstalled = app?.aiLocalModelRepository?.isMangaLensInstalled() == true
     }
 
     Scaffold(
@@ -685,6 +692,11 @@ private fun SettingsContent(
                 supportingContent = { Text(stringResource(sourceTextProfileOption.labelRes)) },
                 modifier = Modifier.clickable { showAiSourceTextProfileDialog = true }
             )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_default_mode)) },
+                supportingContent = { Text(aiTranslationModeLabel(aiTranslationMode)) },
+                modifier = Modifier.clickable { showAiModeDialog = true }
+            )
             SettingsSectionHeader(stringResource(R.string.settings_ai_section_translation_behavior))
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_ai_skip_sound_effects)) },
@@ -908,6 +920,53 @@ private fun SettingsContent(
                     }
                 }
             )
+            val mangaLensAction = aiMangaLensModelAction(mangaLensModelInstalled)
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_mangalens_model)) },
+                supportingContent = {
+                    Text(
+                        stringResource(
+                            if (mangaLensModelInstalled) {
+                                R.string.settings_ai_mangalens_model_installed
+                            } else {
+                                R.string.settings_ai_mangalens_model_missing
+                            }
+                        )
+                    )
+                },
+                trailingContent = {
+                    if (mangaLensModelDownloading) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else if (mangaLensAction == AiMangaLensModelAction.DELETE) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = stringResource(R.string.settings_ai_mangalens_model_remove)
+                        )
+                    }
+                },
+                modifier = Modifier.clickable(enabled = !mangaLensModelDownloading) {
+                    if (mangaLensAction == AiMangaLensModelAction.DELETE) {
+                        showDeleteMangaLensDialog = true
+                        return@clickable
+                    }
+                    val repository = app?.aiLocalModelRepository ?: return@clickable
+                    scope.launch {
+                        mangaLensModelDownloading = true
+                        val result = repository.downloadMangaLens()
+                        mangaLensModelInstalled = repository.isMangaLensInstalled()
+                        mangaLensModelDownloading = false
+                        val message = if (result.isSuccess) {
+                            context.getString(R.string.settings_ai_mangalens_model_download_success)
+                        } else {
+                            context.getString(
+                                R.string.settings_ai_mangalens_model_download_failed,
+                                result.exceptionOrNull()?.message.orEmpty()
+                            )
+                        }
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    }
+                }
+            )
             SettingsSectionHeader(stringResource(R.string.settings_ai_section_data))
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_ai_purge_translation_data)) },
@@ -1072,6 +1131,42 @@ private fun SettingsContent(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteLocalModelsDialog = false }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
+
+    if (showDeleteMangaLensDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteMangaLensDialog = false },
+            title = { Text(stringResource(R.string.settings_ai_mangalens_model_remove)) },
+            text = { Text(stringResource(R.string.settings_ai_mangalens_model_remove_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteMangaLensDialog = false
+                    val deleted = app?.aiLocalModelRepository?.deleteMangaLens() == true
+                    mangaLensModelInstalled = app?.aiLocalModelRepository?.isMangaLensInstalled() == true
+                    Toast.makeText(
+                        context,
+                        context.getString(
+                            if (deleted) {
+                                R.string.settings_ai_mangalens_model_remove_success
+                            } else {
+                                R.string.settings_ai_mangalens_model_remove_failed
+                            }
+                        ),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }) {
+                    Text(
+                        stringResource(R.string.settings_ai_mangalens_model_remove),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteMangaLensDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
             }
         )
     }
@@ -1558,6 +1653,36 @@ private fun SettingsContent(
         )
     }
 
+    if (showAiModeDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiModeDialog = false },
+            title = { Text(stringResource(R.string.settings_ai_default_mode)) },
+            text = {
+                Column {
+                    RadioOption(
+                        value = AiTranslationMode.LOCAL_DETECTION.storedValue,
+                        label = stringResource(R.string.ai_translation_mode_local_detection),
+                        selected = aiTranslationMode.storedValue,
+                        onSelect = {
+                            scope.launch { prefs.setAiTranslationMode(AiTranslationMode.LOCAL_DETECTION) }
+                            showAiModeDialog = false
+                        }
+                    )
+                    RadioOption(
+                        value = AiTranslationMode.HIGH_ACCURACY.storedValue,
+                        label = stringResource(R.string.ai_translation_mode_high_accuracy),
+                        selected = aiTranslationMode.storedValue,
+                        onSelect = {
+                            scope.launch { prefs.setAiTranslationMode(AiTranslationMode.HIGH_ACCURACY) }
+                            showAiModeDialog = false
+                        }
+                    )
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
     if (showAiConcurrencyDialog) {
         TextSettingDialog(
             title = stringResource(R.string.settings_ai_concurrent_requests),
@@ -1945,12 +2070,29 @@ private fun deviceTierLabelRes(tier: AiLocalModelTier): Int =
         AiLocalModelTier.HIGH -> R.string.settings_ai_model_device_tier_high
     }
 
+internal enum class AiMangaLensModelAction {
+    DOWNLOAD,
+    DELETE
+}
+
+internal fun aiMangaLensModelAction(installed: Boolean): AiMangaLensModelAction =
+    if (installed) AiMangaLensModelAction.DELETE else AiMangaLensModelAction.DOWNLOAD
+
 @Composable
 private fun aiTranslationRequestModeLabel(mode: AiTranslationRequestMode): String =
     stringResource(
         when (mode) {
             AiTranslationRequestMode.SERIAL -> R.string.settings_ai_request_mode_serial
             AiTranslationRequestMode.PARALLEL -> R.string.settings_ai_request_mode_parallel
+        }
+    )
+
+@Composable
+private fun aiTranslationModeLabel(mode: AiTranslationMode): String =
+    stringResource(
+        when (mode) {
+            AiTranslationMode.LOCAL_DETECTION -> R.string.ai_translation_mode_local_detection
+            AiTranslationMode.HIGH_ACCURACY -> R.string.ai_translation_mode_high_accuracy
         }
     )
 
