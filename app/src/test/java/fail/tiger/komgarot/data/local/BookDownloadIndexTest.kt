@@ -1,10 +1,12 @@
 package fail.tiger.komgarot.data.local
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.util.concurrent.Executors
 import fail.tiger.komgarot.data.remote.dto.BookDto
 import fail.tiger.komgarot.data.remote.dto.BookMediaDto
 import fail.tiger.komgarot.data.remote.dto.BookMetadataDto
@@ -79,6 +81,36 @@ class BookDownloadIndexTest {
         index.clear()
 
         assertTrue(index.list().isEmpty())
+    }
+
+    @Test
+    fun corruptedIndexIsPreservedForRecovery() {
+        val cacheDir = temporaryFolder.newFolder("cache")
+        val indexFile = java.io.File(cacheDir, "book_download_index.json")
+        indexFile.writeText("{broken")
+        val index = BookDownloadIndex(cacheDir)
+
+        assertTrue(index.list().isEmpty())
+        assertFalse(indexFile.exists())
+        assertTrue(java.io.File(cacheDir, "book_download_index.json.corrupt").isFile)
+    }
+
+    @Test
+    fun concurrentRecordsKeepEveryBookEntry() {
+        val index = BookDownloadIndex(temporaryFolder.newFolder("cache"))
+        val executor = Executors.newFixedThreadPool(4)
+        try {
+            val jobs = (1..32).map { bookNumber ->
+                executor.submit {
+                    index.record(CachedBookEntry(bookId = "book-$bookNumber", updatedAt = bookNumber.toLong()))
+                }
+            }
+            jobs.forEach { it.get() }
+        } finally {
+            executor.shutdownNow()
+        }
+
+        assertEquals((1..32).map { "book-$it" }.toSet(), index.list().map { it.bookId }.toSet())
     }
 
     @Test
