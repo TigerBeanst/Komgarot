@@ -19,6 +19,7 @@ import fail.tiger.komgarot.data.remote.UrlInterceptor
 import fail.tiger.komgarot.data.repository.AdminRepository
 import fail.tiger.komgarot.data.repository.AppUpdateRepository
 import fail.tiger.komgarot.data.repository.AiLocalModelRepository
+import fail.tiger.komgarot.data.repository.AiMangaLensOnnxDetector
 import fail.tiger.komgarot.data.repository.AiPaddleTextDetector
 import fail.tiger.komgarot.data.repository.AiLocalTextDetector
 import fail.tiger.komgarot.data.repository.AiTranslationQueueRunner
@@ -59,6 +60,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         get() = aiTranslationRepositoryOrNull
     lateinit var aiLocalModelRepository: AiLocalModelRepository
     private var aiPaddleTextDetector: AiPaddleTextDetector? = null
+    private var aiMangaLensOnnxDetector: AiMangaLensOnnxDetector? = null
     var aiTranslationQueueRunner: AiTranslationQueueRunner? = null
         private set
     lateinit var webDavBackupRepository: WebDavBackupRepository
@@ -98,6 +100,7 @@ class KomgarotApp : Application(), ImageLoaderFactory {
         aiLocalModelRepository = AiLocalModelRepository(filesDir)
         if (BuildConfig.AI_TRANSLATION_AVAILABLE) {
             aiPaddleTextDetector = AiPaddleTextDetector(applicationContext, aiLocalModelRepository)
+            aiMangaLensOnnxDetector = AiMangaLensOnnxDetector(aiLocalModelRepository)
             aiTranslationRepositoryOrNull = AiTranslationRepository(
                 context = applicationContext,
                 bookRepository = bookRepository,
@@ -106,7 +109,8 @@ class KomgarotApp : Application(), ImageLoaderFactory {
                 store = aiTranslationStore,
                 komgaHttpClient = okHttpClient,
                 localTextDetector = AiLocalTextDetector(
-                    paddleTextDetector = aiPaddleTextDetector
+                    paddleTextDetector = aiPaddleTextDetector,
+                    bubbleRegionDetector = aiMangaLensOnnxDetector
                 ),
                 aiClient = aiTranslationClient
             )
@@ -126,6 +130,8 @@ class KomgarotApp : Application(), ImageLoaderFactory {
     override fun onTerminate() {
         aiPaddleTextDetector?.close()
         aiPaddleTextDetector = null
+        aiMangaLensOnnxDetector?.close()
+        aiMangaLensOnnxDetector = null
         super.onTerminate()
     }
 

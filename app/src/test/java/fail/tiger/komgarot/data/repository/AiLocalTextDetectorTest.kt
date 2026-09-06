@@ -11,11 +11,20 @@ import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AiLocalTextDetectorTest {
     private val detectorSource = File("src/main/java/fail/tiger/komgarot/data/repository/AiLocalTextDetector.kt").readText()
+
+    @Test
+    fun highAccuracyUsesLargerDetectionImageBudget() {
+        assertEquals(2048, localDetectionMaxEdge(2048, AiTranslationMode.LOCAL_DETECTION))
+        assertEquals(3072, localDetectionMaxEdge(2048, AiTranslationMode.HIGH_ACCURACY))
+        assertEquals(3072, localDetectionMaxEdge(2560, AiTranslationMode.HIGH_ACCURACY))
+        assertEquals(4096, localDetectionMaxEdge(4096, AiTranslationMode.HIGH_ACCURACY))
+    }
 
     @Test
     fun detectorUsesHeuristicFallbackWithoutBundledTextRecognition() {
@@ -49,7 +58,7 @@ class AiLocalTextDetectorTest {
         assertTrue(!detectorSource.contains("mergePaddleRegionsWithOcrText"))
         assertTrue(paddleSource.contains("OrtEnvironment.getEnvironment()"))
         assertTrue(paddleSource.contains("paddleProbabilityMapToRects("))
-        assertTrue(paddleSource.contains("bitmap.toPaddleDetectorInput(maxSide = paddleDetectorInputMaxSide("))
+        assertTrue(paddleSource.contains("maxSide = paddleDetectorInputMaxSide("))
         assertTrue(paddleSource.contains("coerceIn(0.74f, 1.28f)"))
         assertTrue(paddleSource.contains("PaddleOnnxSessionCache"))
         assertTrue(paddleSource.contains("paddleRegionConfidence(this)"))
@@ -94,6 +103,181 @@ class AiLocalTextDetectorTest {
         assertEquals(0.18f, rect.y, 0.0001f)
         assertEquals(0.072f, rect.width, 0.0001f)
         assertEquals(0.22f, rect.height, 0.0001f)
+    }
+
+    @Test
+    fun highAccuracyAddsMissingHeuristicRegionWhenPaddleResultIsSparse() {
+        val paddle = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.10f, 0.10f, 0.18f, 0.08f),
+            textDirection = AiTranslationTextDirection.HORIZONTAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.96f,
+            estimatedFontScale = 0.80f
+        )
+        val missing = paddle.copy(
+            id = "p0-h2",
+            rect = AiTranslationRect(0.70f, 0.72f, 0.16f, 0.07f),
+            confidence = 0.72f
+        )
+
+        val selected = selectLocalTextDetectionRegions(
+            paddleRegions = listOf(paddle),
+            heuristicRegions = { listOf(missing) },
+            sourceTextProfile = AiSourceTextProfile.HORIZONTAL_COMIC,
+            maxRegions = 64,
+            translationMode = AiTranslationMode.HIGH_ACCURACY
+        )
+
+        assertEquals(2, selected.size)
+        assertTrue(selected.any { it.rect == paddle.rect })
+        assertTrue(selected.any { it.rect == missing.rect })
+    }
+
+    @Test
+    fun highAccuracyKeepsPaddleRegionWhenHeuristicOverlapsIt() {
+        val paddle = AiTranslationLocalTextRegion(
+            id = "p0-r1",
+            rect = AiTranslationRect(0.10f, 0.10f, 0.20f, 0.10f),
+            textDirection = AiTranslationTextDirection.HORIZONTAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.84f
+        )
+        val overlappingHeuristic = paddle.copy(
+            id = "p0-h1",
+            rect = AiTranslationRect(0.105f, 0.105f, 0.19f, 0.09f),
+            confidence = 0.70f
+        )
+
+        val selected = selectLocalTextDetectionRegions(
+            paddleRegions = listOf(paddle),
+            heuristicRegions = { listOf(overlappingHeuristic) },
+            sourceTextProfile = AiSourceTextProfile.HORIZONTAL_COMIC,
+            maxRegions = 64,
+            translationMode = AiTranslationMode.HIGH_ACCURACY
+        )
+
+        assertEquals(1, selected.size)
+        assertEquals("p0-r1", selected.single().id)
+    }
+
+    @Test
+    fun highAccuracyDoesNotFuseHeuristicNoiseWhenPaddleAlreadyFoundSeveralRegions() {
+        val paddleRegions = (1..3).map { index ->
+            AiTranslationLocalTextRegion(
+                id = "p0-r$index",
+                rect = AiTranslationRect(0.10f * index, 0.10f, 0.04f, 0.16f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = if (index == 3) 0.70f else 0.94f,
+                estimatedFontScale = 0.80f
+            )
+        }
+
+        val selected = selectLocalTextDetectionRegions(
+            paddleRegions = paddleRegions,
+            heuristicRegions = { error("heuristic fallback should stay disabled") },
+            sourceTextProfile = AiSourceTextProfile.JAPANESE_MANGA,
+            maxRegions = 64,
+            translationMode = AiTranslationMode.HIGH_ACCURACY
+        )
+
+        assertTrue(selected.isNotEmpty())
+        assertTrue(selected.all { selectedRegion ->
+            paddleRegions.any { paddleRegion -> selectedRegion.id == paddleRegion.id }
+        })
+    }
+
+    @Test
+    fun highAccuracyRefinesTextRegionsWithDetectedBubbleGeometry() {
+        val right = AiTranslationLocalTextRegion(
+            id = "right",
+            rect = AiTranslationRect(0.64f, 0.18f, 0.04f, 0.20f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.62f
+        )
+        val left = right.copy(
+            id = "left",
+            rect = AiTranslationRect(0.59f, 0.18f, 0.04f, 0.20f)
+        )
+        val bubble = AiTranslationRect(0.53f, 0.11f, 0.22f, 0.36f)
+
+        val refined = refineLocalTextRegionsWithBubbles(
+            regions = listOf(right, left),
+            bubbles = listOf(bubble),
+            translationMode = AiTranslationMode.HIGH_ACCURACY
+        )
+
+        assertEquals(1, refined.size)
+        assertEquals(bubble, refined.single().aiCropBounds)
+    }
+
+    @Test
+    fun highAccuracyKeepsOcrLinesSeparateUntilBubbleAssignment() {
+        val right = AiTranslationLocalTextRegion(
+            id = "right",
+            rect = AiTranslationRect(0.64f, 0.18f, 0.04f, 0.20f),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.94f,
+            estimatedFontScale = 0.62f
+        )
+        val left = right.copy(
+            id = "left",
+            rect = AiTranslationRect(0.59f, 0.18f, 0.04f, 0.20f)
+        )
+
+        val selected = selectLocalTextDetectionRegions(
+            paddleRegions = listOf(right, left),
+            heuristicRegions = { emptyList() },
+            sourceTextProfile = AiSourceTextProfile.JAPANESE_MANGA,
+            maxRegions = 64,
+            translationMode = AiTranslationMode.HIGH_ACCURACY,
+            preserveLinesForBubbleGrouping = true
+        )
+
+        assertEquals(2, selected.size)
+    }
+
+    @Test
+    fun localDetectionKeepsTextGeometryWhenBubbleGeometryIsAvailable() {
+        val region = AiTranslationLocalTextRegion(
+            id = "text",
+            rect = AiTranslationRect(0.20f, 0.20f, 0.12f, 0.08f),
+            textDirection = AiTranslationTextDirection.HORIZONTAL,
+            textColor = "#111111",
+            backgroundColor = "#FFFFFF",
+            confidence = 0.92f,
+            estimatedFontScale = 0.70f
+        )
+
+        val refined = refineLocalTextRegionsWithBubbles(
+            regions = listOf(region),
+            bubbles = listOf(AiTranslationRect(0.10f, 0.10f, 0.40f, 0.40f)),
+            translationMode = AiTranslationMode.LOCAL_DETECTION
+        )
+
+        assertSame(region, refined.single())
+    }
+
+    @Test
+    fun localContextCacheVersionIncludesBubbleDetectorVersion() {
+        assertEquals(
+            "local-v22-mask-placement:mangalens:abc",
+            aiLocalContextCacheVersion("mangalens:abc")
+        )
+        assertEquals(
+            "local-v22-mask-placement:bubble-none-v1",
+            aiLocalContextCacheVersion("bubble-none-v1")
+        )
     }
 
     @Test

@@ -3,6 +3,7 @@ package fail.tiger.komgarot.data.repository
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import fail.tiger.komgarot.data.local.AiTranslationRect
+import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationBlock
 import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiSettings
@@ -20,6 +21,7 @@ import kotlin.math.roundToInt
 
 class AiLocalTextDetector(
     private val paddleTextDetector: AiPaddleTextDetector? = null,
+    private val bubbleRegionDetector: AiBubbleRegionDetector? = null,
     private val maxEdge: Int = 2048,
     private val maxRegions: Int = 64
 ) : AutoCloseable {
@@ -31,7 +33,8 @@ class AiLocalTextDetector(
         onTimingStep: (String, Long) -> Unit = { _, _ -> },
         onDetectionStats: (AiLocalDetectionStats) -> Unit = {}
     ): AiTranslationLocalPageContext {
-        val decoded = decodeForDetection(file)
+        val translationMode = settings?.preferredMode ?: AiTranslationMode.LOCAL_DETECTION
+        val decoded = decodeForDetection(file, translationMode)
         val bitmap = decoded.bitmap
         return try {
             val pixels = IntArray(bitmap.width * bitmap.height)
@@ -53,7 +56,16 @@ class AiLocalTextDetector(
             } else {
                 AiPaddleDetectionOutput.EMPTY
             }
-            val regions = selectLocalTextDetectionRegions(
+            val bubbles = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                timedLocalDetectionStep(AI_TIMING_BUBBLE_DETECTION, onTimingStep) {
+                    runCatching {
+                        bubbleRegionDetector?.detect(pixels, bitmap.width, bitmap.height).orEmpty()
+                    }.getOrDefault(emptyList())
+                }
+            } else {
+                emptyList()
+            }
+            val selectedRegions = selectLocalTextDetectionRegions(
                 paddleRegions = paddleOutput.regions,
                 heuristicRegions = {
                     timedLocalDetectionStep(AI_TIMING_HEURISTIC_FALLBACK, onTimingStep) {
@@ -75,7 +87,14 @@ class AiLocalTextDetector(
                     }
                 },
                 sourceTextProfile = sourceTextProfile,
-                maxRegions = maxRegions
+                maxRegions = maxRegions,
+                translationMode = translationMode,
+                preserveLinesForBubbleGrouping = bubbles.isNotEmpty()
+            )
+            val regions = refineLocalTextRegionsWithBubbles(
+                regions = selectedRegions,
+                bubbles = bubbles,
+                translationMode = translationMode
             )
             paddleOutput.stats?.let { stats ->
                 onTimingStep(
@@ -99,7 +118,15 @@ class AiLocalTextDetector(
 
     override fun close() {
         paddleTextDetector?.close()
+        bubbleRegionDetector?.close()
     }
+
+    fun cacheVersion(translationMode: AiTranslationMode): String =
+        if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+            "paddle-high-accuracy-v3:${bubbleRegionDetector?.cacheVersion() ?: "bubble-none-v1"}"
+        } else {
+            "local-detection-v1"
+        }
 
     private fun detectWithHeuristic(
         clusters: List<AiTextCluster>,
@@ -128,10 +155,14 @@ class AiLocalTextDetector(
         .take(maxRegions)
         .toList()
 
-    private fun decodeForDetection(file: File): AiDetectionBitmap {
+    private fun decodeForDetection(file: File, translationMode: AiTranslationMode): AiDetectionBitmap {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
-        val sampleSize = aiImageSampleSize(bounds.outWidth, bounds.outHeight, maxEdge)
+        val sampleSize = aiImageSampleSize(
+            bounds.outWidth,
+            bounds.outHeight,
+            localDetectionMaxEdge(maxEdge, translationMode)
+        )
         val options = BitmapFactory.Options().apply {
             inSampleSize = sampleSize
             inPreferredConfig = Bitmap.Config.RGB_565
@@ -145,6 +176,18 @@ class AiLocalTextDetector(
         )
     }
 }
+
+internal fun localDetectionMaxEdge(configuredMaxEdge: Int, translationMode: AiTranslationMode): Int =
+    if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+        max(
+            configuredMaxEdge,
+            min(configuredMaxEdge * 3 / 2, HIGH_ACCURACY_DETECTION_MAX_EDGE)
+        )
+    } else {
+        configuredMaxEdge
+    }
+
+private const val HIGH_ACCURACY_DETECTION_MAX_EDGE = 3072
 
 data class AiLocalDetectionStats(
     val sessionWasReused: Boolean,
@@ -183,21 +226,48 @@ internal fun selectLocalTextDetectionRegions(
     paddleRegions: List<AiTranslationLocalTextRegion>,
     heuristicRegions: () -> List<AiTranslationLocalTextRegion>,
     sourceTextProfile: AiSourceTextProfile,
-    maxRegions: Int
+    maxRegions: Int,
+    translationMode: AiTranslationMode = AiTranslationMode.LOCAL_DETECTION,
+    preserveLinesForBubbleGrouping: Boolean = false
 ): List<AiTranslationLocalTextRegion> {
-    if (paddleRegions.isNotEmpty()) {
+    if (paddleRegions.isNotEmpty() && translationMode != AiTranslationMode.HIGH_ACCURACY) {
         return mergeLocalTextRegionsIntoTextBoxes(
             normalizeLocalTextDirectionsForProfile(paddleRegions, sourceTextProfile),
             sourceTextProfile
         )
             .take(maxRegions)
     }
-    return mergeLocalTextRegionsIntoTextBoxes(
-        normalizeLocalTextDirectionsForProfile(heuristicRegions(), sourceTextProfile),
-        sourceTextProfile
-    )
-        .take(maxRegions)
+    val normalizedPaddle = normalizeLocalTextDirectionsForProfile(paddleRegions, sourceTextProfile)
+    val shouldFuseHeuristic = translationMode == AiTranslationMode.HIGH_ACCURACY &&
+        normalizedPaddle.size <= HIGH_ACCURACY_SPARSE_PADDLE_REGION_COUNT
+    val normalizedHeuristic = if (normalizedPaddle.isEmpty() || shouldFuseHeuristic) {
+        normalizeLocalTextDirectionsForProfile(heuristicRegions(), sourceTextProfile)
+    } else {
+        emptyList()
+    }
+    val selectedRegions = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+        collapseHighlyOverlappingLocalTextRegions(normalizedPaddle + normalizedHeuristic)
+    } else {
+        normalizedHeuristic
+    }
+    return if (translationMode == AiTranslationMode.HIGH_ACCURACY && preserveLinesForBubbleGrouping) {
+        selectedRegions.take(maxRegions)
+    } else {
+        mergeLocalTextRegionsIntoTextBoxes(selectedRegions, sourceTextProfile).take(maxRegions)
+    }
 }
+
+internal fun refineLocalTextRegionsWithBubbles(
+    regions: List<AiTranslationLocalTextRegion>,
+    bubbles: List<*>,
+    translationMode: AiTranslationMode
+): List<AiTranslationLocalTextRegion> = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+    groupLocalTextRegionsByBubbles(regions, bubbles)
+} else {
+    regions
+}
+
+private const val HIGH_ACCURACY_SPARSE_PADDLE_REGION_COUNT = 2
 
 internal fun normalizeLocalTextDirectionsForProfile(
     regions: List<AiTranslationLocalTextRegion>,
@@ -255,6 +325,7 @@ private const val AI_TIMING_PADDLE_SESSION_HOT = "paddle_session_hot"
 private const val AI_TIMING_PADDLE_INFERENCE = "paddle_inference"
 private const val AI_TIMING_PADDLE_POST_PROCESS = "paddle_post_process"
 private const val AI_TIMING_HEURISTIC_FALLBACK = "heuristic_fallback"
+private const val AI_TIMING_BUBBLE_DETECTION = "bubble_detection"
 
 internal fun mergeLocalTextRegionsIntoTextBoxes(
     regions: List<AiTranslationLocalTextRegion>,
@@ -1448,7 +1519,9 @@ internal fun AiTranslationBlock.correctWithLocalRegion(region: AiTranslationLoca
         textDirection = region.textDirection,
         rotationDegrees = if (region.rotationDegrees != 0f) region.rotationDegrees else rotationDegrees,
         fontScale = region.estimatedFontScale,
-        sourceColumns = region.effectiveSourceColumns()
+        sourceColumns = region.effectiveSourceColumns(),
+        bubbleOutline = region.bubbleOutline,
+        bubbleSolidFill = region.bubbleSolidFill
     )
 }
 
