@@ -3,8 +3,10 @@ package fail.tiger.komgarot.ui.reader
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationBlock
 import fail.tiger.komgarot.data.local.AiTranslationRect
+import fail.tiger.komgarot.data.local.AiTranslationPoint
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReaderSplitPagesTest {
@@ -46,5 +48,32 @@ class ReaderSplitPagesTest {
 
         assertEquals(1200, right.imageWidth)
         assertEquals(listOf("right"), right.blocks.map(AiTranslationBlock::localRegionId))
+    }
+
+    @Test
+    fun splitPageClipsBubbleOutlineAtCenterBoundary() {
+        val page = AiTranslatedPage(
+            imageWidth = 2000,
+            imageHeight = 3000,
+            blocks = listOf(
+                AiTranslationBlock(
+                    rect = AiTranslationRect(0.38f, 0.20f, 0.10f, 0.20f),
+                    translationRect = AiTranslationRect(0.36f, 0.18f, 0.12f, 0.24f),
+                    bubbleOutline = listOf(
+                        AiTranslationPoint(0.34f, 0.18f),
+                        AiTranslationPoint(0.54f, 0.22f),
+                        AiTranslationPoint(0.52f, 0.44f),
+                        AiTranslationPoint(0.35f, 0.42f)
+                    )
+                )
+            )
+        )
+
+        val left = page.forReaderPageSegment(ReaderPageSegment.LEFT_HALF)
+        val outline = left.blocks.single().bubbleOutline
+
+        assertTrue(outline.size >= 4)
+        assertTrue(outline.all { it.x in 0f..1f })
+        assertTrue(outline.any { it.x == 1f })
     }
 }
