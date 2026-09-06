@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.ui.reader
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,11 +24,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -38,9 +48,11 @@ import fail.tiger.komgarot.data.local.AiTranslationBlock
 import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
+import fail.tiger.komgarot.data.local.AiTranslationPoint
 import fail.tiger.komgarot.data.local.AiTranslationRegionStatus
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
+import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.suppressDuplicateRenderedTranslations
 import kotlin.math.abs
 import kotlin.math.max
@@ -68,6 +80,27 @@ fun AiTranslationOverlay(
 ) {
     if (page == null || mode == AiTranslationDisplayMode.OFF) return
     BoxWithConstraints(modifier.fillMaxSize()) {
+        val localDensity = LocalDensity.current
+        val layoutFontScale = localDensity.fontScale.coerceIn(0.5f, 2f)
+        val textMeasurer = rememberTextMeasurer()
+        val measurementBaseStyle = MaterialTheme.typography.bodySmall
+        val measureText: (String, Float, Float) -> AiMeasuredGlyphSize = { text, fontSize, lineHeightMultiplier ->
+            val measured = textMeasurer.measure(
+                text = text,
+                style = measurementBaseStyle.copy(
+                    fontSize = fontSize.sp,
+                    lineHeight = (fontSize * lineHeightMultiplier).sp,
+                    letterSpacing = 0.sp,
+                    fontWeight = FontWeight.Normal,
+                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                ),
+                softWrap = false
+            )
+            AiMeasuredGlyphSize(
+                widthDp = measured.size.width / localDensity.density,
+                heightDp = measured.size.height / localDensity.density
+            )
+        }
         val bounds = imageContentBounds(
             containerWidth = maxWidth,
             containerHeight = maxHeight,
@@ -80,18 +113,25 @@ fun AiTranslationOverlay(
             val safe = block.renderSafe()
             val renderTextDirection = aiTranslationRenderTextDirection(safe)
             val hasTranslatedText = safe.translatedLines.any { it.isNotBlank() }
-            val showProcessingPlaceholder = page.status == AiTranslationPageStatus.RUNNING &&
-                (safe.regionStatus == AiTranslationRegionStatus.PENDING ||
-                    safe.regionStatus == AiTranslationRegionStatus.RUNNING)
+            val translationMode = AiTranslationMode.fromStoredValue(page.mode)
+            val showProcessingPlaceholder = shouldShowAiTranslationProcessingPlaceholder(
+                pageStatus = page.status,
+                regionStatus = safe.regionStatus,
+                translationMode = translationMode
+            )
             if (!hasTranslatedText && !showProcessingPlaceholder) return@forEach
             val sourceMaskPlacements = aiTranslationSourceMaskRects(
                 block = safe,
                 pageWidthDp = bounds.width.value,
-                pageHeightDp = bounds.height.value
+                pageHeightDp = bounds.height.value,
+                translationMode = translationMode
             )
             val textPlacement = aiTranslationTextPlacement(
                 block = safe,
-                sourceMaskPlacements = sourceMaskPlacements
+                sourceMaskPlacements = sourceMaskPlacements,
+                translationMode = translationMode,
+                pageWidthDp = bounds.width.value,
+                pageHeightDp = bounds.height.value
             )
             val blockWidth = bounds.width * textPlacement.width.coerceIn(0f, 1f)
             val blockHeight = bounds.height * textPlacement.height.coerceIn(0f, 1f)
@@ -144,17 +184,40 @@ fun AiTranslationOverlay(
                 }
             } else {
                 val usesSolidTextBoxMask = safe.kind.usesSolidAiTranslationMask()
+                val maskPlan = aiTranslationMaskPlan(
+                    translationMode = translationMode,
+                    hasBubbleOutline = safe.bubbleOutline.size >= 4,
+                    bubbleSolidFill = safe.bubbleSolidFill,
+                    bubbleBoundsArea = aiTranslationBubbleBoundsArea(safe.bubbleOutline)
+                )
                 val translatedTextBackgroundColor = if (usesSolidTextBoxMask) {
                     Color.Transparent
                 } else {
                     parseAiColor(safe.maskColor).copy(alpha = safe.maskAlpha)
                 }
-                val inlineTextPadding = if (usesSolidTextBoxMask) 0.dp else 0.5.dp
-                val horizontalLinePadding = if (usesSolidTextBoxMask) 0.dp else 1.dp
+                val highAccuracySafetyPadding = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                    AI_TRANSLATION_HIGH_ACCURACY_TEXT_SAFETY_PADDING_DP.dp
+                } else {
+                    0.dp
+                }
+                val inlineTextPadding = when {
+                    translationMode == AiTranslationMode.HIGH_ACCURACY -> 0.dp
+                    usesSolidTextBoxMask -> 0.dp
+                    else -> 0.5.dp
+                }
+                val horizontalLinePadding = when {
+                    translationMode == AiTranslationMode.HIGH_ACCURACY -> 0.dp
+                    usesSolidTextBoxMask -> 0.dp
+                    else -> 1.dp
+                }
                 val verticalColumnHorizontalPadding = if (
                     renderTextDirection == AiTranslationTextDirection.VERTICAL && usesSolidTextBoxMask
                 ) {
-                    AI_TRANSLATION_VERTICAL_TEXT_COLUMN_HORIZONTAL_PADDING_DP.dp
+                    if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                        0.dp
+                    } else {
+                        AI_TRANSLATION_VERTICAL_TEXT_COLUMN_HORIZONTAL_PADDING_DP.dp
+                    }
                 } else {
                     inlineTextPadding
                 }
@@ -172,7 +235,16 @@ fun AiTranslationOverlay(
                 } else {
                     1.dp
                 }
-                if (usesSolidTextBoxMask) {
+                if (usesSolidTextBoxMask && translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                    AiHighAccuracyBubbleMask(
+                        block = safe,
+                        maskPlan = maskPlan,
+                        sourceMaskPlacements = sourceMaskPlacements,
+                        bounds = bounds,
+                        maskColor = parseAiColor(safe.maskColor)
+                    )
+                }
+                if (usesSolidTextBoxMask && maskPlan.drawRectangularSourceMasks) {
                     sourceMaskPlacements.forEach { sourceMaskPlacement ->
                         val sourceMaskWidth = bounds.width * sourceMaskPlacement.width.coerceIn(0f, 1f)
                         val sourceMaskHeight = bounds.height * sourceMaskPlacement.height.coerceIn(0f, 1f)
@@ -204,31 +276,67 @@ fun AiTranslationOverlay(
                             y = bounds.y + bounds.height * textPlacement.y.coerceIn(0f, 1f)
                         )
                         .width(blockWidth)
-                        .heightIn(min = blockHeight),
+                        .height(blockHeight)
+                        .clipToBounds(),
                     contentAlignment = Alignment.TopCenter
                 ) {
                     if (renderTextDirection == AiTranslationTextDirection.VERTICAL) {
-                        val verticalLayout = fitVerticalAiTranslationText(
+                        val verticalLayout = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                            fitMeasuredVerticalAiTranslationText(
+                                lines = safe.translatedLines,
+                                rectWidthDp = (blockWidth.value - highAccuracySafetyPadding.value * 2f).coerceAtLeast(0.5f),
+                                rectHeightDp = (blockHeight.value - highAccuracySafetyPadding.value * 2f).coerceAtLeast(0.5f),
+                                baseFontSizeSp = fittedFontSizeSp,
+                                kind = safe.kind,
+                                glyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
+                                columnGapDp = textGroupGap.value,
+                                measureGlyph = { glyph, fontSize ->
+                                    measureText(glyph.toString(), fontSize, AI_TRANSLATION_VERTICAL_LINE_HEIGHT_MULTIPLIER)
+                                }
+                            )
+                        } else fitVerticalAiTranslationText(
                             lines = safe.translatedLines,
-                            rectWidthDp = blockWidth.value,
-                            rectHeightDp = blockHeight.value,
+                            rectWidthDp = aiTranslationFitExtentDp(
+                                totalDp = blockWidth.value,
+                                paddingDp = verticalColumnHorizontalPadding.value,
+                                fontScale = layoutFontScale
+                            ),
+                            rectHeightDp = aiTranslationFitExtentDp(
+                                totalDp = blockHeight.value,
+                                paddingDp = verticalColumnVerticalPadding.value,
+                                fontScale = layoutFontScale
+                            ),
                             baseFontSizeSp = fittedFontSizeSp,
                             kind = safe.kind,
                             glyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
-                            columnGapDp = textGroupGap.value,
-                            sourceColumnWidthDp = sourceColumnMetrics.fontWidthDp,
-                            sourceColumnHeightDp = sourceColumnMetrics.maxHeightDp,
-                            sourceColumnCount = sourceColumnMetrics.columnCount
+                            columnGapDp = textGroupGap.value / layoutFontScale,
+                            sourceColumnWidthDp = aiTranslationLayoutSourceColumnWidthDp(
+                                translationMode = translationMode,
+                                sourceColumnWidthDp = sourceColumnMetrics.fontWidthDp
+                            ) / layoutFontScale,
+                            sourceColumnHeightDp = aiTranslationLayoutSourceColumnWidthDp(
+                                translationMode = translationMode,
+                                sourceColumnWidthDp = sourceColumnMetrics.maxHeightDp
+                            ) / layoutFontScale,
+                            sourceColumnCount = aiTranslationLayoutSourceColumnCount(
+                                translationMode = translationMode,
+                                sourceColumnCount = sourceColumnMetrics.columnCount
+                            )
                         )
-                        val columnWidth = Dp(verticalLayout.columnWidthDp)
+                        val columnWidth = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                            Dp(verticalLayout.columnWidthDp)
+                        } else {
+                            Dp(verticalLayout.columnWidthDp * layoutFontScale)
+                        }
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(textGroupGap),
                             verticalAlignment = Alignment.Top,
                             modifier = Modifier
                                 .offset(y = verticalTextTopOffsetDp(verticalLayout.fontSizeSp))
+                                .padding(if (translationMode == AiTranslationMode.HIGH_ACCURACY) highAccuracySafetyPadding else 0.dp)
                                 .wrapContentSize(unbounded = true)
                                 .normalTextBoxMask(
-                                    enabled = usesSolidTextBoxMask,
+                                    enabled = usesSolidTextBoxMask && maskPlan.drawTextBackground,
                                     orientation = TextBackgroundOrientation.VERTICAL,
                                     color = parseAiColor(safe.maskColor).copy(alpha = normalAiTranslationMaskAlpha(safe.maskAlpha)),
                                     cornerRadius = safe.cornerRadius
@@ -250,21 +358,42 @@ fun AiTranslationOverlay(
                             }
                         }
                     } else {
-                        val horizontalLayout = fitHorizontalAiTranslationText(
+                        val horizontalLayout = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                            fitMeasuredHorizontalAiTranslationText(
+                                lines = safe.translatedLines,
+                                rectWidthDp = (blockWidth.value - highAccuracySafetyPadding.value * 2f).coerceAtLeast(0.5f),
+                                rectHeightDp = (blockHeight.value - highAccuracySafetyPadding.value * 2f).coerceAtLeast(0.5f),
+                                baseFontSizeSp = fittedFontSizeSp,
+                                kind = safe.kind,
+                                lineGapDp = textGroupGap.value,
+                                measureText = { text, fontSize ->
+                                    measureText(text, fontSize, AI_TRANSLATION_HORIZONTAL_LINE_HEIGHT_MULTIPLIER)
+                                }
+                            )
+                        } else fitHorizontalAiTranslationText(
                             lines = safe.translatedLines,
-                            rectWidthDp = blockWidth.value,
-                            rectHeightDp = blockHeight.value,
+                            rectWidthDp = aiTranslationFitExtentDp(
+                                totalDp = blockWidth.value,
+                                paddingDp = horizontalLinePadding.value,
+                                fontScale = layoutFontScale
+                            ),
+                            rectHeightDp = aiTranslationFitExtentDp(
+                                totalDp = blockHeight.value,
+                                paddingDp = inlineTextPadding.value,
+                                fontScale = layoutFontScale
+                            ),
                             baseFontSizeSp = fittedFontSizeSp,
                             kind = safe.kind,
-                            lineGapDp = textGroupGap.value
+                            lineGapDp = textGroupGap.value / layoutFontScale
                         )
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(textGroupGap),
                             modifier = Modifier
+                                .padding(if (translationMode == AiTranslationMode.HIGH_ACCURACY) highAccuracySafetyPadding else 0.dp)
                                 .wrapContentHeight(unbounded = true)
                                 .normalTextBoxMask(
-                                    enabled = usesSolidTextBoxMask,
+                                    enabled = usesSolidTextBoxMask && maskPlan.drawTextBackground,
                                     orientation = TextBackgroundOrientation.HORIZONTAL,
                                     color = parseAiColor(safe.maskColor).copy(alpha = normalAiTranslationMaskAlpha(safe.maskAlpha)),
                                     cornerRadius = safe.cornerRadius
@@ -278,13 +407,79 @@ fun AiTranslationOverlay(
                                     cornerRadius = safe.cornerRadius,
                                     fontSizeSp = horizontalLayout.fontSizeSp,
                                     lineHeightMultiplier = AI_TRANSLATION_HORIZONTAL_LINE_HEIGHT_MULTIPLIER,
-                                    maxWidth = horizontalLayout.maxLineWidth,
+                                    maxWidth = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                                        horizontalLayout.maxLineWidth
+                                    } else {
+                                        horizontalLayout.maxLineWidth * layoutFontScale
+                                    },
                                     horizontalPadding = horizontalLinePadding,
                                     verticalPadding = inlineTextPadding
                                 )
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiHighAccuracyBubbleMask(
+    block: AiTranslationBlock,
+    maskPlan: AiTranslationMaskPlan,
+    sourceMaskPlacements: List<AiTranslationRect>,
+    bounds: AiImageContentBounds,
+    maskColor: Color
+) {
+    Canvas(Modifier.fillMaxSize()) {
+        val imageLeft = bounds.x.toPx()
+        val imageTop = bounds.y.toPx()
+        val imageWidth = bounds.width.toPx()
+        val imageHeight = bounds.height.toPx()
+        val bubblePath = Path().apply {
+            val outline = expandAiTranslationBubbleMaskOutline(
+                points = block.bubbleOutline,
+                expansionRatio = AI_TRANSLATION_BUBBLE_MASK_OUTLINE_EXPANSION_RATIO
+            )
+            if (outline.size >= 4) {
+                moveTo(imageLeft + outline.first().x * imageWidth, imageTop + outline.first().y * imageHeight)
+                outline.drop(1).forEach { point ->
+                    lineTo(imageLeft + point.x * imageWidth, imageTop + point.y * imageHeight)
+                }
+                close()
+            } else {
+                val fallback = block.translationRect.takeIf { it.width > 0f && it.height > 0f } ?: block.rect
+                val rect = Rect(
+                    left = imageLeft + fallback.x * imageWidth,
+                    top = imageTop + fallback.y * imageHeight,
+                    right = imageLeft + (fallback.x + fallback.width) * imageWidth,
+                    bottom = imageTop + (fallback.y + fallback.height) * imageHeight
+                )
+                if (block.kind == AiTranslationBlockKind.SIGN || block.kind == AiTranslationBlockKind.NARRATION) {
+                    val radius = min(rect.width, rect.height) * 0.10f
+                    addRoundRect(RoundRect(rect, radius, radius))
+                } else {
+                    addOval(rect)
+                }
+            }
+        }
+        if (maskPlan == AiTranslationMaskPlan.BUBBLE_FILL) {
+            drawPath(bubblePath, maskColor)
+        } else {
+            clipPath(bubblePath) {
+                sourceMaskPlacements.forEach { sourceRect ->
+                    drawRect(
+                        color = maskColor,
+                        topLeft = Offset(
+                            x = imageLeft + sourceRect.x * imageWidth,
+                            y = imageTop + sourceRect.y * imageHeight
+                        ),
+                        size = Size(
+                            width = sourceRect.width * imageWidth,
+                            height = sourceRect.height * imageHeight
+                        )
+                    )
                 }
             }
         }
@@ -675,12 +870,22 @@ internal fun aiTranslationFontSizeSp(
         }
     }
     val normalSize = if (textDirection == AiTranslationTextDirection.VERTICAL) {
-        scaledSize.coerceAtLeast(minimumReadableSize)
+        scaledSize.coerceIn(minimumReadableSize, AI_TRANSLATION_MAX_VERTICAL_FONT_SP)
     } else {
         scaledSize.coerceIn(minimumReadableSize, 28f)
     }
     return displayAiTranslationFontSizeSp(kind, normalSize, textDirection)
 }
+
+internal fun shouldShowAiTranslationProcessingPlaceholder(
+    pageStatus: AiTranslationPageStatus,
+    regionStatus: AiTranslationRegionStatus,
+    translationMode: AiTranslationMode
+): Boolean =
+    translationMode != AiTranslationMode.HIGH_ACCURACY &&
+        pageStatus == AiTranslationPageStatus.RUNNING &&
+        (regionStatus == AiTranslationRegionStatus.PENDING ||
+            regionStatus == AiTranslationRegionStatus.RUNNING)
 
 internal data class AiVerticalTextLayout(
     val fontSizeSp: Float,
@@ -688,6 +893,183 @@ internal data class AiVerticalTextLayout(
     val columns: List<String>,
     val columnWidthDp: Float
 )
+
+internal data class AiMeasuredGlyphSize(
+    val widthDp: Float,
+    val heightDp: Float
+)
+
+internal data class AiMeasuredLayoutBounds(
+    val widthDp: Float,
+    val heightDp: Float
+)
+
+internal enum class AiTranslationMaskPlan(
+    val drawRectangularSourceMasks: Boolean,
+    val drawTextBackground: Boolean
+) {
+    RECTANGULAR_SOURCE(true, true),
+    BUBBLE_FILL(false, false),
+    BUBBLE_CLIPPED_SOURCE(false, false)
+}
+
+internal fun expandAiTranslationBubbleMaskOutline(
+    points: List<AiTranslationPoint>,
+    expansionRatio: Float
+): List<AiTranslationPoint> {
+    if (points.size < 4 || expansionRatio <= 0f) return points
+    val left = points.minOf(AiTranslationPoint::x)
+    val right = points.maxOf(AiTranslationPoint::x)
+    val top = points.minOf(AiTranslationPoint::y)
+    val bottom = points.maxOf(AiTranslationPoint::y)
+    val centerX = (left + right) / 2f
+    val centerY = (top + bottom) / 2f
+    val expansionScale = 1f + expansionRatio * 2f
+    return points.map { point ->
+        AiTranslationPoint(
+            x = (centerX + (point.x - centerX) * expansionScale).coerceIn(0f, 1f),
+            y = (centerY + (point.y - centerY) * expansionScale).coerceIn(0f, 1f)
+        )
+    }
+}
+
+internal fun aiTranslationMaskPlan(
+    translationMode: AiTranslationMode,
+    hasBubbleOutline: Boolean,
+    bubbleSolidFill: Boolean,
+    bubbleBoundsArea: Float = 0f
+): AiTranslationMaskPlan = when {
+    translationMode != AiTranslationMode.HIGH_ACCURACY -> AiTranslationMaskPlan.RECTANGULAR_SOURCE
+    hasBubbleOutline && bubbleSolidFill && bubbleBoundsArea <= AI_TRANSLATION_MAX_SOLID_BUBBLE_FILL_AREA ->
+        AiTranslationMaskPlan.BUBBLE_FILL
+    else -> AiTranslationMaskPlan.BUBBLE_CLIPPED_SOURCE
+}
+
+internal fun aiTranslationBubbleBoundsArea(points: List<AiTranslationPoint>): Float {
+    if (points.size < 4) return 0f
+    val width = points.maxOf(AiTranslationPoint::x) - points.minOf(AiTranslationPoint::x)
+    val height = points.maxOf(AiTranslationPoint::y) - points.minOf(AiTranslationPoint::y)
+    return width.coerceAtLeast(0f) * height.coerceAtLeast(0f)
+}
+
+internal fun fitMeasuredVerticalAiTranslationText(
+    lines: List<String>,
+    rectWidthDp: Float,
+    rectHeightDp: Float,
+    baseFontSizeSp: Float,
+    kind: AiTranslationBlockKind,
+    glyphSpacingMultiplier: Float,
+    columnGapDp: Float,
+    measureGlyph: (Char, Float) -> AiMeasuredGlyphSize
+): AiVerticalTextLayout {
+    val safeWidth = rectWidthDp.coerceAtLeast(0.5f)
+    val safeHeight = rectHeightDp.coerceAtLeast(0.5f)
+    val fullText = lines.joinToString("").ifBlank { " " }
+    fun layout(fontSizeSp: Float, textValue: String = fullText): AiVerticalTextLayout {
+        val text = textValue.map { toVerticalText(it.toString()).first() }
+        val metrics = text.map { measureGlyph(it, fontSizeSp) }
+        val widest = metrics.maxOfOrNull { it.widthDp } ?: fontSizeSp
+        val tallest = metrics.maxOfOrNull { it.heightDp } ?: fontSizeSp
+        val advance = max(
+            fontSizeSp * glyphSpacingMultiplier,
+            tallest * AI_TRANSLATION_MIN_VERTICAL_GLYPH_SPACING_MULTIPLIER
+        ).coerceAtLeast(0.25f)
+        val charsPerColumn = (((safeHeight - tallest).coerceAtLeast(0f) / advance).toInt() + 1).coerceAtLeast(1)
+        return AiVerticalTextLayout(
+            fontSizeSp = fontSizeSp,
+            charsPerColumn = charsPerColumn,
+            columns = verticalTextColumnsForDisplay(listOf(text.joinToString("")), charsPerColumn, kind),
+            columnWidthDp = max(widest, fontSizeSp * AI_TRANSLATION_VERTICAL_COLUMN_WIDTH_MULTIPLIER)
+        )
+    }
+    val completeTextMinimum = absoluteFitMinimumFontSize(kind)
+    var low = completeTextMinimum
+    var high = baseFontSizeSp.coerceAtLeast(low)
+    var best = layout(low)
+    repeat(AI_TRANSLATION_FIT_ITERATIONS * 2) {
+        val candidate = layout((low + high) / 2f)
+        val bounds = measuredVerticalLayoutBounds(candidate, glyphSpacingMultiplier, columnGapDp, measureGlyph)
+        if (bounds.widthDp <= safeWidth && bounds.heightDp <= safeHeight) {
+            best = candidate
+            low = candidate.fontSizeSp
+        } else {
+            high = candidate.fontSizeSp
+        }
+    }
+    return best
+}
+
+internal fun measuredVerticalLayoutBounds(
+    layout: AiVerticalTextLayout,
+    glyphSpacingMultiplier: Float,
+    columnGapDp: Float,
+    measureGlyph: (Char, Float) -> AiMeasuredGlyphSize
+): AiMeasuredLayoutBounds {
+    val glyphs = layout.columns.flatMap(String::toList)
+    val metrics = glyphs.map { glyph -> measureGlyph(glyph, layout.fontSizeSp) }
+    val widest = metrics.maxOfOrNull { it.widthDp } ?: 0f
+    val tallest = metrics.maxOfOrNull { it.heightDp } ?: 0f
+    val advance = max(
+        layout.fontSizeSp * glyphSpacingMultiplier,
+        tallest * AI_TRANSLATION_MIN_VERTICAL_GLYPH_SPACING_MULTIPLIER
+    )
+    val maxLength = layout.columns.maxOfOrNull(String::length) ?: 0
+    val height = if (maxLength <= 0) 0f else tallest + advance * (maxLength - 1)
+    return AiMeasuredLayoutBounds(
+        widthDp = verticalTextLayoutWidthDp(max(layout.columnWidthDp, widest), layout.columns.size, columnGapDp),
+        heightDp = height
+    )
+}
+
+internal fun fitMeasuredHorizontalAiTranslationText(
+    lines: List<String>,
+    rectWidthDp: Float,
+    rectHeightDp: Float,
+    baseFontSizeSp: Float,
+    kind: AiTranslationBlockKind,
+    lineGapDp: Float,
+    measureText: (String, Float) -> AiMeasuredGlyphSize
+): AiHorizontalTextLayout {
+    val safeWidth = rectWidthDp.coerceAtLeast(0.5f)
+    val safeHeight = rectHeightDp.coerceAtLeast(0.5f)
+    val fullText = lines.map(String::trim).filter(String::isNotBlank)
+        .reduceOrNull(::joinTranslatedLine)
+        .orEmpty()
+        .ifBlank { " " }
+    fun layout(fontSizeSp: Float, textValue: String = fullText): AiHorizontalTextLayout = AiHorizontalTextLayout(
+        fontSizeSp = fontSizeSp,
+        lines = balancedHorizontalLines(listOf(textValue), safeWidth, fontSizeSp),
+        maxLineWidth = Dp(safeWidth)
+    )
+    val completeTextMinimum = absoluteFitMinimumFontSize(kind)
+    var low = completeTextMinimum
+    var high = baseFontSizeSp.coerceAtLeast(low)
+    var best = layout(low)
+    repeat(AI_TRANSLATION_FIT_ITERATIONS * 2) {
+        val candidate = layout((low + high) / 2f)
+        val bounds = measuredHorizontalLayoutBounds(candidate, lineGapDp, measureText)
+        if (bounds.widthDp <= safeWidth && bounds.heightDp <= safeHeight) {
+            best = candidate
+            low = candidate.fontSizeSp
+        } else {
+            high = candidate.fontSizeSp
+        }
+    }
+    return best
+}
+
+internal fun measuredHorizontalLayoutBounds(
+    layout: AiHorizontalTextLayout,
+    lineGapDp: Float,
+    measureText: (String, Float) -> AiMeasuredGlyphSize
+): AiMeasuredLayoutBounds {
+    val measurements = layout.lines.map { line -> measureText(line, layout.fontSizeSp) }
+    return AiMeasuredLayoutBounds(
+        widthDp = measurements.maxOfOrNull { it.widthDp } ?: 0f,
+        heightDp = measurements.sumOf { it.heightDp.toDouble() }.toFloat() +
+            (measurements.size - 1).coerceAtLeast(0) * lineGapDp
+    )
+}
 
 internal data class AiHorizontalTextLayout(
     val fontSizeSp: Float,
@@ -705,8 +1087,8 @@ internal data class AiVerticalSourceColumnMetrics(
 )
 
 internal fun aiTranslationRenderTextDirection(block: AiTranslationBlock): AiTranslationTextDirection {
-    if (block.textDirection == AiTranslationTextDirection.HORIZONTAL) {
-        return AiTranslationTextDirection.HORIZONTAL
+    if (block.textDirection != AiTranslationTextDirection.AUTO) {
+        return block.textDirection
     }
     val columns = block.sourceColumns.filter { it.width > 0f && it.height > 0f }
     if (columns.isEmpty()) return block.textDirection
@@ -726,34 +1108,161 @@ internal fun aiTranslationRenderTextDirection(block: AiTranslationBlock): AiTran
 internal fun aiTranslationSourceMaskRects(
     block: AiTranslationBlock,
     pageWidthDp: Float = 0f,
-    pageHeightDp: Float = 0f
+    pageHeightDp: Float = 0f,
+    translationMode: AiTranslationMode = AiTranslationMode.LOCAL_DETECTION
 ): List<AiTranslationRect> {
     val sourceColumns = block.sourceColumns.filter { it.width > 0f && it.height > 0f }
     val rects = sourceColumns.ifEmpty { listOf(block.rect) }
     val paddedRects = if (sourceColumns.isEmpty() || pageWidthDp <= 0f || pageHeightDp <= 0f) {
         rects
     } else {
-        val horizontalPadding = AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP / pageWidthDp
-        val verticalPadding = AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP / pageHeightDp
-        rects.map { it.expandNormalized(horizontalPadding, verticalPadding) }
+        val minimumPaddingDp = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+            AI_TRANSLATION_HIGH_ACCURACY_SOURCE_MASK_PADDING_DP
+        } else {
+            AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP
+        }
+        rects.map { rect ->
+            val horizontalPadding = max(
+                minimumPaddingDp / pageWidthDp,
+                if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                    rect.width * AI_TRANSLATION_HIGH_ACCURACY_SOURCE_MASK_HORIZONTAL_EXPANSION
+                } else {
+                    0f
+                }
+            )
+            val verticalPadding = max(
+                minimumPaddingDp / pageHeightDp,
+                if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                    rect.height * AI_TRANSLATION_HIGH_ACCURACY_SOURCE_MASK_VERTICAL_EXPANSION
+                } else {
+                    0f
+                }
+            )
+            rect.expandNormalized(horizontalPadding, verticalPadding)
+        }
     }
     val horizontalBlock = aiTranslationRenderTextDirection(block) == AiTranslationTextDirection.HORIZONTAL
     return if (horizontalBlock && paddedRects.size > 1) {
-        listOfNotNull(paddedRects.boundingRectOrNull())
+        if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+            mergeNearbyHorizontalMaskRects(paddedRects)
+        } else {
+            listOfNotNull(paddedRects.boundingRectOrNull())
+        }
     } else {
         paddedRects
     }
 }
 
+private fun mergeNearbyHorizontalMaskRects(rects: List<AiTranslationRect>): List<AiTranslationRect> {
+    val sorted = rects.filter { it.width > 0f && it.height > 0f }.sortedBy { it.y }
+    if (sorted.size < 2) return sorted
+    val groups = mutableListOf<MutableList<AiTranslationRect>>()
+    sorted.forEach { rect ->
+        val current = groups.lastOrNull()
+        val currentBounds = current?.boundingRectOrNull()
+        val gap = currentBounds?.let { (rect.y - it.bottom).coerceAtLeast(0f) } ?: Float.POSITIVE_INFINITY
+        val gapLimit = currentBounds?.let { max(it.height, rect.height) * 0.90f } ?: 0f
+        if (current != null && gap <= gapLimit) {
+            current += rect
+        } else {
+            groups += mutableListOf(rect)
+        }
+    }
+    return groups.mapNotNull { it.boundingRectOrNull() }
+}
+
 internal fun aiTranslationTextPlacement(
     block: AiTranslationBlock,
-    sourceMaskPlacements: List<AiTranslationRect>
+    sourceMaskPlacements: List<AiTranslationRect>,
+    translationMode: AiTranslationMode = AiTranslationMode.LOCAL_DETECTION,
+    pageWidthDp: Float = 0f,
+    pageHeightDp: Float = 0f
 ): AiTranslationRect {
+    val requestedPlacement = block.translationRect.effectiveOrNull()
+    if (translationMode == AiTranslationMode.HIGH_ACCURACY && requestedPlacement != null) {
+        return requestedPlacement
+            .expandForVerticalBubbleInterior(block)
+            .expandForCompleteHorizontalText(block, pageWidthDp, pageHeightDp)
+    }
     val ocrPlacement = sourceMaskPlacements
         .takeIf { block.kind.usesSolidAiTranslationMask() }
         ?.boundingRectOrNull()
-    return ocrPlacement ?: block.translationRect.effectiveOrNull() ?: block.rect
+    return ocrPlacement ?: requestedPlacement ?: block.rect
 }
+
+private fun AiTranslationRect.expandForVerticalBubbleInterior(
+    block: AiTranslationBlock
+): AiTranslationRect {
+    if (
+        block.bubbleOutline.size < 4 ||
+        aiTranslationRenderTextDirection(block) != AiTranslationTextDirection.VERTICAL
+    ) {
+        return this
+    }
+    val outlineLeft = block.bubbleOutline.minOf(AiTranslationPoint::x)
+    val outlineRight = block.bubbleOutline.maxOf(AiTranslationPoint::x)
+    val outlineTop = block.bubbleOutline.minOf(AiTranslationPoint::y)
+    val outlineBottom = block.bubbleOutline.maxOf(AiTranslationPoint::y)
+    val outlineWidth = outlineRight - outlineLeft
+    val outlineHeight = outlineBottom - outlineTop
+    if (outlineWidth <= 0f || outlineHeight <= 0f) return this
+    val horizontalInset = outlineWidth * AI_TRANSLATION_VERTICAL_BUBBLE_INTERIOR_HORIZONTAL_INSET_RATIO
+    val verticalInset = outlineHeight * AI_TRANSLATION_VERTICAL_BUBBLE_INTERIOR_VERTICAL_INSET_RATIO
+    val interior = AiTranslationRect(
+        x = outlineLeft + horizontalInset,
+        y = outlineTop + verticalInset,
+        width = outlineWidth - horizontalInset * 2f,
+        height = outlineHeight - verticalInset * 2f
+    ).coerceForOverlayPlacement()
+    return if (interior.width > width || interior.height > height) interior else this
+}
+
+private fun AiTranslationRect.expandForCompleteHorizontalText(
+    block: AiTranslationBlock,
+    pageWidthDp: Float,
+    pageHeightDp: Float
+): AiTranslationRect {
+    val expandableKind = block.kind == AiTranslationBlockKind.SIGN || block.kind == AiTranslationBlockKind.NARRATION
+    if (
+        !expandableKind ||
+        block.bubbleOutline.size >= 4 ||
+        aiTranslationRenderTextDirection(block) != AiTranslationTextDirection.HORIZONTAL ||
+        pageWidthDp <= 0f ||
+        pageHeightDp <= 0f
+    ) {
+        return this
+    }
+    val longestLineUnits = block.translatedLines
+        .filter(String::isNotBlank)
+        .maxOfOrNull(::visualTextUnits)
+        ?: return this
+    val desiredWidthDp = longestLineUnits * AI_TRANSLATION_NON_BUBBLE_HORIZONTAL_TARGET_CHAR_DP +
+        AI_TRANSLATION_NON_BUBBLE_HORIZONTAL_PADDING_DP * 2f
+    val targetWidth = max(
+        width * AI_TRANSLATION_NON_BUBBLE_HORIZONTAL_MIN_EXPANSION,
+        desiredWidthDp / pageWidthDp
+    ).coerceIn(width, AI_TRANSLATION_NON_BUBBLE_HORIZONTAL_MAX_WIDTH)
+    val centerX = x + width / 2f
+    val expandedX = (centerX - targetWidth / 2f).coerceIn(0f, 1f - targetWidth)
+    return copy(x = expandedX, width = targetWidth)
+}
+
+internal fun aiTranslationLayoutSourceColumnWidthDp(
+    translationMode: AiTranslationMode,
+    sourceColumnWidthDp: Float
+): Float = if (translationMode == AiTranslationMode.HIGH_ACCURACY) 0f else sourceColumnWidthDp
+
+internal fun aiTranslationLayoutSourceColumnCount(
+    translationMode: AiTranslationMode,
+    sourceColumnCount: Int
+): Int = if (translationMode == AiTranslationMode.HIGH_ACCURACY) 0 else sourceColumnCount
+
+internal fun aiTranslationFitExtentDp(
+    totalDp: Float,
+    paddingDp: Float,
+    fontScale: Float = 1f
+): Float =
+    ((totalDp - paddingDp.coerceAtLeast(0f) * 2f) / fontScale.coerceAtLeast(0.5f)).coerceAtLeast(1f)
 
 internal fun aiTranslationSourceColumnMetrics(
     columns: List<AiTranslationRect>,
@@ -1038,8 +1547,8 @@ internal fun verticalGlyphPlacementAdvancePx(requestedAdvancePx: Int, tallestGly
     return max(requestedAdvancePx, minimumAdvancePx).coerceAtLeast(1)
 }
 
-internal fun verticalTextTopOffsetDp(fontSizeSp: Float): Dp =
-    Dp((-fontSizeSp * 0.16f).coerceAtMost(-1.2f))
+@Suppress("UNUSED_PARAMETER")
+internal fun verticalTextTopOffsetDp(fontSizeSp: Float): Dp = Dp(0f)
 
 private fun preferredHorizontalLineWidthDp(width: Dp, fontSizeSp: Float): Dp =
     Dp((width.value * 0.98f).coerceAtLeast(fontSizeSp * 0.8f))
@@ -1066,7 +1575,11 @@ internal fun balancedHorizontalLines(
         val candidate = if (buffer.isBlank()) line else joinTranslatedLine(buffer, line)
         if (buffer.isBlank()) {
             buffer = line
-        } else if (buffer.length < shortLineThreshold || line.length <= 3 || candidate.length <= charsPerLine) {
+        } else if (
+            visualTextUnits(buffer) < shortLineThreshold ||
+            visualTextUnits(line) <= 3f ||
+            visualTextUnits(candidate) <= charsPerLine
+        ) {
             buffer = candidate
         } else {
             merged += buffer
@@ -1300,13 +1813,26 @@ private const val AI_TRANSLATION_PLACEHOLDER_ALPHA = 0.22f
 private const val AI_TRANSLATION_HORIZONTAL_LINE_HEIGHT_MULTIPLIER = 0.96f
 private const val AI_TRANSLATION_HORIZONTAL_CHAR_WIDTH_MULTIPLIER = 1.0f
 private const val AI_TRANSLATION_VERTICAL_LINE_HEIGHT_MULTIPLIER = 0.92f
+private const val AI_TRANSLATION_MAX_VERTICAL_FONT_SP = 24f
 private const val AI_TRANSLATION_VERTICAL_COLUMN_WIDTH_MULTIPLIER = 1.18f
 private const val AI_TRANSLATION_VERTICAL_TEXT_COLUMN_HORIZONTAL_PADDING_DP = 0.5f
 private const val AI_TRANSLATION_SOURCE_TEXT_MASK_PADDING_DP = 2f
+private const val AI_TRANSLATION_HIGH_ACCURACY_SOURCE_MASK_PADDING_DP = 6f
+private const val AI_TRANSLATION_HIGH_ACCURACY_SOURCE_MASK_HORIZONTAL_EXPANSION = 0.12f
+private const val AI_TRANSLATION_HIGH_ACCURACY_SOURCE_MASK_VERTICAL_EXPANSION = 0.18f
+private const val AI_TRANSLATION_BUBBLE_MASK_OUTLINE_EXPANSION_RATIO = 0.03f
+private const val AI_TRANSLATION_MAX_SOLID_BUBBLE_FILL_AREA = 0.08f
+private const val AI_TRANSLATION_NON_BUBBLE_HORIZONTAL_TARGET_CHAR_DP = 8f
+private const val AI_TRANSLATION_NON_BUBBLE_HORIZONTAL_PADDING_DP = 4f
+private const val AI_TRANSLATION_NON_BUBBLE_HORIZONTAL_MIN_EXPANSION = 1.35f
+private const val AI_TRANSLATION_NON_BUBBLE_HORIZONTAL_MAX_WIDTH = 0.94f
+private const val AI_TRANSLATION_VERTICAL_BUBBLE_INTERIOR_HORIZONTAL_INSET_RATIO = 0.08f
+private const val AI_TRANSLATION_VERTICAL_BUBBLE_INTERIOR_VERTICAL_INSET_RATIO = 0.08f
 private const val AI_TRANSLATION_DEFAULT_VERTICAL_GLYPH_SPACING_MULTIPLIER = 0.86f
 private const val AI_TRANSLATION_MIN_VERTICAL_GLYPH_SPACING_MULTIPLIER = 0.78f
-private const val AI_TRANSLATION_ABSOLUTE_FIT_MIN_FONT_SP = 7.2f
-private const val AI_TRANSLATION_SFX_ABSOLUTE_FIT_MIN_FONT_SP = 5.8f
+private const val AI_TRANSLATION_ABSOLUTE_FIT_MIN_FONT_SP = 5.2f
+private const val AI_TRANSLATION_HIGH_ACCURACY_TEXT_SAFETY_PADDING_DP = 2f
+private const val AI_TRANSLATION_SFX_ABSOLUTE_FIT_MIN_FONT_SP = 4.8f
 private const val AI_TRANSLATION_FIT_ITERATIONS = 8
 private const val AI_TRANSLATION_MIN_OVERLAP_GAP = 0.0005f
 private const val AI_TRANSLATION_MAX_OVERLAP_SHIFT = 0.06f

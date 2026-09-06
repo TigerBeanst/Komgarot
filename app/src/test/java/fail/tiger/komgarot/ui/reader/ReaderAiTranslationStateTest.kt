@@ -17,6 +17,40 @@ class ReaderAiTranslationStateTest {
     private val viewModelSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderViewModel.kt").readText()
 
     @Test
+    fun fullPageRetryRemovesOldBlocksWhileDetectionRunsAgain() {
+        val oldPage = AiTranslatedPage(
+            pageIndex = 16,
+            status = AiTranslationPageStatus.DONE,
+            blocks = listOf(
+                AiTranslationBlock(
+                    localRegionId = "p16-r1",
+                    translatedLines = listOf("旧译文")
+                )
+            )
+        )
+
+        val retrying = oldPage.withReaderAiTranslationStatus(
+            status = AiTranslationPageStatus.RUNNING,
+            clearBlocks = true
+        )
+
+        assertEquals(AiTranslationPageStatus.RUNNING, retrying.status)
+        assertTrue(retrying.blocks.isEmpty())
+    }
+
+    @Test
+    fun loadingBookUsesCancellableGenerationGuard() {
+        assertTrue(viewModelSource.contains("private var loadJob: Job? = null"))
+        assertTrue(viewModelSource.contains("private var loadGeneration = 0L"))
+        assertTrue(viewModelSource.contains("loadJob?.cancel()"))
+        assertTrue(viewModelSource.contains("val loadGeneration = ++this.loadGeneration"))
+        assertTrue(viewModelSource.contains("isCurrentLoad(loadGeneration, bookId)"))
+        assertTrue(viewModelSource.contains("private var aiLocalModelDownloadJob: Job? = null"))
+        assertTrue(viewModelSource.contains("aiLocalModelDownloadJob?.cancel()"))
+        assertTrue(viewModelSource.contains("val downloadGeneration = loadGeneration"))
+    }
+
+    @Test
     fun refreshKeepsLocalRunningPageWhenStoreStillHasPendingState() {
         val local = AiTranslatedBook(
             bookId = "book-1",
@@ -254,6 +288,38 @@ class ReaderAiTranslationStateTest {
         assertTrue(viewModelSource.contains("AiTranslationDisplayMode.fromStoredValue"))
         assertTrue(viewModelSource.contains("prefs.setAiTranslationDisplayMode(currentAiTranslationDisplayMode.storedValue)"))
         assertTrue(viewModelSource.contains("prefs.setAiTranslationDisplayMode(AiTranslationDisplayMode.ON.storedValue)"))
+    }
+
+    @Test
+    fun openingBookKeepsTranslationVisibleOnlyForCompletedCurrentPage() {
+        assertEquals(
+            AiTranslationDisplayMode.ON,
+            readerInitialAiTranslationDisplayMode(
+                storedMode = AiTranslationDisplayMode.ON,
+                currentPageStatus = AiTranslationPageStatus.DONE
+            )
+        )
+        listOf(
+            null,
+            AiTranslationPageStatus.PENDING,
+            AiTranslationPageStatus.RUNNING,
+            AiTranslationPageStatus.FAILED
+        ).forEach { pageStatus ->
+            assertEquals(
+                AiTranslationDisplayMode.OFF,
+                readerInitialAiTranslationDisplayMode(
+                    storedMode = AiTranslationDisplayMode.ON,
+                    currentPageStatus = pageStatus
+                )
+            )
+        }
+        assertEquals(
+            AiTranslationDisplayMode.OFF,
+            readerInitialAiTranslationDisplayMode(
+                storedMode = AiTranslationDisplayMode.OFF,
+                currentPageStatus = AiTranslationPageStatus.DONE
+            )
+        )
     }
 
     @Test

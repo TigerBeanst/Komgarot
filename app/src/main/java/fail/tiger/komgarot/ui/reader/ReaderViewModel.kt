@@ -35,6 +35,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
@@ -105,6 +106,9 @@ class ReaderViewModel(
     var currentSeriesId: String = ""
         private set
     private var progressJob: Job? = null
+    private var loadJob: Job? = null
+    private var loadGeneration = 0L
+    private var aiLocalModelDownloadJob: Job? = null
     private var aiTranslationJob: Job? = null
     private var aiTranslationSequentialRestartJob: Job? = null
     private var aiTranslationPageIndexes: List<Int> = emptyList()
@@ -116,10 +120,17 @@ class ReaderViewModel(
     private var pendingSequentialAiTranslationRestart: PendingAiTranslationAction.TranslateWindow? = null
 
     fun load(bookId: String, startPage: Int, trackProgress: Boolean = true) {
+        val loadGeneration = ++this.loadGeneration
+        loadJob?.cancel()
+        aiLocalModelDownloadJob?.cancel()
+        aiLocalModelDownloadJob = null
+        aiLocalModelDownloading = false
         progressJob?.cancel()
         if (isAiTranslationWorkRunning()) stopAiTranslationWork()
         this.trackProgress = trackProgress
         if (currentBookId != bookId) {
+            currentAiTranslationDisplayMode = AiTranslationDisplayMode.OFF
+            showAiLocalModelRequiredDialog = false
             pendingAiTranslationAction = null
             pageUrls = emptyList()
             currentPages = emptyList()
@@ -130,38 +141,75 @@ class ReaderViewModel(
             nextBook = null
         }
         currentBookId = bookId
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             loading = true
             error = null
-            val base = prefs.serverUrl.first()
-            currentServerUrl = base
-            currentAiTranslationDisplayMode = AiTranslationDisplayMode.fromStoredValue(prefs.aiTranslationDisplayMode.first())
-            repo.getBookById(bookId)
-                .onSuccess { loadedBook ->
-                    book = loadedBook
-                    currentSeriesId = loadedBook.seriesId
-                    currentAiTranslationMode = aiTranslationRepository?.preferredModeForBook(bookId)
-                        ?: AiTranslationMode.LOCAL_DETECTION
-                    aiTranslatedBook = aiTranslationRepository?.readBookState(bookId)
-                    previousBook = repo.getPreviousBook(bookId).getOrNull()
-                    nextBook = repo.getNextBook(bookId).getOrNull()
-                }
-                .onFailure {
-                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: loadBookFailed
-                }
+            try {
+                coroutineContext.ensureActive()
+                if (!isCurrentLoad(loadGeneration, bookId)) return@launch
+                val base = prefs.serverUrl.first()
+                coroutineContext.ensureActive()
+                if (!isCurrentLoad(loadGeneration, bookId)) return@launch
+                currentServerUrl = base
+                val storedAiTranslationDisplayMode =
+                    AiTranslationDisplayMode.fromStoredValue(prefs.aiTranslationDisplayMode.first())
+                coroutineContext.ensureActive()
+                if (!isCurrentLoad(loadGeneration, bookId)) return@launch
+                repo.getBookById(bookId)
+                    .onSuccess { loadedBook ->
+                        if (!isCurrentLoad(loadGeneration, bookId)) return@onSuccess
+                        book = loadedBook
+                        currentSeriesId = loadedBook.seriesId
+                        currentAiTranslationMode = aiTranslationRepository?.preferredModeForBook(bookId)
+                            ?: AiTranslationMode.LOCAL_DETECTION
+                        aiTranslatedBook = aiTranslationRepository?.readBookState(bookId)
+                        previousBook = repo.getPreviousBook(bookId).getOrNull()
+                        nextBook = repo.getNextBook(bookId).getOrNull()
+                    }
+                    .onFailure {
+                        if (it is CancellationException) throw it
+                        if (isCurrentLoad(loadGeneration, bookId)) {
+                            error = it.message?.takeIf { message -> message.isNotBlank() } ?: loadBookFailed
+                        }
+                    }
 
-            runCatching { repo.getPages(bookId) }
-                .onSuccess { pages ->
-                    currentPages = pages
-                    pageUrls = pages.map { readerPageUrl(base, bookId, it) }
-                    currentPage = if (pageUrls.isEmpty()) 0 else (startPage - 1).coerceIn(0, pageUrls.lastIndex)
+                if (!isCurrentLoad(loadGeneration, bookId)) return@launch
+                runCatching { repo.getPages(bookId) }
+                    .onSuccess { pages ->
+                        if (!isCurrentLoad(loadGeneration, bookId)) return@onSuccess
+                        currentPages = pages
+                        pageUrls = pages.map { readerPageUrl(base, bookId, it) }
+                        currentPage = if (pageUrls.isEmpty()) 0 else (startPage - 1).coerceIn(0, pageUrls.lastIndex)
+                    }
+                    .onFailure {
+                        if (it is CancellationException) throw it
+                        if (isCurrentLoad(loadGeneration, bookId)) {
+                            error = it.message?.takeIf { message -> message.isNotBlank() } ?: loadPagesFailed
+                        }
+                    }
+                coroutineContext.ensureActive()
+                if (!isCurrentLoad(loadGeneration, bookId)) return@launch
+                currentAiTranslationDisplayMode = readerInitialAiTranslationDisplayMode(
+                    storedMode = storedAiTranslationDisplayMode,
+                    currentPageStatus = aiTranslatedBook
+                        ?.pages
+                        ?.firstOrNull { page -> page.pageIndex == currentPage }
+                        ?.status
+                )
+                if (currentAiTranslationDisplayMode != storedAiTranslationDisplayMode) {
+                    prefs.setAiTranslationDisplayMode(currentAiTranslationDisplayMode.storedValue)
                 }
-                .onFailure {
-                    error = it.message?.takeIf { message -> message.isNotBlank() } ?: loadPagesFailed
+            } finally {
+                if (isCurrentLoad(loadGeneration, bookId)) {
+                    loading = false
+                    loadJob = null
                 }
-            loading = false
+            }
         }
     }
+
+    private fun isCurrentLoad(loadGeneration: Long, bookId: String): Boolean =
+        this.loadGeneration == loadGeneration && currentBookId == bookId
 
     fun toggleControls() { showControls = !showControls }
     fun toggleMode() { mode = if (mode == ReadingMode.PAGER) ReadingMode.SCROLL else ReadingMode.PAGER }
@@ -270,17 +318,28 @@ class ReaderViewModel(
     fun downloadRequiredAiLocalModel() {
         val repository = aiLocalModelRepository ?: return
         if (aiLocalModelDownloading) return
-        viewModelScope.launch {
+        val downloadGeneration = loadGeneration
+        val downloadBookId = currentBookId
+        aiLocalModelDownloadJob = viewModelScope.launch {
             aiLocalModelDownloading = true
-            val required = requiredAiLocalModelPlan()
-            val result = repository.downloadPlan(required.plan, required.revision)
-            aiLocalModelDownloading = false
-            if (result.isSuccess) {
-                showAiLocalModelRequiredDialog = false
-                publishAiTranslationMessage(R.string.reader_ai_local_model_download_success)
-                continuePendingAiTranslationAction()
-            } else {
-                publishAiTranslationMessage(R.string.reader_ai_local_model_download_failed)
+            try {
+                val required = requiredAiLocalModelPlan()
+                coroutineContext.ensureActive()
+                val result = repository.downloadPlan(required.plan, required.revision)
+                coroutineContext.ensureActive()
+                if (!isCurrentLoad(downloadGeneration, downloadBookId)) return@launch
+                if (result.isSuccess) {
+                    showAiLocalModelRequiredDialog = false
+                    publishAiTranslationMessage(R.string.reader_ai_local_model_download_success)
+                    continuePendingAiTranslationAction()
+                } else {
+                    publishAiTranslationMessage(R.string.reader_ai_local_model_download_failed)
+                }
+            } finally {
+                if (isCurrentLoad(downloadGeneration, downloadBookId)) {
+                    aiLocalModelDownloading = false
+                    aiLocalModelDownloadJob = null
+                }
             }
         }
     }
@@ -669,7 +728,11 @@ class ReaderViewModel(
         aiTranslationJob?.cancel(userPausedAiTranslationCancellation())
         resetRunningAiTranslationStoreState(aiTranslationPageIndexes)
         clearRunningAiTranslationState()
-        updateAiTranslationPageStatus(pageIndex, AiTranslationPageStatus.RUNNING)
+        updateAiTranslationPageStatus(
+            pageIndex = pageIndex,
+            status = AiTranslationPageStatus.RUNNING,
+            clearBlocks = true
+        )
         publishAiTranslationMessage(R.string.reader_ai_retry_started)
         aiTranslationPageIndexes = pageIndexes
         val launchedJob = viewModelScope.launch {
@@ -749,12 +812,16 @@ class ReaderViewModel(
         updateAiTranslationPageStatus(currentPage, status)
     }
 
-    private fun updateAiTranslationPageStatus(pageIndex: Int, status: AiTranslationPageStatus) {
+    private fun updateAiTranslationPageStatus(
+        pageIndex: Int,
+        status: AiTranslationPageStatus,
+        clearBlocks: Boolean = false
+    ) {
         val existing = aiTranslatedBook ?: return
         val current = existing.pages.firstOrNull { it.pageIndex == pageIndex }
-        val updated = (current ?: AiTranslatedPage(pageIndex = pageIndex)).copy(
+        val updated = (current ?: AiTranslatedPage(pageIndex = pageIndex)).withReaderAiTranslationStatus(
             status = status,
-            errorSummary = if (status == AiTranslationPageStatus.RUNNING) "" else current?.errorSummary.orEmpty()
+            clearBlocks = clearBlocks
         )
         aiTranslatedBook = existing.copy(
             pages = (existing.pages.filterNot { it.pageIndex == pageIndex } + updated)
@@ -871,6 +938,26 @@ class ReaderViewModel(
             )
         }
     })
+}
+
+internal fun AiTranslatedPage.withReaderAiTranslationStatus(
+    status: AiTranslationPageStatus,
+    clearBlocks: Boolean = false
+): AiTranslatedPage = copy(
+    status = status,
+    blocks = if (clearBlocks) emptyList() else blocks,
+    errorSummary = if (status == AiTranslationPageStatus.RUNNING) "" else errorSummary
+)
+
+internal fun readerInitialAiTranslationDisplayMode(
+    storedMode: AiTranslationDisplayMode,
+    currentPageStatus: AiTranslationPageStatus?
+): AiTranslationDisplayMode = if (
+    storedMode == AiTranslationDisplayMode.ON && currentPageStatus == AiTranslationPageStatus.DONE
+) {
+    AiTranslationDisplayMode.ON
+} else {
+    AiTranslationDisplayMode.OFF
 }
 
 internal fun readerAiTranslationPageRange(currentPage: Int, pageCount: Int, preloadPages: Int): List<Int> {

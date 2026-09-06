@@ -3,6 +3,8 @@ package fail.tiger.komgarot.ui.reader
 import fail.tiger.komgarot.data.local.AiTranslationBlock
 import fail.tiger.komgarot.data.local.AiTranslationBlockKind
 import fail.tiger.komgarot.data.local.AiTranslationRect
+import fail.tiger.komgarot.data.local.AiTranslationMode
+import fail.tiger.komgarot.data.local.AiTranslationPoint
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +13,133 @@ import org.junit.Test
 import kotlin.math.abs
 
 class AiTranslationOverlayLayoutTest {
+    @Test
+    fun bubbleMaskOutlineExpansionRestoresTheErodedInteriorEdge() {
+        val outline = listOf(
+            AiTranslationPoint(0.20f, 0.20f),
+            AiTranslationPoint(0.80f, 0.20f),
+            AiTranslationPoint(0.80f, 0.80f),
+            AiTranslationPoint(0.20f, 0.80f)
+        )
+
+        val expanded = expandAiTranslationBubbleMaskOutline(outline, expansionRatio = 0.03f)
+
+        assertEquals(0.182f, expanded.minOf { it.x }, 0.0001f)
+        assertEquals(0.818f, expanded.maxOf { it.x }, 0.0001f)
+        assertEquals(0.182f, expanded.minOf { it.y }, 0.0001f)
+        assertEquals(0.818f, expanded.maxOf { it.y }, 0.0001f)
+    }
+
+    @Test
+    fun measuredVerticalFitShrinksUntilEveryGlyphStaysInsideBubbleSafeArea() {
+        val layout = fitMeasuredVerticalAiTranslationText(
+            lines = listOf("完整字形都应留在气泡内部"),
+            rectWidthDp = 42f,
+            rectHeightDp = 82f,
+            baseFontSizeSp = 24f,
+            kind = AiTranslationBlockKind.DIALOGUE,
+            glyphSpacingMultiplier = 0.86f,
+            columnGapDp = 1f,
+            measureGlyph = { _, fontSize ->
+                AiMeasuredGlyphSize(widthDp = fontSize * 1.24f, heightDp = fontSize * 1.18f)
+            }
+        )
+        val bounds = measuredVerticalLayoutBounds(
+            layout = layout,
+            glyphSpacingMultiplier = 0.86f,
+            columnGapDp = 1f
+        ) { _, fontSize ->
+            AiMeasuredGlyphSize(widthDp = fontSize * 1.24f, heightDp = fontSize * 1.18f)
+        }
+
+        assertTrue(layout.fontSizeSp < 24f)
+        assertTrue(bounds.widthDp <= 42f)
+        assertTrue(bounds.heightDp <= 82f)
+    }
+
+    @Test
+    fun measuredHorizontalFitKeepsFallbackFontBearingsInsideBubbleSafeArea() {
+        val layout = fitMeasuredHorizontalAiTranslationText(
+            lines = listOf("边缘字形保持完整"),
+            rectWidthDp = 52f,
+            rectHeightDp = 34f,
+            baseFontSizeSp = 22f,
+            kind = AiTranslationBlockKind.DIALOGUE,
+            lineGapDp = 1f
+        ) { text, fontSize ->
+            AiMeasuredGlyphSize(
+                widthDp = text.length * fontSize * 1.12f,
+                heightDp = fontSize * 1.22f
+            )
+        }
+        val bounds = measuredHorizontalLayoutBounds(layout, 1f) { text, fontSize ->
+            AiMeasuredGlyphSize(text.length * fontSize * 1.12f, fontSize * 1.22f)
+        }
+
+        assertTrue(layout.fontSizeSp < 22f)
+        assertTrue(bounds.widthDp <= 52f)
+        assertTrue(bounds.heightDp <= 34f)
+    }
+
+    @Test
+    fun measuredFitsPreserveCompleteTranslationInsideOverloadedBubble() {
+        val text = "边".repeat(120)
+        val measureGlyph: (Char, Float) -> AiMeasuredGlyphSize = { _, fontSize ->
+            AiMeasuredGlyphSize(fontSize * 1.2f, fontSize * 1.2f)
+        }
+        val vertical = fitMeasuredVerticalAiTranslationText(
+            lines = listOf(text),
+            rectWidthDp = 24f,
+            rectHeightDp = 32f,
+            baseFontSizeSp = 20f,
+            kind = AiTranslationBlockKind.DIALOGUE,
+            glyphSpacingMultiplier = 0.86f,
+            columnGapDp = 0f,
+            measureGlyph = measureGlyph
+        )
+        val horizontal = fitMeasuredHorizontalAiTranslationText(
+            lines = listOf(text),
+            rectWidthDp = 24f,
+            rectHeightDp = 32f,
+            baseFontSizeSp = 20f,
+            kind = AiTranslationBlockKind.DIALOGUE,
+            lineGapDp = 0f
+        ) { value, fontSize ->
+            AiMeasuredGlyphSize(value.length * fontSize * 1.2f, fontSize * 1.2f)
+        }
+        assertEquals(text, vertical.columns.joinToString(""))
+        assertEquals(text, horizontal.lines.joinToString(""))
+        assertTrue(vertical.fontSizeSp >= 5.2f)
+        assertTrue(horizontal.fontSizeSp >= 5.2f)
+    }
+
+    @Test
+    fun highAccuracyMaskPlanUsesBubbleShapeAndTransparentTextLayer() {
+        val plan = aiTranslationMaskPlan(
+            translationMode = AiTranslationMode.HIGH_ACCURACY,
+            hasBubbleOutline = true,
+            bubbleSolidFill = true
+        )
+
+        assertEquals(AiTranslationMaskPlan.BUBBLE_FILL, plan)
+        assertFalse(plan.drawTextBackground)
+        assertFalse(plan.drawRectangularSourceMasks)
+    }
+
+    @Test
+    fun oversizedHighAccuracyBubbleUsesClippedSourceMask() {
+        val plan = aiTranslationMaskPlan(
+            translationMode = AiTranslationMode.HIGH_ACCURACY,
+            hasBubbleOutline = true,
+            bubbleSolidFill = true,
+            bubbleBoundsArea = 0.14f
+        )
+
+        assertEquals(AiTranslationMaskPlan.BUBBLE_CLIPPED_SOURCE, plan)
+        assertFalse(plan.drawTextBackground)
+        assertFalse(plan.drawRectangularSourceMasks)
+    }
+
     @Test
     fun singleLongHorizontalLineWrapsToFitAvailableWidth() {
         val lines = balancedHorizontalLines(
@@ -62,6 +191,42 @@ class AiTranslationOverlayLayoutTest {
     }
 
     @Test
+    fun verticalTranslationCapsAbnormallyWideDetectedColumns() {
+        val fontSize = aiTranslationFontSizeSp(
+            baseScale = 1.4f,
+            rectWidthDp = 220f,
+            rectHeightDp = 320f,
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            lineCount = 1,
+            textLength = 2,
+            kind = AiTranslationBlockKind.DIALOGUE,
+            sourceColumnWidthDp = 180f,
+            sourceColumnHeightDp = 260f,
+            sourceColumnCount = 1
+        )
+
+        assertEquals(24f, fontSize, 0.0001f)
+    }
+
+    @Test
+    fun highAccuracyWaitsForConfirmedTranslationBeforeDrawingAnyMask() {
+        assertFalse(
+            shouldShowAiTranslationProcessingPlaceholder(
+                pageStatus = fail.tiger.komgarot.data.local.AiTranslationPageStatus.RUNNING,
+                regionStatus = fail.tiger.komgarot.data.local.AiTranslationRegionStatus.PENDING,
+                translationMode = AiTranslationMode.HIGH_ACCURACY
+            )
+        )
+        assertTrue(
+            shouldShowAiTranslationProcessingPlaceholder(
+                pageStatus = fail.tiger.komgarot.data.local.AiTranslationPageStatus.RUNNING,
+                regionStatus = fail.tiger.komgarot.data.local.AiTranslationRegionStatus.PENDING,
+                translationMode = AiTranslationMode.LOCAL_DETECTION
+            )
+        )
+    }
+
+    @Test
     fun verticalLongTranslationUsesConservativeFontSizeForColumnHeight() {
         val baseFontSize = aiTranslationFontSizeSp(
             baseScale = 1f,
@@ -105,11 +270,10 @@ class AiTranslationOverlayLayoutTest {
     }
 
     @Test
-    fun verticalTextStartsSlightlyAboveDetectedTop() {
+    fun verticalTextStartsInsideClippedBubbleBounds() {
         val offset = verticalTextTopOffsetDp(fontSizeSp = 20f)
 
-        assertTrue(offset.value < 0f)
-        assertTrue(offset.value <= -2.5f)
+        assertTrue(offset.value >= 0f)
     }
 
     @Test
@@ -252,6 +416,103 @@ class AiTranslationOverlayLayoutTest {
     }
 
     @Test
+    fun highAccuracyTextPlacementUsesExplicitBubbleRenderBounds() {
+        val block = AiTranslationBlock(
+            rect = AiTranslationRect(0.30f, 0.20f, 0.04f, 0.18f),
+            translationRect = AiTranslationRect(0.22f, 0.12f, 0.20f, 0.34f),
+            sourceColumns = listOf(AiTranslationRect(0.30f, 0.20f, 0.04f, 0.18f)),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            kind = AiTranslationBlockKind.DIALOGUE
+        )
+        val masks = aiTranslationSourceMaskRects(block)
+
+        val placement = aiTranslationTextPlacement(
+            block = block,
+            sourceMaskPlacements = masks,
+            translationMode = AiTranslationMode.HIGH_ACCURACY
+        )
+
+        assertEquals(block.translationRect, placement)
+    }
+
+    @Test
+    fun highAccuracyVerticalBubbleUsesWiderInteriorForAdditionalTranslatedColumns() {
+        val block = AiTranslationBlock(
+            sourceText = "竖排原文",
+            translatedLines = listOf("完整译文需要增加显示列数"),
+            rect = AiTranslationRect(0.38f, 0.24f, 0.10f, 0.28f),
+            translationRect = AiTranslationRect(0.34f, 0.20f, 0.18f, 0.36f),
+            bubbleOutline = listOf(
+                AiTranslationPoint(0.24f, 0.12f),
+                AiTranslationPoint(0.62f, 0.12f),
+                AiTranslationPoint(0.62f, 0.68f),
+                AiTranslationPoint(0.24f, 0.68f)
+            ),
+            textDirection = AiTranslationTextDirection.VERTICAL,
+            kind = AiTranslationBlockKind.DIALOGUE
+        )
+
+        val placement = aiTranslationTextPlacement(
+            block = block,
+            sourceMaskPlacements = listOf(block.rect),
+            translationMode = AiTranslationMode.HIGH_ACCURACY,
+            pageWidthDp = 500f,
+            pageHeightDp = 800f
+        )
+
+        assertTrue(placement.x < block.translationRect.x)
+        assertTrue(placement.width > block.translationRect.width * 1.5f)
+        assertTrue(placement.x >= 0.24f)
+        assertTrue(placement.x + placement.width <= 0.62f)
+    }
+
+    @Test
+    fun highAccuracyHorizontalNarrationExpandsToKeepBothTextEdgesVisible() {
+        val block = AiTranslationBlock(
+            sourceText = "原文标题",
+            translatedLines = listOf("完整的横排标题需要全部显示"),
+            rect = AiTranslationRect(0.42f, 0.08f, 0.10f, 0.025f),
+            translationRect = AiTranslationRect(0.42f, 0.08f, 0.10f, 0.025f),
+            textDirection = AiTranslationTextDirection.HORIZONTAL,
+            kind = AiTranslationBlockKind.NARRATION
+        )
+
+        val placement = aiTranslationTextPlacement(
+            block = block,
+            sourceMaskPlacements = listOf(block.rect),
+            translationMode = AiTranslationMode.HIGH_ACCURACY,
+            pageWidthDp = 500f,
+            pageHeightDp = 800f
+        )
+
+        assertTrue(placement.width > block.translationRect.width * 2f)
+        assertTrue(placement.x >= 0f)
+        assertTrue(placement.x + placement.width <= 1f)
+    }
+
+    @Test
+    fun highAccuracyBubbleLayoutFitsWholeBubbleAndAccountsForPadding() {
+        assertEquals(
+            0f,
+            aiTranslationLayoutSourceColumnWidthDp(AiTranslationMode.HIGH_ACCURACY, 18f),
+            0.0001f
+        )
+        assertEquals(
+            18f,
+            aiTranslationLayoutSourceColumnWidthDp(AiTranslationMode.LOCAL_DETECTION, 18f),
+            0.0001f
+        )
+        assertEquals(0, aiTranslationLayoutSourceColumnCount(AiTranslationMode.HIGH_ACCURACY, 3))
+        assertEquals(3, aiTranslationLayoutSourceColumnCount(AiTranslationMode.LOCAL_DETECTION, 3))
+        assertEquals(37f, aiTranslationFitExtentDp(totalDp = 40f, paddingDp = 1.5f), 0.0001f)
+        assertEquals(
+            29.6f,
+            aiTranslationFitExtentDp(totalDp = 40f, paddingDp = 1.5f, fontScale = 1.25f),
+            0.0001f
+        )
+    }
+
+    @Test
     fun sfxPlacementKeepsRequestedTranslationBounds() {
         val block = AiTranslationBlock(
             rect = AiTranslationRect(x = 0.10f, y = 0.10f, width = 0.30f, height = 0.50f),
@@ -313,6 +574,28 @@ class AiTranslationOverlayLayoutTest {
     }
 
     @Test
+    fun highAccuracySourceMasksDilateInsideBubbleToCoverEdgeStrokes() {
+        val source = AiTranslationRect(x = 0.16f, y = 0.14f, width = 0.026f, height = 0.10f)
+        val block = AiTranslationBlock(
+            rect = AiTranslationRect(x = 0.10f, y = 0.12f, width = 0.12f, height = 0.32f),
+            sourceColumns = listOf(source),
+            textDirection = AiTranslationTextDirection.VERTICAL
+        )
+
+        val mask = aiTranslationSourceMaskRects(
+            block = block,
+            pageWidthDp = 500f,
+            pageHeightDp = 1000f,
+            translationMode = AiTranslationMode.HIGH_ACCURACY
+        ).single()
+
+        assertTrue(mask.x <= source.x - 0.011f)
+        assertTrue(mask.y <= source.y - 0.017f)
+        assertTrue(mask.x + mask.width >= source.x + source.width + 0.011f)
+        assertTrue(mask.y + mask.height >= source.y + source.height + 0.017f)
+    }
+
+    @Test
     fun horizontalOcrLinesUseOneNonOverlappingMask() {
         val block = AiTranslationBlock(
             rect = AiTranslationRect(x = 0.62f, y = 0.72f, width = 0.28f, height = 0.15f),
@@ -338,7 +621,31 @@ class AiTranslationOverlayLayoutTest {
     }
 
     @Test
-    fun cachedTallBlockWithHorizontalSourceLinesRendersHorizontally() {
+    fun highAccuracyKeepsDistantHorizontalMaskGroupsSeparate() {
+        val block = AiTranslationBlock(
+            rect = AiTranslationRect(x = 0.10f, y = 0.10f, width = 0.80f, height = 0.80f),
+            sourceColumns = listOf(
+                AiTranslationRect(x = 0.12f, y = 0.14f, width = 0.22f, height = 0.04f),
+                AiTranslationRect(x = 0.13f, y = 0.19f, width = 0.20f, height = 0.04f),
+                AiTranslationRect(x = 0.66f, y = 0.74f, width = 0.18f, height = 0.04f)
+            ),
+            textDirection = AiTranslationTextDirection.HORIZONTAL
+        )
+
+        val masks = aiTranslationSourceMaskRects(
+            block = block,
+            pageWidthDp = 500f,
+            pageHeightDp = 1000f,
+            translationMode = AiTranslationMode.HIGH_ACCURACY
+        )
+
+        assertEquals(2, masks.size)
+        assertTrue(masks.first().y < 0.20f)
+        assertTrue(masks.last().y > 0.70f)
+    }
+
+    @Test
+    fun explicitVerticalDirectionWinsOverHorizontalSourceRectShapes() {
         val block = AiTranslationBlock(
             rect = AiTranslationRect(x = 0.72f, y = 0.68f, width = 0.10f, height = 0.19f),
             sourceColumns = listOf(
@@ -349,7 +656,7 @@ class AiTranslationOverlayLayoutTest {
             textDirection = AiTranslationTextDirection.VERTICAL
         )
 
-        assertEquals(AiTranslationTextDirection.HORIZONTAL, aiTranslationRenderTextDirection(block))
+        assertEquals(AiTranslationTextDirection.VERTICAL, aiTranslationRenderTextDirection(block))
     }
 
     @Test
@@ -579,7 +886,7 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun verticalLayoutShrinksUntilColumnsFitInsideRegionBounds() {
         val layout = fitVerticalAiTranslationText(
-            lines = listOf("那么马上开始吧", "嗯！"),
+            lines = listOf("测试流程开始", "确认！"),
             rectWidthDp = 58f,
             rectHeightDp = 132f,
             baseFontSizeSp = 19f,
@@ -600,7 +907,7 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun horizontalLayoutShrinksAfterWrappingSoLinesStayInsideRegionBounds() {
         val layout = fitHorizontalAiTranslationText(
-            lines = listOf("想知道男同士之间该怎么做爱"),
+            lines = listOf("需要确认测试流程"),
             rectWidthDp = 64f,
             rectHeightDp = 48f,
             baseFontSizeSp = 18f,
@@ -702,7 +1009,7 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun sfxVerticalLayoutIgnoresSourceColumnWidthAndUsesCompactFont() {
         val layout = fitVerticalAiTranslationText(
-            lines = listOf("咕噜"),
+            lines = listOf("测试音效"),
             rectWidthDp = 120f,
             rectHeightDp = 180f,
             baseFontSizeSp = 24f,
@@ -740,19 +1047,19 @@ class AiTranslationOverlayLayoutTest {
     @Test
     fun verticalDialogueMergesAiReturnedLinesBeforeBalancingColumns() {
         val columns = verticalTextColumnsForDisplay(
-            lines = listOf("想知道", "男同志之间", "怎么做爱明明要知道吗！？"),
+            lines = listOf("需要确认", "测试流程", "显示内容是否完整！？"),
             charsPerColumn = 8,
             kind = AiTranslationBlockKind.DIALOGUE
         )
 
-        assertEquals("想知道男同志之间怎么做爱明明要知道吗！？", columns.asReversed().joinToString(""))
+        assertEquals("需要确认测试流程显示内容是否完整！？", columns.asReversed().joinToString(""))
         assertTrue(columns.all { it.length >= 5 })
         assertTrue(columns.size <= 3)
     }
 
     @Test
     fun verticalDialogueUsesLargestReadableFontAfterBalancedColumnBreaks() {
-        val lines = listOf("想知道", "男同志之间", "怎么做爱明明要知道吗！？")
+        val lines = listOf("需要确认", "测试流程", "显示内容是否完整！？")
         val baseFontSize = aiTranslationFontSizeSp(
             baseScale = 1f,
             rectWidthDp = 54f,
@@ -782,7 +1089,7 @@ class AiTranslationOverlayLayoutTest {
 
     @Test
     fun verticalDialogueFitsWithInnerPaddingInsideBubbleBounds() {
-        val lines = listOf("那么", "马上开始吧", "嗯！")
+        val lines = listOf("测试", "流程继续", "确认！")
         val layout = fitVerticalAiTranslationText(
             lines = lines,
             rectWidthDp = 58f,
@@ -959,7 +1266,7 @@ class AiTranslationOverlayLayoutTest {
     }
 
     @Test
-    fun verticalDialogueFitKeepsReadableMinimumFontSize() {
+    fun verticalDialogueFitPrioritizesStayingInsideNarrowBubble() {
         val layout = fitVerticalAiTranslationText(
             lines = listOf("示例文本需要保持可读"),
             rectWidthDp = 18f,
@@ -968,7 +1275,14 @@ class AiTranslationOverlayLayoutTest {
             kind = AiTranslationBlockKind.DIALOGUE,
             columnGapDp = 1f
         )
+        val width = verticalTextLayoutWidthDp(layout.columnWidthDp, layout.columns.size, columnGapDp = 1f)
+        val height = verticalTextLayoutHeightDp(
+            maxColumnLength = layout.columns.maxOf { it.length },
+            fontSizeSp = layout.fontSizeSp
+        )
 
-        assertTrue(layout.fontSizeSp >= 7.2f)
+        assertTrue("width=$width font=${layout.fontSizeSp} columns=${layout.columns}", width <= 18f * 0.94f)
+        assertTrue("height=$height font=${layout.fontSizeSp} columns=${layout.columns}", height <= 40f * 0.96f)
+        assertTrue(layout.fontSizeSp >= 5.2f)
     }
 }
