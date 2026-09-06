@@ -106,6 +106,11 @@ enum class AiTranslationTextDirection {
     VERTICAL
 }
 
+data class AiTranslationPoint(
+    val x: Float = 0f,
+    val y: Float = 0f
+)
+
 data class AiTranslationBlock(
     val localRegionId: String = "",
     val regionStatus: AiTranslationRegionStatus = AiTranslationRegionStatus.DONE,
@@ -115,6 +120,8 @@ data class AiTranslationBlock(
     val rect: AiTranslationRect = AiTranslationRect(),
     val translationRect: AiTranslationRect = AiTranslationRect(),
     val sourceColumns: List<AiTranslationRect> = emptyList(),
+    val bubbleOutline: List<AiTranslationPoint> = emptyList(),
+    val bubbleSolidFill: Boolean = false,
     val textColor: String = "#111111",
     val maskColor: String = "#FFFFFF",
     val maskAlpha: Float = 0.72f,
@@ -128,6 +135,9 @@ data class AiTranslationBlock(
         rect = rect.renderSafe(),
         translationRect = translationRect.takeIf { it != AiTranslationRect() }?.clampSafe() ?: AiTranslationRect(),
         sourceColumns = sourceColumns.mapNotNull { it.sourceColumnSafeOrNull() }.take(24),
+        bubbleOutline = bubbleOutline
+            .map { point -> AiTranslationPoint(point.x.coerceIn(0f, 1f), point.y.coerceIn(0f, 1f)) }
+            .take(64),
         maskAlpha = maskAlpha.coerceIn(0.78f, 0.88f),
         cornerRadius = cornerRadius.coerceIn(0f, 0.12f),
         rotationDegrees = 0f,

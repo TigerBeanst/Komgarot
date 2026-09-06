@@ -100,6 +100,42 @@ class AiTranslationStoreTest {
     }
 
     @Test
+    fun localDetectionContextCacheNormalizesListsMissingFromOlderJson() {
+        val filesDir = temporaryFolder.newFolder("older-context-files")
+        val store = AiTranslationStore(filesDir)
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 3,
+            imageWidth = 900,
+            imageHeight = 1400,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p3-r1",
+                    rect = AiTranslationRect(0.2f, 0.3f, 0.1f, 0.2f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.9f,
+                    estimatedFontScale = 1f
+                )
+            )
+        )
+        store.saveLocalPageContext("book-old", 3, "same-key", context)
+        val cacheFile = filesDir.walkTopDown().single { it.isFile && it.extension == "json" }
+        cacheFile.writeText(
+            cacheFile.readText()
+                .replace(Regex(""",?"sourceColumns":\[\]"""), "")
+                .replace(Regex(""",?"bubbleOutline":\[\]"""), "")
+                .replace(Regex(""",?"bubbleSolidFill":false"""), "")
+        )
+
+        val restored = store.readLocalPageContext("book-old", 3, "same-key")!!.regions.single()
+
+        assertEquals(emptyList<AiTranslationRect>(), restored.sourceColumns)
+        assertEquals(emptyList<AiTranslationPoint>(), restored.bubbleOutline)
+        assertFalse(restored.bubbleSolidFill)
+    }
+
+    @Test
     fun regionCropCacheRoundTripsByRegionAndIsClearedWithBook() {
         val store = AiTranslationStore(temporaryFolder.newFolder("files"))
         val bytes = byteArrayOf(1, 2, 3, 4)
@@ -271,6 +307,13 @@ class AiTranslationStoreTest {
                         { "x": 0.18, "y": 0.22, "width": 0.03, "height": 0.18 },
                         { "x": 0.14, "y": 0.22, "width": 0.03, "height": 0.18 }
                       ],
+                      "bubbleOutline": [
+                        { "x": 0.08, "y": 0.16 },
+                        { "x": 0.38, "y": 0.16 },
+                        { "x": 0.38, "y": 0.62 },
+                        { "x": 0.08, "y": 0.62 }
+                      ],
+                      "bubbleSolidFill": true,
                       "textColor": "#111111",
                       "maskColor": "#FFFFFF",
                       "textDirection": "vertical",
@@ -300,6 +343,9 @@ class AiTranslationStoreTest {
         assertEquals(0.22f, block.translationRect.height)
         assertEquals(2, block.sourceColumns.size)
         assertEquals(0.18f, block.sourceColumns.first().x, 0.0001f)
+        assertEquals(4, block.bubbleOutline.size)
+        assertEquals(0.62f, block.bubbleOutline.last().y, 0.0001f)
+        assertTrue(block.bubbleSolidFill)
     }
 
     @Test
@@ -327,7 +373,7 @@ class AiTranslationStoreTest {
                     },
                     {
                       "kind": "sfx",
-                      "translatedLines": ["示例音效"],
+                      "translatedLines": ["测试音效"],
                       "rect": [0.44, 0.44, 0.47, 0.18],
                       "textColor": "#FFFFFF",
                       "maskColor": "#000000"
@@ -454,7 +500,7 @@ class AiTranslationStoreTest {
                 {
                   "kind": "sfx",
                   "sourceText": "BOOM",
-                  "translatedLines": ["轰隆"],
+                  "translatedLines": ["测试音效"],
                   "rect": [0.44, 0.44, 0.47, 0.18],
                   "textColor": "#FFFFFF",
                   "maskColor": "#000000",
@@ -993,6 +1039,30 @@ class AiTranslationStoreTest {
         assertEquals(pageFiveContext, store.readLocalPageContext("book-1", pageIndex = 5, cacheKey = "context-key"))
         assertEquals(null, store.readRegionCrop("book-1", pageIndex = 4, regionId = "p4-r1", cacheKey = "crop-key"))
         assertArrayEquals(pageFiveCrop, store.readRegionCrop("book-1", pageIndex = 5, regionId = "p5-r1", cacheKey = "crop-key"))
+    }
+
+    @Test
+    fun deletePageClearsDetectionCachesWhenBookStateIsMissing() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 4,
+            imageWidth = 1000,
+            imageHeight = 1600,
+            regions = emptyList()
+        )
+        store.saveLocalPageContext("book-1", pageIndex = 4, cacheKey = "context-key", context = context)
+        store.saveRegionCrop(
+            "book-1",
+            pageIndex = 4,
+            regionId = "p4-r1",
+            cacheKey = "crop-key",
+            bytes = byteArrayOf(4, 4, 4)
+        )
+
+        store.deletePage(bookId = "book-1", pageIndex = 4)
+
+        assertEquals(null, store.readLocalPageContext("book-1", pageIndex = 4, cacheKey = "context-key"))
+        assertEquals(null, store.readRegionCrop("book-1", pageIndex = 4, regionId = "p4-r1", cacheKey = "crop-key"))
     }
 
     @Test

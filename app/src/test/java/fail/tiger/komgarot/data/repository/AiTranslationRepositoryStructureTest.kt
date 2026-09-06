@@ -3,7 +3,9 @@ package fail.tiger.komgarot.data.repository
 import java.io.File
 import fail.tiger.komgarot.data.local.AiImageTransport
 import fail.tiger.komgarot.data.local.AiSettings
+import fail.tiger.komgarot.data.local.AiBookTranslationMetadata
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
+import fail.tiger.komgarot.data.local.AiTranslatedBook
 import fail.tiger.komgarot.data.local.AiTranslatedPage
 import fail.tiger.komgarot.data.local.AiTranslationFailureCategory
 import fail.tiger.komgarot.data.local.AiTranslationBlock
@@ -25,6 +27,66 @@ import org.junit.Test
 
 class AiTranslationRepositoryStructureTest {
     private val source = File("src/main/java/fail/tiger/komgarot/data/repository/AiTranslationRepository.kt").readText()
+
+    @Test
+    fun highAccuracyRegionCropsUseMoreReadableImageBudget() {
+        val normalQuality = aiRegionCropJpegQuality(
+            AiSourceTextProfile.JAPANESE_MANGA,
+            AiTranslationMode.LOCAL_DETECTION
+        )
+        val highQuality = aiRegionCropJpegQuality(
+            AiSourceTextProfile.JAPANESE_MANGA,
+            AiTranslationMode.HIGH_ACCURACY
+        )
+
+        assertTrue(highQuality > normalQuality)
+        assertTrue(
+            aiRegionCropMinShortEdge(AiSourceTextProfile.JAPANESE_MANGA, AiTranslationMode.HIGH_ACCURACY) >
+                aiRegionCropMinShortEdge(AiSourceTextProfile.JAPANESE_MANGA, AiTranslationMode.LOCAL_DETECTION)
+        )
+        assertTrue(
+            aiRegionCropMaxLongEdge(AiSourceTextProfile.JAPANESE_MANGA, AiTranslationMode.HIGH_ACCURACY) >
+                aiRegionCropMaxLongEdge(AiSourceTextProfile.JAPANESE_MANGA, AiTranslationMode.LOCAL_DETECTION)
+        )
+    }
+
+    @Test
+    fun pendingOnlyBookFollowsGlobalTranslationMode() {
+        val book = AiTranslatedBook(
+            translation = AiBookTranslationMetadata(
+                mode = AiTranslationMode.LOCAL_DETECTION.storedValue,
+                modePinned = false
+            ),
+            pages = listOf(AiTranslatedPage(pageIndex = 0, status = AiTranslationPageStatus.PENDING))
+        )
+
+        assertFalse(book.shouldKeepSavedTranslationMode())
+        assertTrue(
+            book.copy(translation = book.translation.copy(modePinned = true))
+                .shouldKeepSavedTranslationMode()
+        )
+        assertTrue(
+            book.copy(pages = listOf(AiTranslatedPage(pageIndex = 0, status = AiTranslationPageStatus.DONE)))
+                .shouldKeepSavedTranslationMode()
+        )
+    }
+
+    @Test
+    fun modeChangeUpdatesPendingPageProvenanceOnly() {
+        val pages = listOf(
+            AiTranslatedPage(pageIndex = 0, status = AiTranslationPageStatus.PENDING),
+            AiTranslatedPage(
+                pageIndex = 1,
+                status = AiTranslationPageStatus.DONE,
+                mode = AiTranslationMode.LOCAL_DETECTION.storedValue
+            )
+        )
+
+        val updated = pages.withPendingTranslationMode(AiTranslationMode.HIGH_ACCURACY)
+
+        assertEquals(AiTranslationMode.HIGH_ACCURACY.storedValue, updated[0].mode)
+        assertEquals(AiTranslationMode.LOCAL_DETECTION.storedValue, updated[1].mode)
+    }
 
     @Test
     fun repositoryPropagatesTranslationBehaviorSettingsToPromptsAndRequests() {
@@ -51,7 +113,7 @@ class AiTranslationRepositoryStructureTest {
         val retrySource = source.substring(signatureStart, signatureEnd)
 
         assertTrue(retrySource.contains("cachedPages: List<PageDto> = emptyList()"))
-        assertTrue(retrySource.contains("val runMode = AiTranslationMode.LOCAL_DETECTION"))
+        assertTrue(retrySource.contains("val runMode = preferredModeForBook(book.id)"))
         assertTrue(retrySource.contains("ensureBookFile(book, book.media.pagesCount, runMode)"))
         assertTrue(retrySource.contains("cachedPages = cachedPages"))
         assertTrue(retrySource.contains("AiTranslationPageActionResult("))
@@ -214,12 +276,13 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("readLocalPageContext("))
         assertTrue(source.contains("saveLocalPageContext("))
         assertTrue(source.contains("aiLocalContextCacheKey("))
-        assertTrue(source.contains("\"local-v16-stable-background-color\""))
+        assertTrue(source.contains("\"local-v22-mask-placement:"))
+        assertTrue(source.contains("settings.preferredMode.storedValue"))
         assertTrue(source.contains("sourceLanguage.detectionCacheKey()"))
         assertTrue(source.contains("readRegionCrop("))
         assertTrue(source.contains("saveRegionCrop("))
         assertTrue(source.contains("aiRegionCropCacheKey("))
-        assertTrue(source.contains("\"region-v3\""))
+        assertTrue(source.contains("\"region-v4-high-accuracy\""))
     }
 
     @Test
@@ -819,7 +882,7 @@ class AiTranslationRepositoryStructureTest {
     @Test
     fun localDetectionModeBuildsLocalPageContextBeforeAiRequest() {
         assertTrue(source.contains("private val localTextDetector: AiLocalTextDetector = AiLocalTextDetector()"))
-        assertTrue(source.contains("val runMode = AiTranslationMode.LOCAL_DETECTION"))
+        assertTrue(source.contains("val runMode = settings.preferredMode"))
         assertTrue(source.contains("preparePageInput("))
         assertTrue(source.contains("localTextDetector.detect("))
         assertTrue(source.contains("localPageContexts = prepared.map { it.localContext }"))
@@ -924,6 +987,8 @@ class AiTranslationRepositoryStructureTest {
             page.blocks.map { it.regionStatus }
         )
         assertEquals(listOf("完成"), page.blocks.first().translatedLines)
+        assertEquals(AiTranslationTextDirection.HORIZONTAL, page.blocks.first().textDirection)
+        assertEquals(regions.first().effectiveSourceMaskBounds(), page.blocks.first().rect)
     }
 
     @Test
@@ -967,6 +1032,9 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(appSource.contains("aiPaddleTextDetector = AiPaddleTextDetector(applicationContext, aiLocalModelRepository)"))
         assertTrue(appSource.contains("paddleTextDetector = aiPaddleTextDetector"))
         assertTrue(appSource.contains("aiPaddleTextDetector?.close()"))
+        assertTrue(appSource.contains("AiMangaLensOnnxDetector(aiLocalModelRepository)"))
+        assertTrue(appSource.contains("bubbleRegionDetector = aiMangaLensOnnxDetector"))
+        assertTrue(appSource.contains("aiMangaLensOnnxDetector?.close()"))
     }
 
     @Test
@@ -1018,9 +1086,11 @@ class AiTranslationRepositoryStructureTest {
 
     @Test
     fun bookModeUsesPinnedModeOrExistingTranslationStateBeforeGlobalDefault() {
-        assertTrue(source.contains("fun preferredModeForBook(bookId: String): AiTranslationMode = AiTranslationMode.LOCAL_DETECTION"))
-        assertTrue(!source.contains("it.translation.modePinned || it.hasPageTranslationState()"))
-        assertTrue(!source.contains("modePinned = true"))
+        assertTrue(source.contains("existing?.shouldKeepSavedTranslationMode() == true"))
+        assertTrue(source.contains("translation.modePinned || pages.any { it.status != AiTranslationPageStatus.PENDING }"))
+        assertTrue(source.contains("AiTranslationMode.fromStoredValue(existing.translation.mode)"))
+        assertTrue(source.contains("return prefs.aiTranslationModeBlocking"))
+        assertTrue(source.contains("modePinned = true"))
     }
 
     @Test
@@ -1233,6 +1303,75 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
+    fun responseWithoutRegionIdentityCannotBindToArbitraryTextBox() {
+        val context = twoRegionContext()
+        val page = buildTranslatedPageFromLocalContext(
+            localContext = context,
+            translations = listOf(
+                AiLocalRegionTranslation(
+                    localRegionId = "",
+                    sourceText = "Unidentified source",
+                    translatedLines = listOf("错误位置")
+                )
+            ),
+            mode = AiTranslationMode.HIGH_ACCURACY
+        )
+
+        assertEquals(null, page)
+    }
+
+    @Test
+    fun duplicateRegionOrdinalCannotShiftTranslationIntoNextTextBox() {
+        val context = twoRegionContext()
+        val page = buildTranslatedPageFromLocalContext(
+            localContext = context,
+            translations = listOf(
+                AiLocalRegionTranslation(
+                    localRegionId = "",
+                    regionOrdinal = 0,
+                    sourceText = "First",
+                    translatedLines = listOf("第一处")
+                ),
+                AiLocalRegionTranslation(
+                    localRegionId = "",
+                    regionOrdinal = 0,
+                    sourceText = "Duplicate",
+                    translatedLines = listOf("重复项")
+                )
+            ),
+            mode = AiTranslationMode.HIGH_ACCURACY
+        )
+
+        assertEquals(null, page)
+    }
+
+    private fun twoRegionContext(): AiTranslationLocalPageContext = AiTranslationLocalPageContext(
+        pageIndex = 3,
+        imageWidth = 1200,
+        imageHeight = 1800,
+        regions = listOf(
+            AiTranslationLocalTextRegion(
+                id = "p3-r1",
+                rect = AiTranslationRect(x = 0.10f, y = 0.20f, width = 0.12f, height = 0.18f),
+                textDirection = AiTranslationTextDirection.VERTICAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.91f,
+                estimatedFontScale = 0.96f
+            ),
+            AiTranslationLocalTextRegion(
+                id = "p3-r2",
+                rect = AiTranslationRect(x = 0.60f, y = 0.40f, width = 0.18f, height = 0.10f),
+                textDirection = AiTranslationTextDirection.HORIZONTAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.89f,
+                estimatedFontScale = 1.02f
+            )
+        )
+    )
+
+    @Test
     fun emptyRegionTranslationMarksLocalRegionDoneWithoutRenderedText() {
         val context = AiTranslationLocalPageContext(
             pageIndex = 3,
@@ -1333,7 +1472,7 @@ class AiTranslationRepositoryStructureTest {
               "translations": [
                 {
                   "localRegionId": "p4-r1",
-                  "sourceText": "案内板",
+                  "sourceText": "测试标牌",
                   "translatedLines": ["导览牌"],
                   "kind": "caption"
                 }
@@ -1399,6 +1538,104 @@ class AiTranslationRepositoryStructureTest {
                 parsed.copy(detectedSourceLanguage = "")
             )
         )
+    }
+
+    @Test
+    fun skippedDialogueRegionKeepsPageRetryableWithItsGeometry() {
+        val context = AiTranslationLocalPageContext(
+            pageIndex = 5,
+            imageWidth = 1200,
+            imageHeight = 1800,
+            regions = listOf(
+                AiTranslationLocalTextRegion(
+                    id = "p5-r1",
+                    rect = AiTranslationRect(0.70f, 0.30f, 0.10f, 0.18f),
+                    textDirection = AiTranslationTextDirection.VERTICAL,
+                    textColor = "#111111",
+                    backgroundColor = "#FFFFFF",
+                    confidence = 0.93f,
+                    estimatedFontScale = 0.82f,
+                    renderBounds = AiTranslationRect(0.66f, 0.25f, 0.18f, 0.28f)
+                )
+            )
+        )
+        val pages = translatedPagesFromLocalRegionResponse(
+            normalizedJson = """
+                {
+                  "pageIndex": 5,
+                  "translations": [{
+                    "regionOrdinal": 0,
+                    "sourceText": "测试对白",
+                    "translatedLines": [],
+                    "kind": "dialogue",
+                    "status": "skipped_non_text"
+                  }]
+                }
+            """.trimIndent(),
+            fallbackPageIndexes = listOf(5),
+            localPageContexts = listOf(context),
+            mode = AiTranslationMode.HIGH_ACCURACY
+        )
+
+        val page = pages.single()
+        val block = page.blocks.single()
+        assertEquals(AiTranslationPageStatus.FAILED, page.status)
+        assertEquals(AiTranslationRegionStatus.FAILED, block.regionStatus)
+        assertEquals(context.regions.single().renderBounds, block.translationRect)
+    }
+
+    @Test
+    fun finalFragmentMergeKeepsPageFailedWhileAnyRegionNeedsRetry() {
+        val context = twoRegionContext()
+        val initial = localDetectionPlaceholderPage(context, AiTranslationMode.HIGH_ACCURACY)
+        val fragment = AiTranslatedPage(
+            pageIndex = context.pageIndex,
+            status = AiTranslationPageStatus.FAILED,
+            blocks = listOf(
+                AiTranslationBlock(
+                    localRegionId = context.regions[0].id,
+                    regionStatus = AiTranslationRegionStatus.DONE,
+                    translatedLines = listOf("完成")
+                ),
+                AiTranslationBlock(
+                    localRegionId = context.regions[1].id,
+                    regionStatus = AiTranslationRegionStatus.FAILED
+                )
+            )
+        )
+
+        val merged = mergeTranslatedPageFragments(
+            localContext = context,
+            fragments = listOf(initial, fragment),
+            mode = AiTranslationMode.HIGH_ACCURACY
+        )!!
+
+        assertEquals(AiTranslationPageStatus.FAILED, merged.status)
+        assertEquals(
+            listOf(AiTranslationRegionStatus.DONE, AiTranslationRegionStatus.FAILED),
+            merged.blocks.map { it.regionStatus }
+        )
+    }
+
+    @Test
+    fun skippedSoundEffectRemainsAnIntentionalSkip() {
+        val context = twoRegionContext().copy(regions = listOf(twoRegionContext().regions.first()))
+        val page = buildTranslatedPageFromLocalContext(
+            localContext = context,
+            translations = listOf(
+                AiLocalRegionTranslation(
+                    localRegionId = context.regions.single().id,
+                    sourceText = "测试音效",
+                    translatedLines = emptyList(),
+                    kind = AiTranslationBlockKind.SFX,
+                    status = AiTranslationRegionStatus.SKIPPED
+                )
+            ),
+            mode = AiTranslationMode.HIGH_ACCURACY
+        )!!
+
+        assertEquals(AiTranslationPageStatus.DONE, page.status)
+        assertEquals(AiTranslationRegionStatus.SKIPPED, page.blocks.single().regionStatus)
     }
 
     @Test
