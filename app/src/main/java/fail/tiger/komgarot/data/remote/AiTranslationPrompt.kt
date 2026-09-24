@@ -208,7 +208,6 @@ private fun List<AiTranslationLocalPageContext>.toPromptCurrentRegionJson(
     sourceTextProfile: AiSourceTextProfile
 ): JsonObject = JsonObject().apply {
     val page = firstOrNull()
-    val region = page?.regions?.firstOrNull()
     if (page != null) {
         addProperty("pageIndex", page.pageIndex)
         addProperty("regionCount", page.regions.size)
@@ -224,14 +223,6 @@ private fun List<AiTranslationLocalPageContext>.toPromptCurrentRegionJson(
     }
     if (sourceTextProfile != AiSourceTextProfile.AUTO) {
         addProperty("sourceTextProfile", sourceTextProfile.storedValue)
-    }
-    if (page != null && region != null) {
-        addProperty("textDirection", region.textDirection.toPromptValue())
-        add(
-            "layoutHints",
-            aiTranslationRegionLayoutHints(page.imageWidth, page.imageHeight, region)
-                .toCompactPromptJson(region.textDirection)
-        )
     }
 }
 

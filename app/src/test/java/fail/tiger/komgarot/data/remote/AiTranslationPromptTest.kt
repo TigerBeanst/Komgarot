@@ -1,5 +1,6 @@
 package fail.tiger.komgarot.data.remote
 
+import com.google.gson.JsonParser
 import fail.tiger.komgarot.data.local.AiImageTransport
 import fail.tiger.komgarot.data.local.AiGlossaryEntry
 import fail.tiger.komgarot.data.local.AiSeriesSourceLanguageState
@@ -322,6 +323,53 @@ class AiTranslationPromptTest {
         assertTrue(!prompt.contains("textColor"))
         assertTrue(!prompt.contains("maskColor"))
         assertTrue(!prompt.contains("fontScale"))
+    }
+
+    @Test
+    fun currentRegionJsonKeepsLayoutHintsAtEachRegionOnly() {
+        val prompt = aiTranslationUserPrompt(
+            bookId = "book-layout",
+            targetLocale = "zh-CN",
+            targetLanguageName = "简体中文",
+            translationMode = AiTranslationMode.LOCAL_DETECTION,
+            localPageContexts = listOf(
+                AiTranslationLocalPageContext(
+                    pageIndex = 1,
+                    imageWidth = 1000,
+                    imageHeight = 1600,
+                    regions = listOf(
+                        AiTranslationLocalTextRegion(
+                            id = "vertical",
+                            rect = AiTranslationRect(0.1f, 0.1f, 0.1f, 0.3f),
+                            textDirection = AiTranslationTextDirection.VERTICAL,
+                            textColor = "#111111",
+                            backgroundColor = "#FFFFFF",
+                            confidence = 0.9f,
+                            estimatedFontScale = 1f
+                        ),
+                        AiTranslationLocalTextRegion(
+                            id = "horizontal",
+                            rect = AiTranslationRect(0.3f, 0.4f, 0.4f, 0.1f),
+                            textDirection = AiTranslationTextDirection.HORIZONTAL,
+                            textColor = "#111111",
+                            backgroundColor = "#FFFFFF",
+                            confidence = 0.9f,
+                            estimatedFontScale = 1f
+                        )
+                    )
+                )
+            ),
+            customInstructions = ""
+        )
+
+        val currentRegionJson = prompt.substringAfter("currentRegion:\n").lineSequence().first()
+        val root = JsonParser.parseString(currentRegionJson).asJsonObject
+        assertTrue(!root.has("textDirection"))
+        assertTrue(!root.has("layoutHints"))
+        val regions = root.getAsJsonArray("regions")
+        assertEquals("vertical", regions[0].asJsonObject.get("textDirection").asString)
+        assertEquals("horizontal", regions[1].asJsonObject.get("textDirection").asString)
+        assertTrue(regions.all { it.asJsonObject.has("layoutHints") })
     }
 
     @Test
