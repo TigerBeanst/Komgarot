@@ -213,6 +213,78 @@ class AiBubbleTextRegionGrouperTest {
         assertTrue(grouped.all { it.aiCropBounds.x + it.aiCropBounds.width <= bubble.x + bubble.width })
     }
 
+    @Test
+    fun horizontalBubbleKeepsDetectedLineGeometryInReadingOrder() {
+        val top = region(
+            id = "top",
+            rect = AiTranslationRect(0.42f, 0.16f, 0.12f, 0.05f),
+            fontScale = 0.70f,
+            direction = AiTranslationTextDirection.HORIZONTAL
+        ).copy(sourceLines = listOf(AiTranslationRect(0.42f, 0.16f, 0.12f, 0.05f)), horizontalLayoutVersion = 1)
+        val bottom = region(
+            id = "bottom",
+            rect = AiTranslationRect(0.43f, 0.28f, 0.11f, 0.05f),
+            fontScale = 0.66f,
+            direction = AiTranslationTextDirection.HORIZONTAL
+        ).copy(sourceLines = listOf(AiTranslationRect(0.43f, 0.28f, 0.11f, 0.05f)), horizontalLayoutVersion = 1)
+
+        val grouped = groupLocalTextRegionsByBubbles(
+            regions = listOf(bottom, top),
+            bubbles = listOf(AiTranslationRect(0.32f, 0.10f, 0.34f, 0.30f))
+        ).single()
+
+        assertEquals(2, grouped.sourceLines.size)
+        assertEquals(0.16f, grouped.sourceLines.first().y, 0.0001f)
+        assertEquals(1, grouped.horizontalLayoutVersion)
+    }
+
+    @Test
+    fun complementaryBubbleOutlinesKeepTextRegionsWithTheirOwnBubble() {
+        val textA = region(
+            id = "text-a",
+            rect = AiTranslationRect(0.14f, 0.14f, 0.04f, 0.04f),
+            fontScale = 0.7f,
+            direction = AiTranslationTextDirection.HORIZONTAL
+        ).copy(sourceLines = listOf(AiTranslationRect(0.14f, 0.14f, 0.04f, 0.04f)), horizontalLayoutVersion = 1)
+        val textB = region(
+            id = "text-b",
+            rect = AiTranslationRect(0.42f, 0.42f, 0.04f, 0.04f),
+            fontScale = 0.7f,
+            direction = AiTranslationTextDirection.HORIZONTAL
+        ).copy(sourceLines = listOf(AiTranslationRect(0.42f, 0.42f, 0.04f, 0.04f)), horizontalLayoutVersion = 1)
+        val bubbleRect = AiTranslationRect(0.1f, 0.1f, 0.4f, 0.4f)
+
+        val grouped = groupLocalTextRegionsByBubbles(
+            regions = listOf(textA, textB),
+            bubbles = listOf(
+                AiBubbleRegion(
+                    rect = bubbleRect,
+                    safeTextRect = bubbleRect,
+                    outline = listOf(
+                        AiTranslationPoint(0.1f, 0.1f),
+                        AiTranslationPoint(0.5f, 0.1f),
+                        AiTranslationPoint(0.1f, 0.5f)
+                    )
+                ),
+                AiBubbleRegion(
+                    rect = bubbleRect,
+                    safeTextRect = bubbleRect,
+                    outline = listOf(
+                        AiTranslationPoint(0.5f, 0.5f),
+                        AiTranslationPoint(0.5f, 0.1f),
+                        AiTranslationPoint(0.1f, 0.5f)
+                    )
+                )
+            )
+        )
+
+        assertEquals(2, grouped.size)
+        assertEquals(listOf(textA.sourceLines.single()), grouped[0].sourceLines)
+        assertEquals(listOf(textB.sourceLines.single()), grouped[1].sourceLines)
+        assertEquals(1, grouped[0].horizontalLayoutVersion)
+        assertEquals(1, grouped[1].horizontalLayoutVersion)
+    }
+
     private fun region(
         id: String,
         rect: AiTranslationRect,

@@ -70,6 +70,39 @@ class AiTranslationStoreTest {
     }
 
     @Test
+    fun horizontalLayoutGeometryAndTargetLocaleRoundTrip() {
+        val store = AiTranslationStore(temporaryFolder.newFolder("files"))
+        val sourceLines = listOf(
+            AiTranslationRect(0.10f, 0.20f, 0.24f, 0.04f),
+            AiTranslationRect(0.12f, 0.27f, 0.20f, 0.04f)
+        )
+        val block = AiTranslationBlock(
+            localRegionId = "p0-r1",
+            regionStatus = AiTranslationRegionStatus.DONE,
+            kind = AiTranslationBlockKind.DIALOGUE,
+            sourceText = "hello world",
+            translatedLines = listOf("你好世界"),
+            rect = AiTranslationRect(0.10f, 0.20f, 0.24f, 0.11f),
+            translationRect = AiTranslationRect(0.10f, 0.20f, 0.24f, 0.11f),
+            sourceLines = sourceLines,
+            horizontalLayoutVersion = 1,
+            horizontalTargetLocale = "zh-CN",
+            textDirection = AiTranslationTextDirection.HORIZONTAL
+        )
+
+        store.saveBookNow(
+            sampleBook().copy(
+                pages = listOf(sampleBook().pages.single().copy(blocks = listOf(block)))
+            )
+        )
+
+        val restored = store.readBook("book-1")!!.pages.single().blocks.single()
+        assertEquals(sourceLines, restored.sourceLines)
+        assertEquals(1, restored.horizontalLayoutVersion)
+        assertEquals("zh-CN", restored.horizontalTargetLocale)
+    }
+
+    @Test
     fun localDetectionContextCacheRoundTripsByKeyAndIsClearedWithBook() {
         val store = AiTranslationStore(temporaryFolder.newFolder("files"))
         val context = AiTranslationLocalPageContext(

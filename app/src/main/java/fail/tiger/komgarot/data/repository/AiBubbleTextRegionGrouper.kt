@@ -20,7 +20,7 @@ internal fun groupLocalTextRegionsByBubbles(
     if (bubbleRegions.isEmpty()) return regions
     val bubbleByRegionIndex = regions.map { region ->
         bubbleRegions.indices
-            .filter { index -> bubbleRegions[index].rect.containsRegionCenterOrMost(region.effectiveTextBounds()) }
+            .filter { index -> bubbleRegions[index].containsTextRegion(region) }
             .minByOrNull { index -> bubbleRegions[index].rect.area() }
     }
     val membersByBubble = bubbleByRegionIndex
@@ -28,7 +28,7 @@ internal fun groupLocalTextRegionsByBubbles(
         .groupBy({ it.first }, { it.second })
     val coveredBubbleIndexes = regions.flatMap { region ->
         bubbleRegions.indices.filter { index ->
-            bubbleRegions[index].rect.containsRegionCenterOrMost(region.effectiveTextBounds())
+            bubbleRegions[index].containsTextRegion(region)
         }
     }.toSet()
     val emittedBubbles = mutableSetOf<Int>()
@@ -66,6 +66,25 @@ internal fun groupLocalTextRegionsByBubbles(
     }
 }
 
+private fun AiBubbleRegion.containsTextRegion(region: AiTranslationLocalTextRegion): Boolean {
+    val bounds = region.effectiveTextBounds()
+    if (!rect.containsRegionCenterOrMost(bounds)) return false
+    if (region.horizontalLayoutVersion != 1 || outline.size < 3 ||
+        outline.any { !it.x.isFinite() || !it.y.isFinite() }
+    ) return true
+    if (outline.containsHorizontalBubblePoint(bounds.centerX(), bounds.centerY())) return true
+    var covered = 0
+    val samplesPerAxis = 5
+    for (row in 0 until samplesPerAxis) {
+        for (column in 0 until samplesPerAxis) {
+            val x = bounds.x + (column + 0.5f) * bounds.width / samplesPerAxis
+            val y = bounds.y + (row + 0.5f) * bounds.height / samplesPerAxis
+            if (outline.containsHorizontalBubblePoint(x, y)) covered++
+        }
+    }
+    return covered.toFloat() / (samplesPerAxis * samplesPerAxis) >= MIN_BUBBLE_OVERLAP_RATIO
+}
+
 private fun AiBubbleRegion.toFallbackTextRegion(bubbleIndex: Int): AiTranslationLocalTextRegion {
     val fallbackBounds = safeTextRect.takeIf { it.width > 0f && it.height > 0f } ?: rect
     val direction = if (fallbackBounds.height > fallbackBounds.width * 1.15f) {
@@ -100,6 +119,10 @@ private fun mergeBubbleTextRegions(
     sharedFontScale: Float
 ): AiTranslationLocalTextRegion {
     val sourceColumns = members.flatMap(AiTranslationLocalTextRegion::effectiveSourceColumns)
+    val sourceLines = members
+        .flatMap(AiTranslationLocalTextRegion::effectiveSourceLines)
+        .sortedWith(compareBy<AiTranslationRect> { it.y }.thenBy { it.x })
+        .distinct()
     val textBounds = sourceColumns.boundingRect()
     val styleSource = members.maxByOrNull { it.confidence } ?: members.first()
     val textDirection = mergedBubbleTextDirection(members, renderBounds, styleSource.textDirection)
@@ -118,6 +141,8 @@ private fun mergeBubbleTextRegions(
         renderBounds = renderBounds,
         aiCropBounds = aiCropBounds,
         sourceColumns = sourceColumns,
+        sourceLines = sourceLines,
+        horizontalLayoutVersion = members.maxOfOrNull { it.horizontalLayoutVersion } ?: 0,
         bubbleOutline = bubbleOutline,
         bubbleSolidFill = bubbleSolidFill,
         backgroundColor = bubbleBackgroundColor

@@ -171,6 +171,7 @@ class AiTranslationStore(private val filesDir: File) {
                 regions = context.regions.orEmpty().map { region ->
                     region.copy(
                         sourceColumns = region.sourceColumns.orEmpty(),
+                        sourceLines = region.sourceLines.orEmpty(),
                         bubbleOutline = region.bubbleOutline.orEmpty()
                     )
                 }
@@ -372,6 +373,24 @@ private fun toAiTranslatedBookJson(book: AiTranslatedBook): String {
                                             })
                                         }
                                     })
+                                }
+                                if (block.sourceLines.isNotEmpty()) {
+                                    add("sourceLines", JsonArray().apply {
+                                        block.sourceLines.forEach { line ->
+                                            add(JsonObject().apply {
+                                                addProperty("x", line.x)
+                                                addProperty("y", line.y)
+                                                addProperty("width", line.width)
+                                                addProperty("height", line.height)
+                                            })
+                                        }
+                                    })
+                                }
+                                if (block.horizontalLayoutVersion > 0) {
+                                    addProperty("horizontalLayoutVersion", block.horizontalLayoutVersion)
+                                }
+                                if (block.horizontalTargetLocale.isNotBlank()) {
+                                    addProperty("horizontalTargetLocale", block.horizontalTargetLocale)
                                 }
                                 if (block.bubbleOutline.isNotEmpty()) {
                                     add("bubbleOutline", JsonArray().apply {
@@ -591,6 +610,9 @@ private fun parseAiTranslationBlockElement(
             rect = parseAiTranslationRect(obj.getByAliases("rect", "d")),
             translationRect = parseAiTranslationRect(obj.getByAliases("translationRect", "m")),
             sourceColumns = parseAiTranslationRectList(obj.getByAliases("sourceColumns", "o")),
+            sourceLines = parseAiTranslationRectList(obj.getByAliases("sourceLines")),
+            horizontalLayoutVersion = obj.getIntByAliases("horizontalLayoutVersion") ?: 0,
+            horizontalTargetLocale = obj.getStringByAliases("horizontalTargetLocale").orEmpty(),
             bubbleOutline = parseAiTranslationPointList(obj.get("bubbleOutline")),
             bubbleSolidFill = obj.getBooleanByAliases("bubbleSolidFill").orFalse(),
             textColor = obj.getStringByAliases("textColor", "e") ?: "#111111",

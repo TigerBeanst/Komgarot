@@ -418,6 +418,68 @@ class AiTranslationPromptTest {
     }
 
     @Test
+    fun horizontalLayoutHintsUseDetectedSourceLineGeometry() {
+        val hints = aiTranslationRegionLayoutHints(
+            pageImageWidth = 1000,
+            pageImageHeight = 2000,
+            region = AiTranslationLocalTextRegion(
+                id = "horizontal-lines",
+                rect = AiTranslationRect(x = 0.1f, y = 0.2f, width = 0.70f, height = 0.20f),
+                textDirection = AiTranslationTextDirection.HORIZONTAL,
+                textColor = "#111111",
+                backgroundColor = "#FFFFFF",
+                confidence = 0.8f,
+                estimatedFontScale = 1f,
+                sourceLines = listOf(
+                    AiTranslationRect(x = 0.12f, y = 0.22f, width = 0.12f, height = 0.04f),
+                    AiTranslationRect(x = 0.14f, y = 0.29f, width = 0.16f, height = 0.04f)
+                ),
+                horizontalLayoutVersion = 1
+            )
+        )
+
+        assertEquals(2, hints.suggestedLines)
+        assertEquals(4, hints.maxCharsPerLine)
+    }
+
+    @Test
+    fun horizontalPromptCarriesSourceLineCountForOptInProfiles() {
+        val prompt = aiTranslationUserPrompt(
+            bookId = "book-horizontal-lines",
+            targetLocale = "zh-CN",
+            targetLanguageName = "简体中文",
+            translationMode = AiTranslationMode.LOCAL_DETECTION,
+            localPageContexts = listOf(
+                AiTranslationLocalPageContext(
+                    pageIndex = 2,
+                    imageWidth = 1000,
+                    imageHeight = 2000,
+                    regions = listOf(
+                        AiTranslationLocalTextRegion(
+                            id = "p2-r1",
+                            rect = AiTranslationRect(0.1f, 0.2f, 0.3f, 0.12f),
+                            textDirection = AiTranslationTextDirection.HORIZONTAL,
+                            textColor = "#111111",
+                            backgroundColor = "#FFFFFF",
+                            confidence = 0.8f,
+                            estimatedFontScale = 1f,
+                            sourceLines = listOf(
+                                AiTranslationRect(0.12f, 0.22f, 0.20f, 0.04f),
+                                AiTranslationRect(0.12f, 0.29f, 0.18f, 0.04f)
+                            ),
+                            horizontalLayoutVersion = 1
+                        )
+                    )
+                )
+            ),
+            customInstructions = "",
+            sourceTextProfile = AiSourceTextProfile.HORIZONTAL_COMIC
+        )
+
+        assertTrue(prompt.contains("\"sourceLineCount\":2"))
+    }
+
+    @Test
     fun localPromptJsonUsesStableReadableKeysInReleaseBuilds() {
         val source = File("src/main/java/fail/tiger/komgarot/data/remote/AiTranslationPrompt.kt").readText()
         val prompt = aiTranslationUserPrompt(

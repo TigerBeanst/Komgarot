@@ -36,6 +36,8 @@ data class AiTranslationLocalTextRegion(
     val renderBounds: AiTranslationRect = AiTranslationRect(),
     val aiCropBounds: AiTranslationRect = AiTranslationRect(),
     val sourceColumns: List<AiTranslationRect> = emptyList(),
+    val sourceLines: List<AiTranslationRect> = emptyList(),
+    val horizontalLayoutVersion: Int = 0,
     val bubbleOutline: List<AiTranslationPoint> = emptyList(),
     val bubbleSolidFill: Boolean = false
 )
@@ -120,6 +122,10 @@ fun aiTranslationUserPrompt(
             appendLine("Korean horizontal webtoon source profile: read Hangul text left-to-right within each line and top-to-bottom across lines.")
             appendLine("Keep each Hangul syllable block intact and preserve Korean word spaces, particles, endings, names, honorifics, mixed Hanja, Latin text, and digits in sourceText.")
             appendLine("Use the complete crop to recover small Hangul strokes and distinguish adjacent syllable blocks before translating.")
+            appendLine("Use source line geometry to keep one coherent Korean paragraph together; wrap translatedLines for targetLanguageName inside render bounds.")
+        } else if (effectiveSourceTextProfile == AiSourceTextProfile.HORIZONTAL_COMIC) {
+            appendLine("Horizontal source profile: read each line left-to-right and read lines top-to-bottom.")
+            appendLine("Keep one coherent paragraph together and wrap translatedLines for targetLanguageName inside render bounds.")
         }
     }
     if (skipSoundEffects) {
@@ -216,6 +222,23 @@ private fun List<AiTranslationLocalPageContext>.toPromptCurrentRegionJson(
                 add(JsonObject().apply {
                     addProperty("regionOrdinal", index)
                     addProperty("textDirection", region.textDirection.toPromptValue())
+                    val sourceLines = region.sourceLines
+                        .takeIf { region.horizontalLayoutVersion > 0 }
+                        .orEmpty()
+                        .filter { it.width > 0f && it.height > 0f }
+                    if (sourceLines.isNotEmpty()) {
+                        addProperty("sourceLineCount", sourceLines.size)
+                        add("sourceLines", JsonArray().apply {
+                            sourceLines.forEach { line ->
+                                add(JsonObject().apply {
+                                    addProperty("x", line.x)
+                                    addProperty("y", line.y)
+                                    addProperty("width", line.width)
+                                    addProperty("height", line.height)
+                                })
+                            }
+                        })
+                    }
                     add("layoutHints", aiTranslationRegionLayoutHints(page.imageWidth, page.imageHeight, region).toCompactPromptJson(region.textDirection))
                 })
             }
@@ -264,16 +287,30 @@ fun aiTranslationRegionLayoutHints(
         }
         AiTranslationTextDirection.HORIZONTAL,
         AiTranslationTextDirection.AUTO -> {
-            val glyphHeightNormY = (0.055f * scale).coerceAtLeast(0.006f)
+            val lines = region.sourceLines
+                .takeIf { region.horizontalLayoutVersion > 0 }
+                .orEmpty()
+                .filter { it.width > 0f && it.height > 0f }
+            val glyphHeightNormY = lines
+                .map { it.height }
+                .sorted()
+                .takeIf { it.isNotEmpty() }
+                ?.let { it[it.size / 2] * 1.18f }
+                ?.coerceIn(0.006f, 0.12f)
+                ?: (0.055f * scale).coerceAtLeast(0.006f)
             val estimatedFontPx = (glyphHeightNormY * safeImageHeight).roundToInt().coerceAtLeast(8)
             val lineAdvanceNormY = glyphHeightNormY * 1.25f
             val charAdvanceNormX = estimatedFontPx * 0.58f / safeImageWidth
+            val maxLineWidth = lines.maxOfOrNull { it.width } ?: region.rect.width
+            val suggestedLineCount = lines.size.takeIf { it > 0 }
+                ?.coerceIn(1, 8)
+                ?: (region.rect.height / lineAdvanceNormY).roundToInt().coerceIn(1, 8)
             AiTranslationRegionLayoutHints(
                 estimatedFontPx = estimatedFontPx,
                 suggestedColumns = 1,
                 maxCharsPerColumn = 0,
-                suggestedLines = (region.rect.height / lineAdvanceNormY).roundToInt().coerceIn(1, 8),
-                maxCharsPerLine = floor(region.rect.width / charAdvanceNormX).toInt().coerceIn(4, 80)
+                suggestedLines = suggestedLineCount,
+                maxCharsPerLine = floor(maxLineWidth / charAdvanceNormX).toInt().coerceIn(4, 80)
             )
         }
     }

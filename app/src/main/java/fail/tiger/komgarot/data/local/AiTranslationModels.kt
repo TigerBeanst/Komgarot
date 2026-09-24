@@ -120,6 +120,9 @@ data class AiTranslationBlock(
     val rect: AiTranslationRect = AiTranslationRect(),
     val translationRect: AiTranslationRect = AiTranslationRect(),
     val sourceColumns: List<AiTranslationRect> = emptyList(),
+    val sourceLines: List<AiTranslationRect> = emptyList(),
+    val horizontalLayoutVersion: Int = 0,
+    val horizontalTargetLocale: String = "",
     val bubbleOutline: List<AiTranslationPoint> = emptyList(),
     val bubbleSolidFill: Boolean = false,
     val textColor: String = "#111111",
@@ -131,19 +134,28 @@ data class AiTranslationBlock(
     val confidence: Float = 0f,
     val textDirection: AiTranslationTextDirection = AiTranslationTextDirection.AUTO
 ) {
-    fun renderSafe(): AiTranslationBlock = copy(
-        rect = rect.renderSafe(),
-        translationRect = translationRect.takeIf { it != AiTranslationRect() }?.clampSafe() ?: AiTranslationRect(),
-        sourceColumns = sourceColumns.mapNotNull { it.sourceColumnSafeOrNull() }.take(24),
-        bubbleOutline = bubbleOutline
-            .map { point -> AiTranslationPoint(point.x.coerceIn(0f, 1f), point.y.coerceIn(0f, 1f)) }
-            .take(64),
-        maskAlpha = maskAlpha.coerceIn(0.78f, 0.88f),
-        cornerRadius = cornerRadius.coerceIn(0f, 0.12f),
-        rotationDegrees = 0f,
-        fontScale = fontScale.coerceIn(0.6f, 1.4f),
-        confidence = confidence.coerceIn(0f, 1f)
-    )
+    fun renderSafe(): AiTranslationBlock {
+        val safeHorizontalLayoutVersion = if (horizontalLayoutVersion == 1) 1 else 0
+        return copy(
+            rect = rect.renderSafe(),
+            translationRect = translationRect.takeIf { it != AiTranslationRect() }?.clampSafe() ?: AiTranslationRect(),
+            sourceColumns = sourceColumns.mapNotNull { it.sourceColumnSafeOrNull() }.take(24),
+            sourceLines = sourceLines
+                .mapNotNull { it.sourceColumnSafeOrNull() }
+                .take(64)
+                .takeIf { safeHorizontalLayoutVersion > 0 }
+                .orEmpty(),
+            horizontalLayoutVersion = safeHorizontalLayoutVersion,
+            bubbleOutline = bubbleOutline
+                .map { point -> AiTranslationPoint(point.x.coerceIn(0f, 1f), point.y.coerceIn(0f, 1f)) }
+                .take(64),
+            maskAlpha = maskAlpha.coerceIn(0.78f, 0.88f),
+            cornerRadius = cornerRadius.coerceIn(0f, 0.12f),
+            rotationDegrees = 0f,
+            fontScale = fontScale.coerceIn(0.6f, 1.4f),
+            confidence = confidence.coerceIn(0f, 1f)
+        )
+    }
 }
 
 internal fun List<AiTranslationBlock>.suppressDuplicateRenderedTranslations(): List<AiTranslationBlock> {
@@ -185,6 +197,12 @@ private fun AiTranslationBlock.mergeDuplicateTranslationMask(other: AiTranslatio
         sourceColumns.ifEmpty { listOf(rect) } +
             other.sourceColumns.ifEmpty { listOf(other.rect) }
         ).distinct()
+    val mergedLayoutVersion = maxOf(horizontalLayoutVersion, other.horizontalLayoutVersion)
+    val mergedSourceLines = if (mergedLayoutVersion > 0) {
+        (sourceLines + other.sourceLines).distinct()
+    } else {
+        emptyList()
+    }
     val preferredLines = listOf(translatedLines, other.translatedLines)
         .maxBy { it.normalizedTranslationText().length }
     return copy(
@@ -194,6 +212,9 @@ private fun AiTranslationBlock.mergeDuplicateTranslationMask(other: AiTranslatio
         rect = rect.union(other.rect),
         translationRect = effectiveTranslationRect().union(other.effectiveTranslationRect()),
         sourceColumns = mergedSourceColumns,
+        sourceLines = mergedSourceLines,
+        horizontalLayoutVersion = mergedLayoutVersion,
+        horizontalTargetLocale = horizontalTargetLocale.ifBlank { other.horizontalTargetLocale },
         confidence = maxOf(confidence, other.confidence)
     )
 }
@@ -281,6 +302,9 @@ private const val MIN_RENDER_RECT_SIZE = 0.004f
 private const val MAX_RENDER_RECT_SIZE = 0.9f
 
 private fun AiTranslationRect.renderSafe(): AiTranslationRect {
+    if (!x.isFinite() || !y.isFinite() || !width.isFinite() || !height.isFinite()) {
+        return AiTranslationRect()
+    }
     val safeX = x.coerceIn(0f, 0.97f)
     val safeY = y.coerceIn(0f, 0.97f)
     val safeWidth = width.coerceIn(MIN_RENDER_RECT_SIZE, MAX_RENDER_RECT_SIZE).coerceAtMost(1f - safeX)
@@ -294,6 +318,9 @@ private fun AiTranslationRect.renderSafe(): AiTranslationRect {
 }
 
 private fun AiTranslationRect.clampSafe(): AiTranslationRect {
+    if (!x.isFinite() || !y.isFinite() || !width.isFinite() || !height.isFinite()) {
+        return AiTranslationRect()
+    }
     val safeX = x.coerceIn(0f, 0.97f)
     val safeY = y.coerceIn(0f, 0.97f)
     return copy(
@@ -305,7 +332,7 @@ private fun AiTranslationRect.clampSafe(): AiTranslationRect {
 }
 
 private fun AiTranslationRect.sourceColumnSafeOrNull(): AiTranslationRect? {
-    if (width <= 0f || height <= 0f) return null
+    if (!x.isFinite() || !y.isFinite() || !width.isFinite() || !height.isFinite() || width <= 0f || height <= 0f) return null
     val safeX = x.coerceIn(0f, 0.99f)
     val safeY = y.coerceIn(0f, 0.99f)
     val safeWidth = width.coerceAtMost(1f - safeX)
