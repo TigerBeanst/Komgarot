@@ -25,20 +25,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -76,7 +83,8 @@ fun AiTranslationOverlay(
     mode: AiTranslationDisplayMode,
     modifier: Modifier = Modifier,
     fillWidth: Boolean = false,
-    verticalGlyphSpacingMultiplier: Float = AI_TRANSLATION_DEFAULT_VERTICAL_GLYPH_SPACING_MULTIPLIER
+    verticalGlyphSpacingMultiplier: Float = AI_TRANSLATION_DEFAULT_VERTICAL_GLYPH_SPACING_MULTIPLIER,
+    textOutlineEnabled: Boolean = false
 ) {
     if (page == null || mode == AiTranslationDisplayMode.OFF) return
     BoxWithConstraints(modifier.fillMaxSize()) {
@@ -277,7 +285,13 @@ fun AiTranslationOverlay(
                         )
                         .width(blockWidth)
                         .height(blockHeight)
-                        .clipToBounds(),
+                        .translationTextBoundsClip(
+                            outlinePaddingPx = if (textOutlineEnabled) {
+                                with(localDensity) { aiTranslationOutlineWidthSp(fittedFontSizeSp).sp.toPx() / 2f + 1f }
+                            } else {
+                                0f
+                            }
+                        ),
                     contentAlignment = Alignment.TopCenter
                 ) {
                     if (renderTextDirection == AiTranslationTextDirection.VERTICAL) {
@@ -345,6 +359,7 @@ fun AiTranslationOverlay(
                             verticalLayout.columns.forEach { column ->
                                 VerticalTextColumnBackground(
                                     text = column,
+                                    textOutlineEnabled = textOutlineEnabled,
                                     textColor = parseAiColor(safe.textColor),
                                     backgroundColor = translatedTextBackgroundColor,
                                     cornerRadius = safe.cornerRadius,
@@ -402,6 +417,7 @@ fun AiTranslationOverlay(
                             horizontalLayout.lines.forEach { line ->
                                 HorizontalTextLineBackground(
                                     text = line,
+                                    textOutlineEnabled = textOutlineEnabled,
                                     textColor = parseAiColor(safe.textColor),
                                     backgroundColor = translatedTextBackgroundColor,
                                     cornerRadius = safe.cornerRadius,
@@ -660,6 +676,7 @@ private fun toVerticalText(value: String): String =
 @Composable
 private fun HorizontalTextLineBackground(
     text: String,
+    textOutlineEnabled: Boolean,
     textColor: Color,
     backgroundColor: Color,
     cornerRadius: Float,
@@ -669,9 +686,10 @@ private fun HorizontalTextLineBackground(
     horizontalPadding: Dp,
     verticalPadding: Dp
 ) {
-    Text(
+    AiTranslationText(
         text = text,
         color = textColor,
+        outlineEnabled = textOutlineEnabled,
         softWrap = true,
         style = aiTranslationTextStyle(fontSizeSp, lineHeightMultiplier),
         modifier = Modifier
@@ -688,6 +706,7 @@ private fun HorizontalTextLineBackground(
 @Composable
 private fun VerticalTextColumnBackground(
     text: String,
+    textOutlineEnabled: Boolean,
     textColor: Color,
     backgroundColor: Color,
     cornerRadius: Float,
@@ -700,6 +719,7 @@ private fun VerticalTextColumnBackground(
 ) {
     CompactVerticalTextColumn(
         text = text,
+        textOutlineEnabled = textOutlineEnabled,
         textColor = textColor,
         fontSizeSp = fontSizeSp,
         lineHeightMultiplier = lineHeightMultiplier,
@@ -718,6 +738,7 @@ private fun VerticalTextColumnBackground(
 @Composable
 private fun CompactVerticalTextColumn(
     text: String,
+    textOutlineEnabled: Boolean,
     textColor: Color,
     fontSizeSp: Float,
     lineHeightMultiplier: Float,
@@ -728,9 +749,10 @@ private fun CompactVerticalTextColumn(
         modifier = modifier,
         content = {
         text.forEach { char ->
-            Text(
+            AiTranslationText(
                 text = char.toString(),
                 color = textColor,
+                outlineEnabled = textOutlineEnabled,
                 softWrap = false,
                 style = aiTranslationTextStyle(fontSizeSp, lineHeightMultiplier)
             )
@@ -760,6 +782,59 @@ private fun CompactVerticalTextColumn(
                 placeable.placeRelative(x = x, y = index * placementAdvancePx)
             }
         }
+    }
+}
+
+internal fun aiTranslationOutlineWidthSp(fontSizeSp: Float): Float {
+    val fontSize = fontSizeSp.takeIf { it.isFinite() && it > 0f } ?: 12f
+    return (fontSize * 0.12f).coerceIn(0.6f, 2f)
+}
+
+internal fun aiTranslationOutlineColor(textColor: Color): Color =
+    if (textColor.luminance() > 0.5f) Color.Black else Color.White
+
+private fun Modifier.translationTextBoundsClip(outlinePaddingPx: Float): Modifier =
+    if (outlinePaddingPx <= 0f) {
+        clipToBounds()
+    } else {
+        drawWithContent {
+            clipRect(
+                left = -outlinePaddingPx,
+                top = -outlinePaddingPx,
+                right = size.width + outlinePaddingPx,
+                bottom = size.height + outlinePaddingPx
+            ) {
+                this@drawWithContent.drawContent()
+            }
+        }
+    }
+
+@Composable
+private fun AiTranslationText(
+    text: String,
+    color: Color,
+    softWrap: Boolean,
+    style: TextStyle,
+    outlineEnabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (!outlineEnabled) {
+        Text(text = text, color = color, softWrap = softWrap, style = style, modifier = modifier)
+        return
+    }
+    val strokeWidthPx = with(LocalDensity.current) {
+        aiTranslationOutlineWidthSp(style.fontSize.value).sp.toPx()
+    }
+    Box(modifier = modifier, propagateMinConstraints = true) {
+        Text(
+            text = text,
+            color = aiTranslationOutlineColor(color),
+            softWrap = softWrap,
+            overflow = TextOverflow.Visible,
+            style = style.copy(drawStyle = Stroke(width = strokeWidthPx, join = StrokeJoin.Round)),
+            modifier = Modifier.clearAndSetSemantics { }
+        )
+        Text(text = text, color = color, softWrap = softWrap, style = style)
     }
 }
 

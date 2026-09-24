@@ -265,6 +265,8 @@
     <string name="settings_ai_timeout">请求超时</string>
     <string name="settings_ai_timeout_seconds">%1$d 秒</string>
     <string name="settings_ai_vertical_glyph_spacing">竖排行内字距</string>
+    <string name="settings_ai_text_outline">译文描边</string>
+    <string name="settings_ai_text_outline_desc">为译文添加高对比度细描边，提高复杂背景上的可读性。开启后立即应用于已有译文。</string>
     <string name="settings_ai_vertical_glyph_spacing_percent">%1$d%%</string>
     <string name="settings_ai_image_transport">图片传输方式</string>
     <string name="settings_ai_image_transport_base64">Base64</string>

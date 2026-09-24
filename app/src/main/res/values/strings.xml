@@ -268,6 +268,8 @@
     <string name="settings_ai_timeout">Request timeout</string>
     <string name="settings_ai_timeout_seconds">%1$d seconds</string>
     <string name="settings_ai_vertical_glyph_spacing">Vertical character spacing</string>
+    <string name="settings_ai_text_outline">Translation text outline</string>
+    <string name="settings_ai_text_outline_desc">Add a thin contrasting outline for readability on complex backgrounds. Applies immediately to existing translations.</string>
     <string name="settings_ai_vertical_glyph_spacing_percent">%1$d%%</string>
     <string name="settings_ai_image_transport">Image upload mode</string>
     <string name="settings_ai_image_transport_base64">Base64</string>

@@ -331,6 +331,7 @@ private fun SettingsContent(
     val aiReasoningEffort by prefs.aiReasoningEffort.collectAsStateWithLifecycle(initialValue = "")
     val aiAdditionalPrompt by prefs.aiCustomInstructions.collectAsStateWithLifecycle(initialValue = "")
     val aiVerticalGlyphSpacingPercent by prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 86)
+    val aiTranslationTextOutline by prefs.aiTranslationTextOutline.collectAsStateWithLifecycle(initialValue = false)
     val app = context.applicationContext as? KomgarotApp
     var secureAiSettings by remember { mutableStateOf(app?.secureAiSettingsStore?.read() ?: SecureAiSettings()) }
     var secureWebDavSettings by remember { mutableStateOf(app?.secureWebDavSettingsStore?.read() ?: SecureWebDavSettings()) }
@@ -890,6 +891,19 @@ private fun SettingsContent(
                 headlineContent = { Text(stringResource(R.string.settings_ai_vertical_glyph_spacing)) },
                 supportingContent = { Text(stringResource(R.string.settings_ai_vertical_glyph_spacing_percent, aiVerticalGlyphSpacingPercent)) },
                 modifier = Modifier.clickable { showAiVerticalGlyphSpacingDialog = true }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_text_outline)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_text_outline_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = aiTranslationTextOutline,
+                        onCheckedChange = { scope.launch { prefs.setAiTranslationTextOutline(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setAiTranslationTextOutline(!aiTranslationTextOutline) }
+                }
             )
             SettingsSectionHeader(stringResource(R.string.settings_ai_section_local_model))
             ListItem(

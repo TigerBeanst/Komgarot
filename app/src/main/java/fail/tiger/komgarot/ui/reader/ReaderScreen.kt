@@ -356,6 +356,7 @@ fun ReaderScreen(
     val preloadPages by vm.prefs.preloadPages.collectAsStateWithLifecycle(initialValue = 5)
     val memoryAwarePreloadPages = readerMemoryAwarePreloadPages(preloadPages)
     val aiVerticalGlyphSpacingPercent by vm.prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 86)
+    val aiTranslationTextOutline by vm.prefs.aiTranslationTextOutline.collectAsStateWithLifecycle(initialValue = false)
     val aiVerticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier(aiVerticalGlyphSpacingPercent)
     val splitOrder by vm.prefs.landscapePageSplitOrder.collectAsStateWithLifecycle(
         initialValue = LandscapePageSplitOrder.RIGHT_FIRST
@@ -464,6 +465,7 @@ fun ReaderScreen(
                 canEditMetadata,
                 aiTranslationAvailable = aiTranslationControlsVisible,
                 verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier,
+                textOutlineEnabled = aiTranslationTextOutline,
                 navigationRequest = pagerNavigationRequest,
                 onNavigationRequestHandled = { requestId ->
                     if (pagerNavigationRequest?.id == requestId) pagerNavigationRequest = null
@@ -480,6 +482,7 @@ fun ReaderScreen(
                     canEditMetadata,
                     aiTranslationAvailable = aiTranslationControlsVisible,
                     verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier,
+                    textOutlineEnabled = aiTranslationTextOutline,
                     navigationRequest = pagerNavigationRequest,
                     onNavigationRequestHandled = { requestId ->
                         if (pagerNavigationRequest?.id == requestId) pagerNavigationRequest = null
@@ -492,7 +495,8 @@ fun ReaderScreen(
                     onSetSeriesCover = onSetSeriesCover,
                     canEditMetadata = canEditMetadata,
                     aiTranslationAvailable = aiTranslationControlsVisible,
-                    verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier
+                    verticalGlyphSpacingMultiplier = aiVerticalGlyphSpacingMultiplier,
+                    textOutlineEnabled = aiTranslationTextOutline
                 )
             }
         }
@@ -1195,6 +1199,7 @@ fun PagerReader(
     canEditMetadata: Boolean,
     aiTranslationAvailable: Boolean,
     verticalGlyphSpacingMultiplier: Float,
+    textOutlineEnabled: Boolean = false,
     navigationRequest: ReaderPagerNavigationRequest? = null,
     onNavigationRequestHandled: (Int) -> Unit = {},
     onPageSegmentChanged: (ReaderPageSegment) -> Unit = {}
@@ -1451,6 +1456,7 @@ fun PagerReader(
                             ?.takeIf { aiTranslationAvailable },
                         aiDisplayMode = if (aiTranslationAvailable) vm.aiTranslationDisplayModeForPage(actualPageIndex) else AiTranslationDisplayMode.OFF,
                         verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
+                        textOutlineEnabled = textOutlineEnabled,
                         onPainterRetained = { retainedPagePainters[pageRenderKey] = it },
                         onImageDimensionsResolved = { width, height ->
                             if (pageSegment == ReaderPageSegment.FULL) {
@@ -1537,6 +1543,7 @@ private fun ZoomableReaderPageContent(
     aiTranslatedPage: AiTranslatedPage?,
     aiDisplayMode: AiTranslationDisplayMode,
     verticalGlyphSpacingMultiplier: Float,
+    textOutlineEnabled: Boolean = false,
     onPainterRetained: (Painter) -> Unit,
     onImageDimensionsResolved: (width: Int, height: Int) -> Unit = { _, _ -> },
     onRetry: () -> Unit,
@@ -1670,7 +1677,8 @@ private fun ZoomableReaderPageContent(
             mode = aiDisplayMode,
             modifier = Modifier.matchParentSize(),
             fillWidth = pageFit == "WIDTH",
-            verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier
+            verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
+            textOutlineEnabled = textOutlineEnabled
         )
     }
 }
@@ -2018,7 +2026,8 @@ fun ScrollReader(
     onSetSeriesCover: (String) -> Unit,
     canEditMetadata: Boolean,
     aiTranslationAvailable: Boolean,
-    verticalGlyphSpacingMultiplier: Float
+    verticalGlyphSpacingMultiplier: Float,
+    textOutlineEnabled: Boolean = false
 ) {
     val listState = rememberLazyListState()
     val context = LocalContext.current
@@ -2287,7 +2296,8 @@ fun ScrollReader(
                         mode = vm.aiTranslationDisplayModeForPage(index),
                         modifier = Modifier.matchParentSize(),
                         fillWidth = true,
-                        verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier
+                        verticalGlyphSpacingMultiplier = verticalGlyphSpacingMultiplier,
+                        textOutlineEnabled = textOutlineEnabled
                     )
                 }
             }
