@@ -365,6 +365,8 @@
     <string name="ai_translation_mode_local_detection_short">Detect</string>
     <string name="ai_translation_mode_high_accuracy">High-accuracy translation</string>
     <string name="ai_translation_mode_high_accuracy_short">High accuracy</string>
+    <string name="settings_ai_mode_local_detection_desc">Faster local text detection with rectangular source masking.</string>
+    <string name="settings_ai_mode_high_accuracy_desc">Adds bubble detection and outline-aware masking for stronger placement quality, with more local processing.</string>
     <string name="ai_translate_delete_title">Delete book AI translation</string>
     <string name="ai_translate_delete_message_first">This deletes saved AI translation data for this book. AI translation data is usually small, and the reader overlay will disappear immediately.</string>
     <string name="ai_translate_delete_continue">Continue</string>

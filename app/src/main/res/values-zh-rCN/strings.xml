@@ -362,6 +362,8 @@
     <string name="ai_translation_mode_local_detection_short">检测</string>
     <string name="ai_translation_mode_high_accuracy">高精度翻译</string>
     <string name="ai_translation_mode_high_accuracy_short">高精度</string>
+    <string name="settings_ai_mode_local_detection_desc">本地快速检测文字位置，使用矩形原文遮罩。</string>
+    <string name="settings_ai_mode_high_accuracy_desc">增加气泡检测与轮廓遮罩，嵌字效果更自然，并消耗更多本地处理时间。</string>
     <string name="ai_translate_delete_title">删除本书 AI 翻译</string>
     <string name="ai_translate_delete_message_first">将删除这本书已保存的 AI 翻译数据。AI 翻译数据通常占用空间较小，删除后阅读器会立即失去已翻译覆盖层。</string>
     <string name="ai_translate_delete_continue">继续</string>

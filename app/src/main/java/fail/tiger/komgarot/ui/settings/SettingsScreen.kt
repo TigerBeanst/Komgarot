@@ -696,7 +696,22 @@ private fun SettingsContent(
             )
             ListItem(
                 headlineContent = { Text(stringResource(R.string.settings_ai_default_mode)) },
-                supportingContent = { Text(aiTranslationModeLabel(aiTranslationMode)) },
+                supportingContent = {
+                    Column {
+                        Text(aiTranslationModeLabel(aiTranslationMode))
+                        Text(
+                            text = stringResource(
+                                if (aiTranslationMode == AiTranslationMode.HIGH_ACCURACY) {
+                                    R.string.settings_ai_mode_high_accuracy_desc
+                                } else {
+                                    R.string.settings_ai_mode_local_detection_desc
+                                }
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
                 modifier = Modifier.clickable { showAiModeDialog = true }
             )
             SettingsSectionHeader(stringResource(R.string.settings_ai_section_translation_behavior))
