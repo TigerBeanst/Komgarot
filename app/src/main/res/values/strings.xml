@@ -293,6 +293,8 @@
     <string name="settings_ai_skip_sound_effects">Skip sound effects</string>
     <string name="settings_ai_skip_sound_effects_desc">When enabled, AI identifies sound effects and onomatopoeia and leaves them untranslated.</string>
     <string name="settings_ai_reasoning_effort">Reasoning effort</string>
+    <string name="settings_ai_disable_model_thinking">Disable model thinking</string>
+    <string name="settings_ai_disable_model_thinking_desc">Send thinking.type as disabled and omit reasoning_effort from translation requests.</string>
     <string name="settings_ai_reasoning_effort_desc">Enter a level supported by the API. Leave empty to omit the reasoning_effort field.</string>
     <string name="settings_ai_reasoning_effort_placeholder">For example: low, medium, high</string>
     <string name="settings_ai_additional_prompt">Additional prompt</string>

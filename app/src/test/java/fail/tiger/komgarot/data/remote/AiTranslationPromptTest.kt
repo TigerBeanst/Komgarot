@@ -649,6 +649,21 @@ class AiTranslationPromptTest {
     }
 
     @Test
+    fun chatRequestDisablesThinkingAndOmitsReasoningEffortWhenRequested() {
+        val json = buildAiTranslationChatRequestJson(
+            model = "vision-model",
+            systemPrompt = "system",
+            userPrompt = "user",
+            images = emptyList(),
+            reasoningEffort = "high",
+            disableModelThinking = true
+        )
+
+        assertTrue(json.contains("\"thinking\":{\"type\":\"disabled\"}"))
+        assertTrue(!json.contains("\"reasoning_effort\""))
+    }
+
+    @Test
     fun chatRequestBuilderKeepsImagePayloadAsUrlReferenceUntilFinalJsonWrite() {
         assertTrue(clientSource.contains("val imageUrl = image.toOpenAiImageUrl()"))
         assertTrue(clientSource.contains("addProperty(\"url\", imageUrl)"))

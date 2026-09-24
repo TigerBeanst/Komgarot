@@ -150,6 +150,7 @@ class WebDavBackupRepository(
             aiTimeoutSeconds = prefs.aiTimeoutSeconds.first(),
             aiImageMaxEdge = prefs.aiImageMaxEdge.first().storedValue,
             aiSkipSoundEffects = prefs.aiSkipSoundEffects.first(),
+            aiDisableModelThinking = prefs.aiDisableModelThinking.first(),
             aiReasoningEffort = prefs.aiReasoningEffort.first(),
             aiCustomInstructions = prefs.aiCustomInstructions.first(),
             aiApiKey = secureAi.apiKey,
@@ -254,6 +255,7 @@ class WebDavBackupRepository(
         prefs.setAiTimeoutSeconds(settings.aiTimeoutSeconds)
         prefs.setAiImageMaxEdge(AiImageMaxEdge.fromStoredValue(settings.aiImageMaxEdge))
         prefs.setAiSkipSoundEffects(settings.aiSkipSoundEffects)
+        prefs.setAiDisableModelThinking(settings.aiDisableModelThinking)
         prefs.setAiReasoningEffort(settings.aiReasoningEffort)
         prefs.setAiCustomInstructions(settings.aiCustomInstructions)
         secureAiSettingsStore.saveApiKey(settings.aiApiKey)
@@ -308,6 +310,7 @@ data class WebDavBackupSettings(
     val aiTimeoutSeconds: Int = 30,
     val aiImageMaxEdge: String = "",
     val aiSkipSoundEffects: Boolean = false,
+    val aiDisableModelThinking: Boolean = false,
     val aiReasoningEffort: String = "",
     val aiCustomInstructions: String = "",
     val aiApiKey: String = "",

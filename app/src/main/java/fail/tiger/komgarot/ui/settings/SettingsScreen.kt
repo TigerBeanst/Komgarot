@@ -327,6 +327,7 @@ private fun SettingsContent(
     val aiMaxImagesPerRequest by prefs.aiMaxImagesPerRequest.collectAsStateWithLifecycle(initialValue = 20)
     val aiTimeoutSeconds by prefs.aiTimeoutSeconds.collectAsStateWithLifecycle(initialValue = 30)
     val aiSkipSoundEffects by prefs.aiSkipSoundEffects.collectAsStateWithLifecycle(initialValue = false)
+    val aiDisableModelThinking by prefs.aiDisableModelThinking.collectAsStateWithLifecycle(initialValue = false)
     val aiReasoningEffort by prefs.aiReasoningEffort.collectAsStateWithLifecycle(initialValue = "")
     val aiAdditionalPrompt by prefs.aiCustomInstructions.collectAsStateWithLifecycle(initialValue = "")
     val aiVerticalGlyphSpacingPercent by prefs.aiVerticalGlyphSpacingPercent.collectAsStateWithLifecycle(initialValue = 86)
@@ -709,6 +710,19 @@ private fun SettingsContent(
                 },
                 modifier = Modifier.clickable {
                     scope.launch { prefs.setAiSkipSoundEffects(!aiSkipSoundEffects) }
+                }
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_ai_disable_model_thinking)) },
+                supportingContent = { Text(stringResource(R.string.settings_ai_disable_model_thinking_desc)) },
+                trailingContent = {
+                    Switch(
+                        checked = aiDisableModelThinking,
+                        onCheckedChange = { scope.launch { prefs.setAiDisableModelThinking(it) } }
+                    )
+                },
+                modifier = Modifier.clickable {
+                    scope.launch { prefs.setAiDisableModelThinking(!aiDisableModelThinking) }
                 }
             )
             ListItem(

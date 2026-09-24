@@ -114,7 +114,8 @@ class AiTranslationClient(httpClient: OkHttpClient = OkHttpClient()) {
         userPrompt: String,
         images: List<AiTranslationImageInput>,
         timeoutSeconds: Int = 30,
-        reasoningEffort: String = ""
+        reasoningEffort: String = "",
+        disableModelThinking: Boolean = false
     ): AiTranslationRequestResult {
         val responseTimeout = aiResponseTimeoutSeconds(timeoutSeconds)
         val writeTimeout = aiWriteTimeoutSeconds(responseTimeout)
@@ -125,7 +126,8 @@ class AiTranslationClient(httpClient: OkHttpClient = OkHttpClient()) {
                 systemPrompt = systemPrompt,
                 userPrompt = userPrompt,
                 images = images,
-                reasoningEffort = reasoningEffort
+                reasoningEffort = reasoningEffort,
+                disableModelThinking = disableModelThinking
             )
                 .toRequestBody("application/json; charset=utf-8".toMediaType())
             val request = Request.Builder()
@@ -431,12 +433,17 @@ fun buildAiTranslationChatRequestJson(
     systemPrompt: String,
     userPrompt: String,
     images: List<AiTranslationImageInput>,
-    reasoningEffort: String = ""
+    reasoningEffort: String = "",
+    disableModelThinking: Boolean = false
 ): String {
     val root = JsonObject().apply {
         addProperty("model", model)
-        reasoningEffort.trim().takeIf(String::isNotEmpty)?.let {
-            addProperty("reasoning_effort", it)
+        if (disableModelThinking) {
+            add("thinking", JsonObject().apply { addProperty("type", "disabled") })
+        } else {
+            reasoningEffort.trim().takeIf(String::isNotEmpty)?.let {
+                addProperty("reasoning_effort", it)
+            }
         }
         add("messages", JsonArray().apply {
             add(JsonObject().apply {

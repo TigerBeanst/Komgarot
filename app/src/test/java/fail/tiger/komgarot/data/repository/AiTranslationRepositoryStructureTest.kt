@@ -91,9 +91,11 @@ class AiTranslationRepositoryStructureTest {
     @Test
     fun repositoryPropagatesTranslationBehaviorSettingsToPromptsAndRequests() {
         assertTrue(source.contains("skipSoundEffects = prefs.aiSkipSoundEffects.first()"))
+        assertTrue(source.contains("disableModelThinking = prefs.aiDisableModelThinking.first()"))
         assertTrue(source.contains("reasoningEffort = prefs.aiReasoningEffort.first()"))
         assertTrue(source.contains("aiTranslationSystemPrompt(settings.skipSoundEffects)"))
         assertTrue(source.contains("skipSoundEffects = settings.skipSoundEffects"))
+        assertTrue(source.contains("disableModelThinking = settings.disableModelThinking"))
         assertTrue(source.contains("reasoningEffort = settings.reasoningEffort"))
     }
 

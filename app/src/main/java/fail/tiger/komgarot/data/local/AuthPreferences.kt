@@ -63,6 +63,7 @@ class AuthPreferences(private val context: Context) {
     private val AI_TIMEOUT_SECONDS = intPreferencesKey("ai_timeout_seconds")
     private val AI_IMAGE_MAX_EDGE = stringPreferencesKey("ai_image_max_edge")
     private val AI_SKIP_SOUND_EFFECTS = booleanPreferencesKey("ai_skip_sound_effects")
+    private val AI_DISABLE_MODEL_THINKING = booleanPreferencesKey("ai_disable_model_thinking")
     private val AI_REASONING_EFFORT = stringPreferencesKey("ai_reasoning_effort")
     private val AI_CUSTOM_INSTRUCTIONS = stringPreferencesKey("ai_custom_instructions")
     private val AI_TEST_MODE_ENABLED = booleanPreferencesKey("ai_test_mode_enabled")
@@ -136,6 +137,7 @@ class AuthPreferences(private val context: Context) {
         AiImageMaxEdge.fromStoredValue(it[AI_IMAGE_MAX_EDGE].orEmpty())
     }
     val aiSkipSoundEffects: Flow<Boolean> = context.dataStore.data.map { it[AI_SKIP_SOUND_EFFECTS] ?: false }
+    val aiDisableModelThinking: Flow<Boolean> = context.dataStore.data.map { it[AI_DISABLE_MODEL_THINKING] ?: false }
     val aiReasoningEffort: Flow<String> = context.dataStore.data.map { it[AI_REASONING_EFFORT] ?: "" }
     val aiCustomInstructions: Flow<String> = context.dataStore.data.map { it[AI_CUSTOM_INSTRUCTIONS] ?: "" }
     val aiTestModeEnabled: Flow<Boolean> = context.dataStore.data.map { it[AI_TEST_MODE_ENABLED] ?: false }
@@ -310,6 +312,10 @@ class AuthPreferences(private val context: Context) {
 
     suspend fun setAiSkipSoundEffects(value: Boolean) {
         context.dataStore.edit { it[AI_SKIP_SOUND_EFFECTS] = value }
+    }
+
+    suspend fun setAiDisableModelThinking(value: Boolean) {
+        context.dataStore.edit { it[AI_DISABLE_MODEL_THINKING] = value }
     }
 
     suspend fun setAiReasoningEffort(value: String) {

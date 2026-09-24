@@ -290,6 +290,8 @@
     <string name="settings_ai_skip_sound_effects">跳过拟声词</string>
     <string name="settings_ai_skip_sound_effects_desc">开启后，AI 会识别拟声词和音效文字并跳过翻译。</string>
     <string name="settings_ai_reasoning_effort">思考等级</string>
+    <string name="settings_ai_disable_model_thinking">关闭模型思考</string>
+    <string name="settings_ai_disable_model_thinking_desc">翻译请求发送 thinking.type=disabled，并省略 reasoning_effort。</string>
     <string name="settings_ai_reasoning_effort_desc">填写 API 支持的等级；留空时省略 reasoning_effort 字段。</string>
     <string name="settings_ai_reasoning_effort_placeholder">例如：low、medium、high</string>
     <string name="settings_ai_additional_prompt">附加提示词</string>

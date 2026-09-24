@@ -555,6 +555,7 @@ class AiTranslationRepository(
             timeoutSeconds = prefs.aiTimeoutSeconds.first(),
             imageMaxEdge = prefs.aiImageMaxEdge.first(),
             skipSoundEffects = prefs.aiSkipSoundEffects.first(),
+            disableModelThinking = prefs.aiDisableModelThinking.first(),
             reasoningEffort = prefs.aiReasoningEffort.first(),
             customInstructions = prefs.aiCustomInstructions.first(),
             testModeEnabled = prefs.aiTestModeEnabled.first(),
@@ -1225,7 +1226,8 @@ class AiTranslationRepository(
                 ),
                 images = images,
                 timeoutSeconds = settings.timeoutSeconds,
-                reasoningEffort = settings.reasoningEffort
+                reasoningEffort = settings.reasoningEffort,
+                disableModelThinking = settings.disableModelThinking
             )
             requestControl.scheduler.recordFeedback(result)
             timingRecorder.recordRequest(result)
