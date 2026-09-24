@@ -1582,6 +1582,9 @@ class AiTranslationRepositoryStructureTest {
         assertEquals(AiTranslationPageStatus.FAILED, page.status)
         assertEquals(AiTranslationRegionStatus.FAILED, block.regionStatus)
         assertEquals(context.regions.single().renderBounds, block.translationRect)
+        assertTrue(page.errorSummary.contains("p5-r1"))
+        assertTrue(page.errorSummary.contains("empty translatedLines"))
+        assertEquals(AiTranslationFailureCategory.JSON_VALIDATION_FAILED.storedValue, page.errorCategory)
     }
 
     @Test
@@ -1591,6 +1594,8 @@ class AiTranslationRepositoryStructureTest {
         val fragment = AiTranslatedPage(
             pageIndex = context.pageIndex,
             status = AiTranslationPageStatus.FAILED,
+            errorSummary = "AI returned empty translatedLines for region(s): ${context.regions[1].id}",
+            errorCategory = AiTranslationFailureCategory.JSON_VALIDATION_FAILED.storedValue,
             blocks = listOf(
                 AiTranslationBlock(
                     localRegionId = context.regions[0].id,
@@ -1615,6 +1620,8 @@ class AiTranslationRepositoryStructureTest {
             listOf(AiTranslationRegionStatus.DONE, AiTranslationRegionStatus.FAILED),
             merged.blocks.map { it.regionStatus }
         )
+        assertTrue(merged.errorSummary.contains(context.regions[1].id))
+        assertEquals(AiTranslationFailureCategory.JSON_VALIDATION_FAILED.storedValue, merged.errorCategory)
     }
 
     @Test

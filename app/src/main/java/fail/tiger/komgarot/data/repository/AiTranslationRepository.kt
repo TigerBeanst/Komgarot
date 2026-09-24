@@ -1945,9 +1945,12 @@ internal fun buildTranslatedPageFromLocalContext(
         ).withReadableColors()
     }.suppressDuplicateRenderedTranslations()
     if (blocks.isEmpty()) return null
+    val failedRegionIds = blocks
+        .filter { it.regionStatus == AiTranslationRegionStatus.FAILED }
+        .map { it.localRegionId }
     return AiTranslatedPage(
         pageIndex = localContext.pageIndex,
-        status = if (blocks.any { it.regionStatus == AiTranslationRegionStatus.FAILED }) {
+        status = if (failedRegionIds.isNotEmpty()) {
             AiTranslationPageStatus.FAILED
         } else {
             AiTranslationPageStatus.DONE
@@ -1956,6 +1959,16 @@ internal fun buildTranslatedPageFromLocalContext(
         imageWidth = localContext.imageWidth,
         imageHeight = localContext.imageHeight,
         blocks = blocks,
+        errorSummary = if (failedRegionIds.isNotEmpty()) {
+            "AI returned empty translatedLines for region(s): ${failedRegionIds.joinToString(", ")}"
+        } else {
+            ""
+        },
+        errorCategory = if (failedRegionIds.isNotEmpty()) {
+            AiTranslationFailureCategory.JSON_VALIDATION_FAILED.storedValue
+        } else {
+            ""
+        },
         mode = mode.storedValue
     )
 }
@@ -2274,6 +2287,7 @@ internal fun mergeTranslatedPageFragments(
         orderedBlocks.any { !it.regionStatus.isCompletedPageResult() } -> AiTranslationPageStatus.PENDING
         else -> AiTranslationPageStatus.DONE
     }
+    val diagnosticFragment = fragments.lastOrNull { it.errorSummary.isNotBlank() }
     return AiTranslatedPage(
         pageIndex = localContext.pageIndex,
         status = effectiveStatus,
@@ -2281,6 +2295,18 @@ internal fun mergeTranslatedPageFragments(
         imageWidth = localContext.imageWidth,
         imageHeight = localContext.imageHeight,
         blocks = orderedBlocks,
+        errorSummary = diagnosticFragment?.errorSummary.orEmpty().takeIf {
+            effectiveStatus == AiTranslationPageStatus.FAILED
+        }.orEmpty(),
+        errorCategory = diagnosticFragment?.errorCategory.orEmpty().takeIf {
+            effectiveStatus == AiTranslationPageStatus.FAILED
+        }.orEmpty(),
+        errorHttpStatus = diagnosticFragment?.errorHttpStatus.takeIf {
+            effectiveStatus == AiTranslationPageStatus.FAILED
+        },
+        retryAfterMs = diagnosticFragment?.retryAfterMs.takeIf {
+            effectiveStatus == AiTranslationPageStatus.FAILED
+        },
         mode = mode.storedValue
     )
 }
