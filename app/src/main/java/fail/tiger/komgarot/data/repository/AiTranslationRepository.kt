@@ -1063,37 +1063,17 @@ class AiTranslationRepository(
         sourceLanguageSession: AiSourceLanguageSession,
         regionChunk: List<AiTranslationLocalTextRegion>,
         requestControl: AiTranslationRequestControl
-    ): PreparedRegionChunkResult = requestControl.scheduler.withPermit(preparedPage.localContext.pageIndex) {
-        translatePreparedRegionChunkWithPermit(
-            book = book,
-            settings = settings,
-            apiKey = apiKey,
-            runMode = runMode,
-            preparedPage = preparedPage,
-            sourceLanguageSession = sourceLanguageSession,
-            regionChunk = regionChunk,
-            requestControl = requestControl
-        )
-    }
-
-    private suspend fun translatePreparedRegionChunkWithPermit(
-        book: BookDto,
-        settings: AiSettings,
-        apiKey: String,
-        runMode: AiTranslationMode,
-        preparedPage: PreparedAiPageInput,
-        sourceLanguageSession: AiSourceLanguageSession,
-        regionChunk: List<AiTranslationLocalTextRegion>,
-        requestControl: AiTranslationRequestControl
     ): PreparedRegionChunkResult {
         requestControl.stoppingFailure()?.let { return it }
         awaitAiTranslationTaskResumed()
-        val regionImageResult = timedAiTranslationStep(preparedPage.timingRecorder, AI_TIMING_REGION_CROP_IMAGES) {
-            buildAiTranslationRegionImagesSafely(
-                pageIndex = preparedPage.localContext.pageIndex,
-                expectedRegionCount = regionChunk.size
-            ) {
-                preparedPage.regionImageProvider.build(regionChunk)
+        val regionImageResult = requestControl.imagePreparationSemaphore.withPermit {
+            timedAiTranslationStep(preparedPage.timingRecorder, AI_TIMING_REGION_CROP_IMAGES) {
+                buildAiTranslationRegionImagesSafely(
+                    pageIndex = preparedPage.localContext.pageIndex,
+                    expectedRegionCount = regionChunk.size
+                ) {
+                    preparedPage.regionImageProvider.build(regionChunk)
+                }
             }
         }
         val regionImages = when (regionImageResult) {
@@ -1106,6 +1086,38 @@ class AiTranslationRepository(
             }
             is AiTranslationRegionImageBuildResult.Success -> regionImageResult.images
         }
+        requestControl.stoppingFailure()?.let { return it }
+        awaitAiTranslationTaskResumed()
+        return requestControl.scheduler.withPermit(preparedPage.localContext.pageIndex) {
+            requestControl.stoppingFailure()?.let { return@withPermit it }
+            awaitAiTranslationTaskResumed()
+            translatePreparedRegionChunkWithPermit(
+                book = book,
+                settings = settings,
+                apiKey = apiKey,
+                runMode = runMode,
+                preparedPage = preparedPage,
+                sourceLanguageSession = sourceLanguageSession,
+                regionChunk = regionChunk,
+                regionImages = regionImages,
+                requestControl = requestControl
+            )
+        }
+    }
+
+    private suspend fun translatePreparedRegionChunkWithPermit(
+        book: BookDto,
+        settings: AiSettings,
+        apiKey: String,
+        runMode: AiTranslationMode,
+        preparedPage: PreparedAiPageInput,
+        sourceLanguageSession: AiSourceLanguageSession,
+        regionChunk: List<AiTranslationLocalTextRegion>,
+        regionImages: List<AiTranslationImageInput>,
+        requestControl: AiTranslationRequestControl
+    ): PreparedRegionChunkResult {
+        requestControl.stoppingFailure()?.let { return it }
+        awaitAiTranslationTaskResumed()
         val chunkContext = preparedPage.localContext.copy(regions = regionChunk)
         val chunkImages = listOf(preparedPage.pageImageInput) + regionImages
         val result = timedAiTranslationStep(preparedPage.timingRecorder, AI_TIMING_AI_REQUEST) {
@@ -1747,6 +1759,7 @@ class AiTranslationRepository(
     private class AiTranslationRequestControl(
         val scheduler: AiTranslationWindowScheduler
     ) {
+        val imagePreparationSemaphore = Semaphore(1)
         private val stoppingFailure = AtomicReference<PreparedRegionChunkResult.Failed?>(null)
 
         fun stop(failure: PreparedRegionChunkResult.Failed) {

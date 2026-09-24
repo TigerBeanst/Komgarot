@@ -452,6 +452,21 @@ class AiTranslationRepositoryStructureTest {
     }
 
     @Test
+    fun regionImagesArePreparedBeforeAcquiringAiRequestPermit() {
+        val chunkStart = source.indexOf("private suspend fun translatePreparedRegionChunk(")
+        val chunkEnd = source.indexOf("private suspend fun translatePreparedRegionChunkWithPermit(", chunkStart)
+        assertTrue(chunkStart >= 0)
+        assertTrue(chunkEnd > chunkStart)
+        val chunkSource = source.substring(chunkStart, chunkEnd)
+
+        val imageBuild = chunkSource.indexOf("buildAiTranslationRegionImagesSafely(")
+        val requestPermit = chunkSource.indexOf("requestControl.scheduler.withPermit(")
+        assertTrue(imageBuild >= 0)
+        assertTrue(requestPermit > imageBuild)
+        assertTrue(chunkSource.contains("imagePreparationSemaphore.withPermit"))
+    }
+
+    @Test
     fun regionChunksUseConfiguredSerialOrParallelMode() {
         val translateStart = source.indexOf("private suspend fun translatePreparedPage(")
         val translateEnd = source.indexOf("private suspend fun translatePreparedRegionChunk(", translateStart)
