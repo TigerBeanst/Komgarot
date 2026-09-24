@@ -2,6 +2,8 @@ package fail.tiger.komgarot.data.repository
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Rect
 import fail.tiger.komgarot.data.local.AiTranslationRect
 import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.AiTranslationBlock
@@ -20,6 +22,10 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 class AiLocalTextDetector(
     private val paddleTextDetector: AiPaddleTextDetector? = null,
@@ -33,15 +39,66 @@ class AiLocalTextDetector(
         settings: AiSettings? = null,
         sourceLanguageTag: String = "",
         onTimingStep: (String, Long) -> Unit = { _, _ -> },
-        onDetectionStats: (AiLocalDetectionStats) -> Unit = {}
+        onDetectionStats: (AiLocalDetectionStats) -> Unit = {},
+        cancellationContext: CoroutineContext = EmptyCoroutineContext
     ): AiTranslationLocalPageContext {
         val translationMode = settings?.preferredMode ?: AiTranslationMode.LOCAL_DETECTION
+        val sourceTextProfile = settings?.sourceTextProfile ?: AiSourceTextProfile.AUTO
+        val horizontalPolicy = resolveAiHorizontalTranslationPolicy(sourceLanguageTag, sourceTextProfile)
+        val sourceSize = readDetectionImageSize(file)
+        val detectionMaxEdge = localDetectionMaxEdge(maxEdge, translationMode)
+        if (sourceSize != null && shouldUseAiHorizontalDetectionTiles(
+                policy = horizontalPolicy,
+                sourceWidth = sourceSize.width,
+                sourceHeight = sourceSize.height,
+                maxEdge = detectionMaxEdge
+            )
+        ) {
+            return detectWithHorizontalDetectionTiles(
+                file = file,
+                pageIndex = pageIndex,
+                settings = settings,
+                sourceLanguageTag = sourceLanguageTag,
+                sourceTextProfile = sourceTextProfile,
+                horizontalPolicy = horizontalPolicy,
+                sourceWidth = sourceSize.width,
+                sourceHeight = sourceSize.height,
+                maxEdge = detectionMaxEdge,
+                onTimingStep = onTimingStep,
+                onDetectionStats = onDetectionStats,
+                cancellationContext = cancellationContext
+            )
+        }
         val decoded = decodeForDetection(file, translationMode)
+        return detectDecodedBitmap(
+            decoded = decoded,
+            pageIndex = pageIndex,
+            settings = settings,
+            sourceLanguageTag = sourceLanguageTag,
+            sourceTextProfile = sourceTextProfile,
+            horizontalPolicy = horizontalPolicy,
+            onTimingStep = onTimingStep,
+            onDetectionStats = onDetectionStats
+        )
+    }
+
+    private fun detectDecodedBitmap(
+        decoded: AiDetectionBitmap,
+        pageIndex: Int,
+        settings: AiSettings?,
+        sourceLanguageTag: String,
+        sourceTextProfile: AiSourceTextProfile,
+        horizontalPolicy: AiHorizontalTranslationPolicy,
+        onTimingStep: (String, Long) -> Unit,
+        onDetectionStats: (AiLocalDetectionStats) -> Unit
+    ): AiTranslationLocalPageContext {
         val bitmap = decoded.bitmap
+        val translationMode = settings?.preferredMode ?: AiTranslationMode.LOCAL_DETECTION
         return try {
             val pixels = IntArray(bitmap.width * bitmap.height)
             bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-            val sourceTextProfile = settings?.sourceTextProfile ?: AiSourceTextProfile.AUTO
+            val candidateMaxRegions = horizontalCandidateMaxRegions(horizontalPolicy, maxRegions)
+            val finalMaxRegions = horizontalFinalMaxRegions(horizontalPolicy, maxRegions)
             val paddleOutput = if (settings != null) {
                 timedLocalDetectionStep(AI_TIMING_PADDLE_OCR, onTimingStep) {
                     paddleTextDetector?.detect(
@@ -52,7 +109,7 @@ class AiLocalTextDetector(
                         sourceHeight = decoded.sourceHeight,
                         settings = settings,
                         sourceLanguageTag = sourceLanguageTag,
-                        maxRegions = maxRegions
+                        maxRegions = horizontalDetectionProbeLimit(horizontalPolicy, candidateMaxRegions)
                     ) ?: AiPaddleDetectionOutput.EMPTY
                 }
             } else {
@@ -84,20 +141,26 @@ class AiLocalTextDetector(
                             detectionImageHeight = bitmap.height,
                             sourceImageWidth = decoded.sourceWidth,
                             sourceImageHeight = decoded.sourceHeight,
-                            sourceTextProfile = sourceTextProfile
+                            sourceTextProfile = sourceTextProfile,
+                            maxRegions = horizontalDetectionProbeLimit(horizontalPolicy, candidateMaxRegions)
                         )
                     }
                 },
                 sourceTextProfile = sourceTextProfile,
-                maxRegions = maxRegions,
+                maxRegions = candidateMaxRegions,
                 translationMode = translationMode,
-                preserveLinesForBubbleGrouping = bubbles.isNotEmpty()
+                preserveLinesForBubbleGrouping = bubbles.isNotEmpty(),
+                horizontalPolicy = horizontalPolicy
             )
-            val regions = refineLocalTextRegionsWithBubbles(
-                regions = selectedRegions,
+            val preparedRegions = annotateHorizontalTextRegions(selectedRegions, horizontalPolicy)
+            val refinedRegions = refineLocalTextRegionsWithBubbles(
+                regions = preparedRegions,
                 bubbles = bubbles,
-                translationMode = translationMode
+                translationMode = translationMode,
+                maxRegions = finalMaxRegions
             )
+            val regions = annotateHorizontalTextRegions(refinedRegions, horizontalPolicy)
+                .take(finalMaxRegions)
             paddleOutput.stats?.let { stats ->
                 onTimingStep(
                     if (stats.sessionWasReused) AI_TIMING_PADDLE_SESSION_HOT else AI_TIMING_PADDLE_SESSION_COLD,
@@ -138,7 +201,8 @@ class AiLocalTextDetector(
         detectionImageHeight: Int,
         sourceImageWidth: Int,
         sourceImageHeight: Int,
-        sourceTextProfile: AiSourceTextProfile
+        sourceTextProfile: AiSourceTextProfile,
+        maxRegions: Int
     ): List<AiTranslationLocalTextRegion> = clusters
         .asSequence()
         .mapIndexed { index, cluster ->
@@ -177,7 +241,219 @@ class AiLocalTextDetector(
             sourceHeight = bounds.outHeight.takeIf { it > 0 } ?: bitmap.height
         )
     }
+
+    private fun readDetectionImageSize(file: File): AiDetectionImageSize? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        return AiDetectionImageSize(bounds.outWidth, bounds.outHeight)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun detectWithHorizontalDetectionTiles(
+        file: File,
+        pageIndex: Int,
+        settings: AiSettings?,
+        sourceLanguageTag: String,
+        sourceTextProfile: AiSourceTextProfile,
+        horizontalPolicy: AiHorizontalTranslationPolicy,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        maxEdge: Int,
+        onTimingStep: (String, Long) -> Unit,
+        onDetectionStats: (AiLocalDetectionStats) -> Unit,
+        cancellationContext: CoroutineContext
+    ): AiTranslationLocalPageContext {
+        ensureHorizontalDetectionActive(cancellationContext)
+        val tiles = planAiHorizontalDetectionTiles(sourceWidth, sourceHeight, maxEdge)
+        val decoder = BitmapRegionDecoder.newInstance(file.absolutePath, false)
+            ?: return detectDecodedBitmap(
+                decoded = decodeForDetection(file, settings?.preferredMode ?: AiTranslationMode.LOCAL_DETECTION),
+                pageIndex = pageIndex,
+                settings = settings,
+                sourceLanguageTag = sourceLanguageTag,
+                sourceTextProfile = sourceTextProfile,
+                horizontalPolicy = horizontalPolicy,
+                onTimingStep = onTimingStep,
+                onDetectionStats = onDetectionStats
+            )
+        return try {
+            val translationMode = settings?.preferredMode ?: AiTranslationMode.LOCAL_DETECTION
+            val candidateMaxRegions = horizontalCandidateMaxRegions(horizontalPolicy, maxRegions)
+            val finalMaxRegions = horizontalFinalMaxRegions(horizontalPolicy, maxRegions)
+            val paddleRegions = mutableListOf<AiTranslationLocalTextRegion>()
+            val heuristicRegions = mutableListOf<AiTranslationLocalTextRegion>()
+            val bubbles = mutableListOf<AiBubbleRegion>()
+            var paddleStats: AiLocalDetectionStats? = null
+            tiles.forEach { tile ->
+                ensureHorizontalDetectionActive(cancellationContext)
+                val tileBitmap = decoder.decodeRegion(
+                    Rect(tile.left, tile.top, tile.right, tile.bottom),
+                    BitmapFactory.Options().apply {
+                        inSampleSize = aiImageSampleSize(tile.width, tile.height, maxEdge)
+                        inPreferredConfig = Bitmap.Config.RGB_565
+                    }
+                ) ?: error(
+                    "Failed to decode horizontal detection tile: page=$pageIndex, " +
+                        "tile=${tile.index + 1}/${tiles.size}, " +
+                        "bounds=${tile.left},${tile.top},${tile.right},${tile.bottom}"
+                )
+                try {
+                    ensureHorizontalDetectionActive(cancellationContext)
+                    val pixels = IntArray(tileBitmap.width * tileBitmap.height)
+                    tileBitmap.getPixels(
+                        pixels,
+                        0,
+                        tileBitmap.width,
+                        0,
+                        0,
+                        tileBitmap.width,
+                        tileBitmap.height
+                    )
+                    val tilePaddleOutput = if (settings != null) {
+                        timedLocalDetectionStep(AI_TIMING_PADDLE_OCR, onTimingStep) {
+                            paddleTextDetector?.detect(
+                                bitmap = tileBitmap,
+                                pixels = pixels,
+                                pageIndex = pageIndex,
+                                sourceWidth = tile.width,
+                                sourceHeight = tile.height,
+                                settings = settings,
+                                sourceLanguageTag = sourceLanguageTag,
+                                maxRegions = horizontalDetectionProbeLimit(horizontalPolicy, candidateMaxRegions)
+                            ) ?: AiPaddleDetectionOutput.EMPTY
+                        }
+                    } else {
+                        AiPaddleDetectionOutput.EMPTY
+                    }
+                    ensureHorizontalDetectionActive(cancellationContext)
+                    tilePaddleOutput.regions.forEachIndexed { regionIndex, region ->
+                        paddleRegions += mapAiHorizontalDetectionTileRegion(
+                            region = region,
+                            tile = tile,
+                            pageWidth = sourceWidth,
+                            pageHeight = sourceHeight,
+                            id = "p$pageIndex-t${tile.index}-p${regionIndex + 1}"
+                        )
+                    }
+                    tilePaddleOutput.stats?.let { stats ->
+                        paddleStats = paddleStats.mergeAiLocalDetectionStats(stats)
+                    }
+                    val tileHeuristicRegions = timedLocalDetectionStep(AI_TIMING_HEURISTIC_FALLBACK, onTimingStep) {
+                        val components = findInkComponents(
+                            pixels = pixels,
+                            width = tileBitmap.width,
+                            height = tileBitmap.height
+                        )
+                        detectWithHeuristic(
+                            clusters = mergeTextComponents(components, tileBitmap.width, tileBitmap.height),
+                            pixels = pixels,
+                            pageIndex = pageIndex,
+                            detectionImageWidth = tileBitmap.width,
+                            detectionImageHeight = tileBitmap.height,
+                            sourceImageWidth = tile.width,
+                            sourceImageHeight = tile.height,
+                            sourceTextProfile = sourceTextProfile,
+                            maxRegions = horizontalDetectionProbeLimit(horizontalPolicy, candidateMaxRegions)
+                        )
+                    }
+                    ensureHorizontalDetectionActive(cancellationContext)
+                    tileHeuristicRegions.forEachIndexed { regionIndex, region ->
+                        heuristicRegions += mapAiHorizontalDetectionTileRegion(
+                            region = region,
+                            tile = tile,
+                            pageWidth = sourceWidth,
+                            pageHeight = sourceHeight,
+                            id = "p$pageIndex-t${tile.index}-h${regionIndex + 1}"
+                        )
+                    }
+                    if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+                        val tileBubbles = timedLocalDetectionStep(AI_TIMING_BUBBLE_DETECTION, onTimingStep) {
+                            runCatching {
+                                bubbleRegionDetector?.detect(
+                                    pixels,
+                                    tileBitmap.width,
+                                    tileBitmap.height
+                                ).orEmpty()
+                            }.getOrDefault(emptyList())
+                        }
+                        bubbles += tileBubbles.map {
+                            mapAiHorizontalDetectionTileBubble(
+                                bubble = it,
+                                tile = tile,
+                                pageWidth = sourceWidth,
+                                pageHeight = sourceHeight
+                            )
+                        }
+                    }
+                } finally {
+                    tileBitmap.recycle()
+                }
+            }
+            ensureHorizontalDetectionActive(cancellationContext)
+            // Tiles re-detect text inside the overlap band, so the accumulated
+            // candidate count overshoots the real page count; degrade to truncation
+            // and keep the fail-fast sentinel only for single-pass detection.
+            val boundedPaddleRegions = paddleRegions
+                .sortedWith(aiLocalRegionReadingOrder())
+                .take(candidateMaxRegions)
+            val boundedHeuristicRegions = heuristicRegions
+                .sortedWith(aiLocalRegionReadingOrder())
+                .take(candidateMaxRegions)
+            val selectedRegions = selectLocalTextDetectionRegions(
+                paddleRegions = boundedPaddleRegions,
+                heuristicRegions = { boundedHeuristicRegions },
+                sourceTextProfile = sourceTextProfile,
+                maxRegions = candidateMaxRegions,
+                translationMode = translationMode,
+                preserveLinesForBubbleGrouping = bubbles.isNotEmpty(),
+                horizontalPolicy = horizontalPolicy,
+                fuseHeuristicForHorizontalPolicy = true
+            )
+            val refinedRegions = refineLocalTextRegionsWithBubbles(
+                regions = annotateHorizontalTextRegions(selectedRegions, horizontalPolicy),
+                bubbles = dedupeAiHorizontalDetectionBubbles(bubbles),
+                translationMode = translationMode,
+                maxRegions = finalMaxRegions
+            )
+            val regions = annotateHorizontalTextRegions(refinedRegions, horizontalPolicy)
+                .sortedWith(aiLocalRegionReadingOrder())
+                .take(finalMaxRegions)
+                .mapIndexed { index, region -> region.copy(id = "p$pageIndex-r${index + 1}") }
+            ensureHorizontalDetectionActive(cancellationContext)
+            paddleStats?.let { stats ->
+                onTimingStep(
+                    if (stats.sessionWasReused) AI_TIMING_PADDLE_SESSION_HOT else AI_TIMING_PADDLE_SESSION_COLD,
+                    stats.sessionAcquireMs
+                )
+                onTimingStep(AI_TIMING_PADDLE_INFERENCE, stats.inferenceMs)
+                onTimingStep(AI_TIMING_PADDLE_POST_PROCESS, stats.postProcessMs)
+                onDetectionStats(stats.copy(regionCount = regions.size))
+            }
+            AiTranslationLocalPageContext(
+                pageIndex = pageIndex,
+                imageWidth = sourceWidth,
+                imageHeight = sourceHeight,
+                regions = regions
+            )
+        } finally {
+            decoder.recycle()
+        }
+    }
+
 }
+
+internal fun ensureHorizontalDetectionActive(cancellationContext: CoroutineContext) {
+    cancellationContext.ensureActive()
+    if (Thread.currentThread().isInterrupted) {
+        throw CancellationException("horizontal detection cancelled")
+    }
+}
+
+private data class AiDetectionImageSize(
+    val width: Int,
+    val height: Int
+)
 
 internal fun localDetectionMaxEdge(configuredMaxEdge: Int, translationMode: AiTranslationMode): Int =
     if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
@@ -201,6 +477,28 @@ data class AiLocalDetectionStats(
     val regionCount: Int,
     val executionProvider: String
 )
+
+private fun AiLocalDetectionStats?.mergeAiLocalDetectionStats(
+    next: AiLocalDetectionStats
+): AiLocalDetectionStats = this?.let { current ->
+    current.copy(
+        sessionWasReused = current.sessionWasReused && next.sessionWasReused,
+        sessionAcquireMs = current.sessionAcquireMs + next.sessionAcquireMs,
+        preprocessMs = current.preprocessMs + next.preprocessMs,
+        inferenceMs = current.inferenceMs + next.inferenceMs,
+        postProcessMs = current.postProcessMs + next.postProcessMs,
+        estimatedPeakWorkingSetBytes = max(
+            current.estimatedPeakWorkingSetBytes,
+            next.estimatedPeakWorkingSetBytes
+        ),
+        regionCount = current.regionCount + next.regionCount,
+        executionProvider = if (current.executionProvider == next.executionProvider) {
+            current.executionProvider
+        } else {
+            "mixed"
+        }
+    )
+} ?: next
 
 internal data class AiPaddleDetectionOutput(
     val regions: List<AiTranslationLocalTextRegion>,

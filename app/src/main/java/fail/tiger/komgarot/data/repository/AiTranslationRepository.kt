@@ -1484,7 +1484,8 @@ class AiTranslationRepository(
                 settings = sourceSettings,
                 sourceLanguageTag = sourceLanguage.normalizedCode,
                 onTimingStep = timingRecorder::add,
-                onDetectionStats = timingRecorder::setLocalDetectionStats
+                onDetectionStats = timingRecorder::setLocalDetectionStats,
+                cancellationContext = currentCoroutineContext()
             )
         val localContext = detectedLocalContext.copy(
             regions = normalizeLocalTextDirectionsForProfile(
