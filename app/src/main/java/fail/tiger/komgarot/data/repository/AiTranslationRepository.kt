@@ -43,6 +43,8 @@ import fail.tiger.komgarot.data.local.SecureAiSettingsStore
 import fail.tiger.komgarot.data.local.aiSourceLanguageOnMetadataFailure
 import fail.tiger.komgarot.data.local.normalizeAiSourceLanguageTag
 import fail.tiger.komgarot.data.local.resolveAiSourceLanguageFromKomga
+import fail.tiger.komgarot.data.local.resolveAiHorizontalTranslationPolicy
+import fail.tiger.komgarot.data.local.horizontalVersionedCacheKey
 import fail.tiger.komgarot.data.local.suppressDuplicateRenderedTranslations
 import fail.tiger.komgarot.data.remote.AiTranslationClient
 import fail.tiger.komgarot.data.remote.AiTranslationImageInput
@@ -870,7 +872,8 @@ class AiTranslationRepository(
                     translatedPages += mergeTranslatedPageFragments(
                         localContext = preparedPage.localContext,
                         fragments = pageFragments,
-                        mode = runMode
+                        mode = runMode,
+                        targetLocale = settings.targetLocale
                     ) ?: emptyTranslatedPage(preparedPage.localContext, runMode)
                     return@forEach
                 }
@@ -903,7 +906,8 @@ class AiTranslationRepository(
                         summary = failedChunk.summary,
                         category = aiTranslationFailureCategory(failedChunk.summary, failedChunk.category),
                         httpStatusCode = failedChunk.httpStatusCode,
-                        retryAfterMs = failedChunk.retryAfterMs
+                        retryAfterMs = failedChunk.retryAfterMs,
+                        targetLocale = settings.targetLocale
                     )
                     if (failedPartialPage != null) onPageUpdated(failedPartialPage)
                     if (failedPartialPage == null) {
@@ -925,7 +929,8 @@ class AiTranslationRepository(
                 val mergedPage = mergeTranslatedPageFragments(
                     localContext = preparedPage.localContext,
                     fragments = pageFragmentsSnapshot,
-                    mode = runMode
+                    mode = runMode,
+                    targetLocale = settings.targetLocale
                 ) ?: emptyTranslatedPage(preparedPage.localContext, runMode)
                 translatedPages += mergedPage
             }
@@ -1019,7 +1024,8 @@ class AiTranslationRepository(
             runMode = runMode,
             regionChunk = regionChunk,
             pageFragments = pageFragments,
-            pageFragmentsLock = pageFragmentsLock
+            pageFragmentsLock = pageFragmentsLock,
+            targetLocale = settings.targetLocale
         )
         if (runningPage != null) onPageUpdated(runningPage)
         val chunkResult = translatePreparedRegionChunk(
@@ -1039,7 +1045,8 @@ class AiTranslationRepository(
                 runMode = runMode,
                 fragment = chunkResult.fragment,
                 pageFragments = pageFragments,
-                pageFragmentsLock = pageFragmentsLock
+                pageFragmentsLock = pageFragmentsLock,
+                targetLocale = settings.targetLocale
             )
             if (partialPage != null) {
                 val hasVisibleTranslation = chunkResult.fragment.blocks.any { block ->
@@ -1176,7 +1183,8 @@ class AiTranslationRepository(
                             normalizedJson = finalResult.normalizedJson,
                             fallbackPageIndexes = listOf(preparedPage.localContext.pageIndex),
                             localPageContexts = listOf(chunkContext),
-                            mode = runMode
+                            mode = runMode,
+                            targetLocale = settings.targetLocale
                         ).firstOrNull()
                         pageFragment?.let(PreparedRegionChunkResult::Success)
                             ?: PreparedRegionChunkResult.Failed(
@@ -1272,7 +1280,8 @@ class AiTranslationRepository(
         runMode: AiTranslationMode,
         fragment: AiTranslatedPage,
         pageFragments: MutableList<AiTranslatedPage>,
-        pageFragmentsLock: Any
+        pageFragmentsLock: Any,
+        targetLocale: String = ""
     ): AiTranslatedPage? {
         return synchronized(pageFragmentsLock) {
             pageFragments += fragment
@@ -1280,7 +1289,8 @@ class AiTranslationRepository(
                 localContext = localContext,
                 fragments = pageFragments.toList(),
                 mode = runMode,
-                status = AiTranslationPageStatus.RUNNING
+                status = AiTranslationPageStatus.RUNNING,
+                targetLocale = targetLocale
             )
             if (partialPage != null) store.upsertPages(bookId, listOf(partialPage))
             partialPage
@@ -1293,13 +1303,18 @@ class AiTranslationRepository(
         runMode: AiTranslationMode,
         regionChunk: List<AiTranslationLocalTextRegion>,
         pageFragments: MutableList<AiTranslatedPage>,
-        pageFragmentsLock: Any
+        pageFragmentsLock: Any,
+        targetLocale: String = ""
     ): AiTranslatedPage? = synchronized(pageFragmentsLock) {
         pageFragments += AiTranslatedPage(
             pageIndex = localContext.pageIndex,
             status = AiTranslationPageStatus.RUNNING,
             blocks = regionChunk.map { region ->
-                localDetectionPlaceholderBlock(region, AiTranslationRegionStatus.RUNNING)
+                localDetectionPlaceholderBlock(
+                    region,
+                    AiTranslationRegionStatus.RUNNING,
+                    targetLocale
+                )
             },
             mode = runMode.storedValue
         )
@@ -1307,7 +1322,8 @@ class AiTranslationRepository(
             localContext = localContext,
             fragments = pageFragments.toList(),
             mode = runMode,
-            status = AiTranslationPageStatus.RUNNING
+            status = AiTranslationPageStatus.RUNNING,
+            targetLocale = targetLocale
         )
         if (runningPage != null) store.upsertPages(bookId, listOf(runningPage))
         runningPage
@@ -1321,13 +1337,15 @@ class AiTranslationRepository(
         summary: String,
         category: AiTranslationFailureCategory,
         httpStatusCode: Int? = null,
-        retryAfterMs: Long? = null
+        retryAfterMs: Long? = null,
+        targetLocale: String = ""
     ): AiTranslatedPage? {
         val failedPage = mergeTranslatedPageFragments(
             localContext = localContext,
             fragments = fragments,
             mode = runMode,
-            status = AiTranslationPageStatus.FAILED
+            status = AiTranslationPageStatus.FAILED,
+            targetLocale = targetLocale
         )?.copy(
             errorSummary = summary.take(1200),
             errorCategory = category.storedValue,
@@ -1350,13 +1368,15 @@ class AiTranslationRepository(
         normalizedJson: String,
         fallbackPageIndexes: List<Int>,
         mode: AiTranslationMode,
-        localPageContexts: List<AiTranslationLocalPageContext> = emptyList()
+        localPageContexts: List<AiTranslationLocalPageContext> = emptyList(),
+        targetLocale: String = ""
     ): AiTranslationRunResult {
         val returnedPages = translatedPagesFromLocalRegionResponse(
             normalizedJson = normalizedJson,
             fallbackPageIndexes = fallbackPageIndexes,
             localPageContexts = localPageContexts,
-            mode = mode
+            mode = mode,
+            targetLocale = targetLocale
         )
         if (returnedPages.isEmpty()) {
             return failRun(bookId, fallbackPageIndexes, "AI response did not contain parsable page translation JSON.", mode)
@@ -1472,11 +1492,18 @@ class AiTranslationRepository(
             .takeUnless { it == AiSourceTextProfile.AUTO }
             ?: settings.sourceTextProfile
         val sourceSettings = settings.copy(sourceTextProfile = effectiveSourceTextProfile)
-        val localContextCacheKey = aiLocalContextCacheKey(
+        val horizontalPolicy = resolveAiHorizontalTranslationPolicy(
+            sourceLanguageTag = sourceLanguage.normalizedCode,
+            effectiveProfile = sourceSettings.sourceTextProfile
+        )
+        val localContextCacheKey = horizontalVersionedCacheKey(
+            legacyKey = aiLocalContextCacheKey(
             file = cachedPageFile,
             settings = sourceSettings,
             sourceLanguage = sourceLanguage,
             detectionPipelineVersion = localTextDetector.cacheVersion(mode)
+            ),
+            policy = horizontalPolicy
         )
         val cachedLocalContext = timedAiTranslationStep(timingRecorder, AI_TIMING_LOCAL_DETECTION_CACHE) {
             store.readLocalPageContext(bookId, pageIndex, localContextCacheKey)
@@ -1491,9 +1518,12 @@ class AiTranslationRepository(
                 cancellationContext = currentCoroutineContext()
             )
         val localContext = detectedLocalContext.copy(
-            regions = normalizeLocalTextDirectionsForProfile(
-                regions = detectedLocalContext.regions,
-                sourceTextProfile = sourceSettings.sourceTextProfile
+            regions = annotateHorizontalTextRegions(
+                regions = normalizeLocalTextDirectionsForProfile(
+                    regions = detectedLocalContext.regions,
+                    sourceTextProfile = sourceSettings.sourceTextProfile
+                ),
+                policy = horizontalPolicy
             ).sortedWith(localRegionReadingOrder(sourceLanguage.readingDirection))
         )
         timingRecorder.setRegionCount(localContext.regions.size)
@@ -1504,7 +1534,12 @@ class AiTranslationRepository(
             }
         }
         val existingPage = store.readBook(bookId)?.pages?.firstOrNull { it.pageIndex == pageIndex }
-        val resumablePage = mergeLocalDetectionPageForRegionResume(localContext, existingPage, mode)
+        val resumablePage = mergeLocalDetectionPageForRegionResume(
+            localContext = localContext,
+            existingPage = existingPage,
+            mode = mode,
+            targetLocale = settings.targetLocale
+        )
         store.upsertPages(bookId, listOf(resumablePage))
         onPageUpdated(resumablePage)
         val pageImageInput = timedAiTranslationStep(timingRecorder, AI_TIMING_PAGE_IMAGE_INPUT) {
@@ -1834,7 +1869,8 @@ private fun aiTranslationFailureCategoryFromSummary(summary: String): AiTranslat
 
 internal fun localDetectionPlaceholderPage(
     localContext: AiTranslationLocalPageContext,
-    mode: AiTranslationMode
+    mode: AiTranslationMode,
+    targetLocale: String = ""
 ): AiTranslatedPage = AiTranslatedPage(
     pageIndex = localContext.pageIndex,
     status = AiTranslationPageStatus.RUNNING,
@@ -1842,12 +1878,13 @@ internal fun localDetectionPlaceholderPage(
     imageWidth = localContext.imageWidth,
     imageHeight = localContext.imageHeight,
     mode = mode.storedValue,
-    blocks = localContext.regions.map { region -> localDetectionPlaceholderBlock(region) }
+    blocks = localContext.regions.map { region -> localDetectionPlaceholderBlock(region, targetLocale = targetLocale) }
 )
 
 private fun localDetectionPlaceholderBlock(
     region: AiTranslationLocalTextRegion,
-    regionStatus: AiTranslationRegionStatus = AiTranslationRegionStatus.PENDING
+    regionStatus: AiTranslationRegionStatus = AiTranslationRegionStatus.PENDING,
+    targetLocale: String = ""
 ): AiTranslationBlock =
     AiTranslationBlock(
         localRegionId = region.id,
@@ -1858,6 +1895,11 @@ private fun localDetectionPlaceholderBlock(
         rect = region.effectiveSourceMaskBounds(),
         translationRect = region.effectiveRenderBounds(),
         sourceColumns = region.effectiveSourceColumns(),
+        sourceLines = region.effectiveSourceLines(),
+        horizontalLayoutVersion = region.horizontalLayoutVersion,
+        horizontalTargetLocale = targetLocale.takeIf {
+            region.horizontalLayoutVersion > 0
+        }.orEmpty(),
         bubbleOutline = region.bubbleOutline,
         bubbleSolidFill = region.bubbleSolidFill,
         textColor = ensureReadableAiTextColor(region.textColor, region.backgroundColor),
@@ -1872,7 +1914,8 @@ private fun localDetectionPlaceholderBlock(
 internal fun mergeLocalDetectionPageForRegionResume(
     localContext: AiTranslationLocalPageContext,
     existingPage: AiTranslatedPage?,
-    mode: AiTranslationMode
+    mode: AiTranslationMode,
+    targetLocale: String = ""
 ): AiTranslatedPage {
     val completedByRegion = existingPage
         ?.blocks
@@ -1886,15 +1929,29 @@ internal fun mergeLocalDetectionPageForRegionResume(
         imageWidth = localContext.imageWidth,
         imageHeight = localContext.imageHeight,
         blocks = localContext.regions.map { region ->
-            completedByRegion[region.id]?.withLocalRegionGeometry(region)
-                ?: localDetectionPlaceholderBlock(region)
+            completedByRegion[region.id]
+                ?.takeIf { block ->
+                    if (block.horizontalLayoutVersion == 0 && region.horizontalLayoutVersion == 0) {
+                        true
+                    } else {
+                        block.horizontalLayoutVersion == 1 && region.horizontalLayoutVersion == 1 &&
+                            existingPage?.imageWidth == localContext.imageWidth &&
+                            existingPage.imageHeight == localContext.imageHeight &&
+                            block.rect == region.effectiveSourceMaskBounds() &&
+                            block.sourceLines == region.effectiveSourceLines() &&
+                            block.horizontalTargetLocale == targetLocale
+                    }
+                }
+                ?.withLocalRegionGeometry(region, targetLocale)
+                ?: localDetectionPlaceholderBlock(region, targetLocale = targetLocale)
         },
         mode = mode.storedValue
     )
 }
 
 private fun AiTranslationBlock.withLocalRegionGeometry(
-    region: AiTranslationLocalTextRegion
+    region: AiTranslationLocalTextRegion,
+    targetLocale: String = ""
 ): AiTranslationBlock = copy(
     rect = region.effectiveSourceMaskBounds(),
     translationRect = region.effectiveRenderBoundsForKind(kind),
@@ -1906,28 +1963,35 @@ private fun AiTranslationBlock.withLocalRegionGeometry(
     rotationDegrees = region.rotationDegrees,
     fontScale = region.estimatedFontScale,
     confidence = region.confidence,
-    textDirection = region.textDirection
+    textDirection = region.textDirection,
+    sourceLines = region.effectiveSourceLines(),
+    horizontalLayoutVersion = region.horizontalLayoutVersion,
+    horizontalTargetLocale = horizontalTargetLocale.ifBlank {
+        targetLocale.takeIf { region.horizontalLayoutVersion > 0 }.orEmpty()
+    }
 ).withReadableColors()
 
 internal fun translatedPagesFromLocalRegionResponse(
     normalizedJson: String,
     fallbackPageIndexes: List<Int>,
     localPageContexts: List<AiTranslationLocalPageContext>,
-    mode: AiTranslationMode
+    mode: AiTranslationMode,
+    targetLocale: String = ""
 ): List<AiTranslatedPage> {
     val responsePages = parseLocalRegionTranslationResponse(normalizedJson)
     val translationsByPage = alignLocalRegionTranslationPagesToRequestedIndexes(responsePages, fallbackPageIndexes)
         .associateBy { it.pageIndex }
     return localPageContexts.mapNotNull { context ->
         val responsePage = translationsByPage[context.pageIndex] ?: return@mapNotNull null
-        buildTranslatedPageFromLocalContext(context, responsePage.translations, mode)
+        buildTranslatedPageFromLocalContext(context, responsePage.translations, mode, targetLocale)
     }
 }
 
 internal fun buildTranslatedPageFromLocalContext(
     localContext: AiTranslationLocalPageContext,
     translations: List<AiLocalRegionTranslation>,
-    mode: AiTranslationMode
+    mode: AiTranslationMode,
+    targetLocale: String = ""
 ): AiTranslatedPage? {
     val translationsByRegion = alignTranslationsToLocalRegions(localContext.regions, translations)
     if (translationsByRegion.size != localContext.regions.size) return null
@@ -1951,6 +2015,11 @@ internal fun buildTranslatedPageFromLocalContext(
             rect = region.effectiveSourceMaskBounds(),
             translationRect = region.effectiveRenderBoundsForKind(translation.kind),
             sourceColumns = region.effectiveSourceColumns(),
+            sourceLines = region.effectiveSourceLines(),
+            horizontalLayoutVersion = region.horizontalLayoutVersion,
+            horizontalTargetLocale = targetLocale.takeIf {
+                region.horizontalLayoutVersion > 0
+            }.orEmpty(),
             bubbleOutline = region.bubbleOutline,
             bubbleSolidFill = region.bubbleSolidFill,
             textColor = ensureReadableAiTextColor(region.textColor, region.backgroundColor),
@@ -2272,19 +2341,25 @@ internal fun mergeTranslatedPageFragments(
     localContext: AiTranslationLocalPageContext,
     fragments: List<AiTranslatedPage>,
     mode: AiTranslationMode,
-    status: AiTranslationPageStatus = AiTranslationPageStatus.DONE
+    status: AiTranslationPageStatus = AiTranslationPageStatus.DONE,
+    targetLocale: String = ""
 ): AiTranslatedPage? {
     val blocksByRegion = fragments
         .flatMap { it.blocks }
         .filter { it.localRegionId.isNotBlank() }
         .associateBy { it.localRegionId }
     val orderedBlocks = localContext.regions.map { region ->
-        val current = blocksByRegion[region.id] ?: localDetectionPlaceholderBlock(region)
+        val current = blocksByRegion[region.id]
+            ?: localDetectionPlaceholderBlock(region, targetLocale = targetLocale)
         when (status) {
             AiTranslationPageStatus.DONE -> if (current.regionStatus.isCompletedPageResult()) {
                 current
             } else {
-                localDetectionPlaceholderBlock(region, AiTranslationRegionStatus.PENDING)
+                localDetectionPlaceholderBlock(
+                    region,
+                    AiTranslationRegionStatus.PENDING,
+                    targetLocale
+                )
             }
             AiTranslationPageStatus.FAILED -> if (current.regionStatus.isTerminal()) {
                 current
@@ -2385,7 +2460,13 @@ private class AiRegionImageInputProvider(
             yield()
             val cropRect = region.effectiveAiCropBounds().toAiCropRect(bounds.outWidth, bounds.outHeight)
                 ?: return@mapIndexedNotNull null
-            val cropCacheKey = aiRegionCropCacheKey(file, cropRect, sourceTextProfile, translationMode)
+            val cropCacheKey = aiRegionCropCacheKey(
+                file = file,
+                rect = cropRect,
+                sourceTextProfile = sourceTextProfile,
+                translationMode = translationMode,
+                horizontalLayoutVersion = region.horizontalLayoutVersion
+            )
             val bytes = store.readRegionCrop(bookId, pageIndex, region.id, cropCacheKey)
                 ?: decoderMutex.withLock {
                     store.readRegionCrop(bookId, pageIndex, region.id, cropCacheKey)
@@ -2649,9 +2730,11 @@ private fun aiRegionCropCacheKey(
     file: File,
     rect: Rect,
     sourceTextProfile: AiSourceTextProfile,
-    translationMode: AiTranslationMode
+    translationMode: AiTranslationMode,
+    horizontalLayoutVersion: Int = 0
 ): String =
-    listOf(
+    buildList {
+        addAll(listOf(
         "region-v4-high-accuracy",
         file.length(),
         file.lastModified(),
@@ -2664,7 +2747,9 @@ private fun aiRegionCropCacheKey(
         aiRegionCropJpegQuality(sourceTextProfile, translationMode),
         aiRegionCropMinShortEdge(sourceTextProfile, translationMode),
         aiRegionCropMaxLongEdge(sourceTextProfile, translationMode)
-    ).joinToString(":")
+        ))
+        if (horizontalLayoutVersion > 0) add("horizontal-v$horizontalLayoutVersion")
+    }.joinToString(":")
 
 internal fun aiRegionCropJpegQuality(
     sourceTextProfile: AiSourceTextProfile,

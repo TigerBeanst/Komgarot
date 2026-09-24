@@ -449,8 +449,9 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(source.contains("async {"))
         assertTrue(translateSource.contains("savePartialTranslatedPageFragment("))
         assertTrue(source.contains("saveRunningRegionChunk("))
-        assertTrue(source.contains("blocks = localContext.regions.map { region -> localDetectionPlaceholderBlock(region) }"))
-        assertTrue(source.contains("val current = blocksByRegion[region.id] ?: localDetectionPlaceholderBlock(region)"))
+        assertTrue(source.contains("blocks = localContext.regions.map { region -> localDetectionPlaceholderBlock(region, targetLocale = targetLocale) }"))
+        assertTrue(source.contains("val current = blocksByRegion[region.id]"))
+        assertTrue(source.contains("localDetectionPlaceholderBlock(region, targetLocale = targetLocale)"))
     }
 
     @Test
@@ -704,7 +705,8 @@ class AiTranslationRepositoryStructureTest {
         val prepareSource = source.substring(prepareStart, prepareEnd)
 
         assertTrue(prepareSource.contains("onPageUpdated: (AiTranslatedPage) -> Unit"))
-        assertTrue(prepareSource.contains("val resumablePage = mergeLocalDetectionPageForRegionResume(localContext, existingPage, mode)"))
+        assertTrue(prepareSource.contains("val resumablePage = mergeLocalDetectionPageForRegionResume("))
+        assertTrue(prepareSource.contains("targetLocale = settings.targetLocale"))
         assertTrue(prepareSource.contains("store.upsertPages(bookId, listOf(resumablePage))"))
         assertTrue(prepareSource.contains("onPageUpdated(resumablePage)"))
         assertTrue(prepareSource.contains("currentCoroutineContext().ensureActive()"))
@@ -1074,7 +1076,8 @@ class AiTranslationRepositoryStructureTest {
         assertTrue(inputSource.contains("ensureCachedPageFile(book.seriesId, bookId, url)"))
         assertTrue(inputSource.contains("localTextDetector.detect("))
         assertTrue(inputSource.contains("onTimingStep = timingRecorder::add"))
-        assertTrue(inputSource.contains("val resumablePage = mergeLocalDetectionPageForRegionResume(localContext, existingPage, mode)"))
+        assertTrue(inputSource.contains("val resumablePage = mergeLocalDetectionPageForRegionResume("))
+        assertTrue(inputSource.contains("targetLocale = settings.targetLocale"))
         assertTrue(inputSource.contains("store.upsertPages(bookId, listOf(resumablePage))"))
     }
 

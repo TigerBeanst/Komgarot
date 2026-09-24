@@ -29,6 +29,7 @@ private fun AiTranslationBlock.forReaderPageSegment(segment: ReaderPageSegment):
             ?.forReaderPageSegment(segment)
             ?: AiTranslationRect(),
         sourceColumns = sourceColumns.mapNotNull { column -> column.forReaderPageSegment(segment) },
+        sourceLines = sourceLines.mapNotNull { line -> line.forReaderPageSegment(segment) },
         bubbleOutline = bubbleOutline.forReaderPageSegment(segment)
     )
 }
