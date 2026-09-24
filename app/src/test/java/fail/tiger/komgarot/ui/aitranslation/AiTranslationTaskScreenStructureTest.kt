@@ -1,6 +1,7 @@
 package fail.tiger.komgarot.ui.aitranslation
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,6 +27,26 @@ class AiTranslationTaskScreenStructureTest {
         assertTrue(source.contains("LinearProgressIndicator("))
         assertTrue(source.contains("taskStatusLabelRes(task.status)"))
         assertTrue(source.contains("aiTranslationTaskProgress(task)"))
+    }
+
+    @Test
+    fun taskProgressSeparatesCompletedFailedAndRemainingPages() {
+        val screenClass = Class.forName("fail.tiger.komgarot.ui.aitranslation.AiTranslationTaskScreenKt")
+        val remaining = screenClass.getDeclaredMethod(
+            "remainingAiTranslationPageCount",
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType
+        ).apply { isAccessible = true }
+        val progress = screenClass.getDeclaredMethod(
+            "completedAiTranslationProgress",
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType
+        ).apply { isAccessible = true }
+
+        assertEquals(5, remaining.invoke(null, 10, 3, 2))
+        assertEquals(0, remaining.invoke(null, 10, 8, 5))
+        assertEquals(0.3f, progress.invoke(null, 10, 3) as Float, 0.0001f)
     }
 
     @Test

@@ -358,7 +358,7 @@
     <string name="ai_translate_book">AI translate book</string>
     <string name="ai_translate_book_mode">AI translate book · %1$s</string>
     <string name="ai_translate_config_required">Configure a vision-capable model first.</string>
-    <string name="ai_translate_progress">%1$d / %2$d translated · %3$d failed</string>
+    <string name="ai_translate_progress">%1$d / %2$d translated · %3$d incomplete · %4$d failed</string>
     <string name="ai_translate_progress_with_mode">%1$d / %2$d translated · %3$d failed · %4$s</string>
     <string name="ai_translate_cache_progress_with_mode">Caching images %1$d / %2$d · %3$s</string>
     <string name="ai_translation_mode_local_detection">Local detection + AI translation</string>
@@ -434,6 +434,8 @@
     <string name="reader_ai_window_page_status">Pages: %1$d done · %2$d running · %3$d failed · %4$d paused</string>
     <string name="reader_ai_window_progress_short">%1$d/%2$d pages</string>
     <string name="reader_ai_window_active_progress_short">%1$d/%2$d pages · processing %3$s</string>
+    <string name="reader_ai_window_active_progress_with_failures_short">%1$d/%2$d pages · processing %3$s · %4$d failed</string>
+    <string name="reader_ai_window_progress_with_failures_short">%1$d/%2$d pages · %3$d failed</string>
     <string name="reader_ai_page_region_progress_short">Page %1$d · %2$s regions</string>
     <string name="reader_ai_window_region_status">Regions: %1$d done · %2$d running · %3$d failed · %4$d paused</string>
     <string name="reader_ai_error_title">AI translation error</string>
@@ -453,7 +455,7 @@
     <string name="ai_translation_task_status_paused">Paused</string>
     <string name="ai_translation_task_status_done">Done</string>
     <string name="ai_translation_task_status_failed">Failed</string>
-    <string name="ai_translation_task_overview">%1$d active · %2$d failed pages · %3$d/%4$d pages</string>
+    <string name="ai_translation_task_overview">%1$d active · %2$d/%3$d completed · %4$d incomplete · %5$d failed</string>
     <string name="ai_translation_failure_categories">Failure types: %1$s</string>
     <string name="ai_translation_failure_category_settings">Settings</string>
     <string name="ai_translation_failure_category_model_configuration">Model config</string>

@@ -106,7 +106,15 @@ fun AiTranslationTaskScreen(
                             supportingContent = {
                                 Column {
                                     Text(stringResource(taskStatusLabelRes(task.status)))
-                                    Text(stringResource(R.string.ai_translate_progress, task.completedPages, task.pageCount, task.failedPages))
+                                    Text(
+                                        stringResource(
+                                            R.string.ai_translate_progress,
+                                            task.completedPages,
+                                            task.pageCount,
+                                            remainingAiTranslationPageCount(task.pageCount, task.completedPages, task.failedPages),
+                                            task.failedPages
+                                        )
+                                    )
                                     aiTranslationFailureCategorySummary(task).takeIf { it.isNotBlank() }?.let { categories ->
                                         Text(stringResource(R.string.ai_translation_failure_categories, categories))
                                     }
@@ -247,24 +255,26 @@ private fun failedAiTranslationPageCount(tasks: List<AiTranslationTaskSummary>):
 
 @Composable
 private fun AiTranslationTaskOverview(tasks: List<AiTranslationTaskSummary>) {
-    val totalPages = tasks.sumOf { it.pageCount }.coerceAtLeast(1)
+    val totalPages = tasks.sumOf { it.pageCount }.coerceAtLeast(0)
     val completedPages = tasks.sumOf { it.completedPages }
     val failedPages = failedAiTranslationPageCount(tasks)
+    val remainingPages = remainingAiTranslationPageCount(totalPages, completedPages, failedPages)
     ListItem(
         headlineContent = {
             Text(
                 stringResource(
                     R.string.ai_translation_task_overview,
                     activeAiTranslationTaskCount(tasks),
-                    failedPages,
                     completedPages,
-                    totalPages
+                    totalPages,
+                    remainingPages,
+                    failedPages
                 )
             )
         },
         supportingContent = {
             LinearProgressIndicator(
-                progress = { ((completedPages + failedPages).toFloat() / totalPages.toFloat()).coerceIn(0f, 1f) },
+                progress = { completedAiTranslationProgress(totalPages, completedPages) },
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
             )
         }
@@ -272,9 +282,17 @@ private fun AiTranslationTaskOverview(tasks: List<AiTranslationTaskSummary>) {
 }
 
 private fun aiTranslationTaskProgress(task: AiTranslationTaskSummary): Float {
-    val pageCount = task.pageCount.coerceAtLeast(1)
-    return ((task.completedPages + task.failedPages).toFloat() / pageCount.toFloat()).coerceIn(0f, 1f)
+    return completedAiTranslationProgress(task.pageCount, task.completedPages)
 }
+
+internal fun remainingAiTranslationPageCount(
+    pageCount: Int,
+    completedPages: Int,
+    failedPages: Int
+): Int = (pageCount - completedPages - failedPages).coerceAtLeast(0)
+
+internal fun completedAiTranslationProgress(pageCount: Int, completedPages: Int): Float =
+    (completedPages.toFloat() / pageCount.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
 
 @Composable
 private fun aiTranslationFailureCategorySummary(task: AiTranslationTaskSummary): String {

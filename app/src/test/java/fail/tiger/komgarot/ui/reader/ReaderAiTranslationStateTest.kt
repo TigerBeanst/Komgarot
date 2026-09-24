@@ -17,6 +17,23 @@ class ReaderAiTranslationStateTest {
     private val viewModelSource = File("src/main/java/fail/tiger/komgarot/ui/reader/ReaderViewModel.kt").readText()
 
     @Test
+    fun mixedWindowProgressSelectsFailureAwareStatusText() {
+        val screenClass = Class.forName("fail.tiger.komgarot.ui.reader.ReaderScreenKt")
+        val method = screenClass.getDeclaredMethod(
+            "readerAiWindowProgressKind",
+            ReaderAiTranslationWindowStatus::class.java,
+            Boolean::class.javaPrimitiveType
+        ).apply { isAccessible = true }
+        val mixed = ReaderAiTranslationWindowStatus(totalPages = 5, completedPages = 2, runningPages = 2, failedPages = 1)
+        val healthy = mixed.copy(failedPages = 0)
+
+        assertEquals("ACTIVE_WITH_FAILURES", (method.invoke(null, mixed, true) as Enum<*>).name)
+        assertEquals("RUNNING_WITH_FAILURES", (method.invoke(null, mixed, false) as Enum<*>).name)
+        assertEquals("ACTIVE", (method.invoke(null, healthy, true) as Enum<*>).name)
+        assertEquals("RUNNING", (method.invoke(null, healthy, false) as Enum<*>).name)
+    }
+
+    @Test
     fun fullPageRetryRemovesOldBlocksWhileDetectionRunsAgain() {
         val oldPage = AiTranslatedPage(
             pageIndex = 16,

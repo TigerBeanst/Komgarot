@@ -1052,15 +1052,27 @@ private fun ReaderAiTranslationProgressControl(
         stringResource(R.string.reader_ai_page_region_progress_short, vm.currentPage + 1, progress)
     }
         ?: if (windowStatus.runningPages > 0 && windowStatus.totalPages > 0) {
-            if (activePageNumbers.isNotEmpty()) {
-                stringResource(
+            when (readerAiWindowProgressKind(windowStatus, activePageNumbers.isNotEmpty())) {
+                ReaderAiWindowProgressKind.ACTIVE_WITH_FAILURES -> stringResource(
+                    R.string.reader_ai_window_active_progress_with_failures_short,
+                    windowStatus.completedPages,
+                    windowStatus.totalPages,
+                    activePageNumbers.joinToString(", "),
+                    windowStatus.failedPages
+                )
+                ReaderAiWindowProgressKind.RUNNING_WITH_FAILURES -> stringResource(
+                    R.string.reader_ai_window_progress_with_failures_short,
+                    windowStatus.completedPages,
+                    windowStatus.totalPages,
+                    windowStatus.failedPages
+                )
+                ReaderAiWindowProgressKind.ACTIVE -> stringResource(
                     R.string.reader_ai_window_active_progress_short,
                     windowStatus.completedPages,
                     windowStatus.totalPages,
                     activePageNumbers.joinToString(", ")
                 )
-            } else {
-                stringResource(
+                ReaderAiWindowProgressKind.RUNNING -> stringResource(
                     R.string.reader_ai_window_progress_short,
                     windowStatus.completedPages,
                     windowStatus.totalPages
@@ -1119,6 +1131,23 @@ private fun ReaderAiTranslationProgressControl(
             )
         }
     }
+}
+
+internal enum class ReaderAiWindowProgressKind {
+    ACTIVE_WITH_FAILURES,
+    RUNNING_WITH_FAILURES,
+    ACTIVE,
+    RUNNING
+}
+
+internal fun readerAiWindowProgressKind(
+    status: ReaderAiTranslationWindowStatus,
+    hasActivePageNumbers: Boolean
+): ReaderAiWindowProgressKind = when {
+    hasActivePageNumbers && status.failedPages > 0 -> ReaderAiWindowProgressKind.ACTIVE_WITH_FAILURES
+    status.failedPages > 0 -> ReaderAiWindowProgressKind.RUNNING_WITH_FAILURES
+    hasActivePageNumbers -> ReaderAiWindowProgressKind.ACTIVE
+    else -> ReaderAiWindowProgressKind.RUNNING
 }
 
 @Composable
