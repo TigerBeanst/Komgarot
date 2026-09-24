@@ -10,6 +10,8 @@ import fail.tiger.komgarot.data.local.AiSettings
 import fail.tiger.komgarot.data.local.AiSourceTextProfile
 import fail.tiger.komgarot.data.local.usesHorizontalComicRules
 import fail.tiger.komgarot.data.local.AiTranslationTextDirection
+import fail.tiger.komgarot.data.local.AiHorizontalTranslationPolicy
+import fail.tiger.komgarot.data.local.resolveAiHorizontalTranslationPolicy
 import fail.tiger.komgarot.data.remote.AiTranslationLocalPageContext
 import fail.tiger.komgarot.data.remote.AiTranslationLocalTextRegion
 import java.io.File
@@ -228,20 +230,34 @@ internal fun selectLocalTextDetectionRegions(
     sourceTextProfile: AiSourceTextProfile,
     maxRegions: Int,
     translationMode: AiTranslationMode = AiTranslationMode.LOCAL_DETECTION,
-    preserveLinesForBubbleGrouping: Boolean = false
+    preserveLinesForBubbleGrouping: Boolean = false,
+    horizontalPolicy: AiHorizontalTranslationPolicy = AiHorizontalTranslationPolicy.LEGACY,
+    fuseHeuristicForHorizontalPolicy: Boolean = false
 ): List<AiTranslationLocalTextRegion> {
+    // Fail-fast sentinels guard the raw detector outputs only; every fused or
+    // merged stage downstream clamps with take() so a dense page degrades to a
+    // truncated translation instead of failing the whole page.
+    val preparedPaddleRegions = annotateHorizontalTextRegions(
+        paddleRegions.checkedHorizontalRegionLimit(horizontalPolicy, maxRegions, "paddle candidates"), horizontalPolicy
+    )
     if (paddleRegions.isNotEmpty() && translationMode != AiTranslationMode.HIGH_ACCURACY) {
         return mergeLocalTextRegionsIntoTextBoxes(
-            normalizeLocalTextDirectionsForProfile(paddleRegions, sourceTextProfile),
+            normalizeLocalTextDirectionsForProfile(preparedPaddleRegions, sourceTextProfile),
             sourceTextProfile
         )
             .take(maxRegions)
     }
-    val normalizedPaddle = normalizeLocalTextDirectionsForProfile(paddleRegions, sourceTextProfile)
+    val normalizedPaddle = normalizeLocalTextDirectionsForProfile(preparedPaddleRegions, sourceTextProfile)
     val shouldFuseHeuristic = translationMode == AiTranslationMode.HIGH_ACCURACY &&
-        normalizedPaddle.size <= HIGH_ACCURACY_SPARSE_PADDLE_REGION_COUNT
+        ((fuseHeuristicForHorizontalPolicy && horizontalPolicy != AiHorizontalTranslationPolicy.LEGACY) ||
+            normalizedPaddle.size <= HIGH_ACCURACY_SPARSE_PADDLE_REGION_COUNT)
     val normalizedHeuristic = if (normalizedPaddle.isEmpty() || shouldFuseHeuristic) {
-        normalizeLocalTextDirectionsForProfile(heuristicRegions(), sourceTextProfile)
+        normalizeLocalTextDirectionsForProfile(
+            annotateHorizontalTextRegions(
+                heuristicRegions().checkedHorizontalRegionLimit(horizontalPolicy, maxRegions, "heuristic candidates"), horizontalPolicy
+            ),
+            sourceTextProfile
+        )
     } else {
         emptyList()
     }
@@ -260,11 +276,27 @@ internal fun selectLocalTextDetectionRegions(
 internal fun refineLocalTextRegionsWithBubbles(
     regions: List<AiTranslationLocalTextRegion>,
     bubbles: List<*>,
-    translationMode: AiTranslationMode
+    translationMode: AiTranslationMode,
+    maxRegions: Int = Int.MAX_VALUE
 ): List<AiTranslationLocalTextRegion> = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
-    groupLocalTextRegionsByBubbles(regions, bubbles)
+    groupLocalTextRegionsByBubbles(regions, bubbles).take(maxRegions)
 } else {
-    regions
+    regions.take(maxRegions)
+}
+
+internal fun horizontalDetectionProbeLimit(policy: AiHorizontalTranslationPolicy, limit: Int): Int =
+    if (policy == AiHorizontalTranslationPolicy.LEGACY) limit else (limit.toLong() + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+internal fun <T> List<T>.checkedHorizontalRegionLimit(
+    policy: AiHorizontalTranslationPolicy,
+    limit: Int,
+    stage: String
+): List<T> {
+    if (policy == AiHorizontalTranslationPolicy.LEGACY) return take(limit)
+    check(size <= limit) {
+        "Horizontal detection region limit exceeded: stage=$stage, count=$size, limit=$limit, policy=${policy.storedValue}"
+    }
+    return this
 }
 
 private const val HIGH_ACCURACY_SPARSE_PADDLE_REGION_COUNT = 2
@@ -287,6 +319,64 @@ internal fun normalizeLocalTextDirectionsForProfile(
 } else {
     regions
 }
+
+internal fun annotateHorizontalTextRegions(
+    regions: List<AiTranslationLocalTextRegion>,
+    policy: AiHorizontalTranslationPolicy
+): List<AiTranslationLocalTextRegion> = if (policy == AiHorizontalTranslationPolicy.LEGACY) {
+    regions
+} else {
+    regions.map { region ->
+        val lineGeometry = region.sourceLines
+            .filter { it.width > 0f && it.height > 0f }
+            .ifEmpty {
+                region.sourceColumns
+                    .filter { it.width > 0f && it.height > 0f }
+            }
+            .ifEmpty { listOf(region.effectiveTextBounds()) }
+            .deduplicateHorizontalSourceLines()
+        region.copy(
+            textDirection = AiTranslationTextDirection.HORIZONTAL,
+            rotationDegrees = 0f,
+            sourceLines = lineGeometry,
+            horizontalLayoutVersion = 1
+        )
+    }
+}
+
+private fun List<AiTranslationRect>.deduplicateHorizontalSourceLines(): List<AiTranslationRect> {
+    val retained = mutableListOf<AiTranslationRect>()
+    sortedWith(compareBy<AiTranslationRect> { it.y }.thenBy { it.x }).forEach { candidate ->
+        val duplicateIndex = retained.indexOfFirst { existing ->
+            normalizedIntersectionOverUnion(existing, candidate) >= 0.82f
+        }
+        if (duplicateIndex < 0) {
+            retained += candidate
+        } else {
+            retained[duplicateIndex] = unionRects(retained[duplicateIndex], candidate)
+        }
+    }
+    return retained.sortedWith(compareBy<AiTranslationRect> { it.y }.thenBy { it.x })
+}
+
+internal fun horizontalCandidateMaxRegions(
+    policy: AiHorizontalTranslationPolicy,
+    maxRegions: Int
+): Int = when (policy) {
+    AiHorizontalTranslationPolicy.LEGACY -> maxRegions.coerceAtLeast(1)
+    else -> max(maxRegions, maxRegions * HORIZONTAL_CANDIDATE_REGION_MULTIPLIER)
+}
+
+internal fun horizontalFinalMaxRegions(
+    policy: AiHorizontalTranslationPolicy,
+    maxRegions: Int
+): Int = when (policy) {
+    AiHorizontalTranslationPolicy.LEGACY -> maxRegions.coerceAtLeast(1)
+    else -> max(maxRegions, HORIZONTAL_FINAL_REGION_LIMIT)
+}
+
+private const val HORIZONTAL_CANDIDATE_REGION_MULTIPLIER = 16
+private const val HORIZONTAL_FINAL_REGION_LIMIT = 256
 
 private data class AiDetectionBitmap(
     val bitmap: Bitmap,
@@ -525,6 +615,7 @@ internal fun List<AiTextBlockCandidate>.toLocalTextBoxRegions(): List<AiTranslat
 
 private fun AiTextBlockCandidate.toLocalTextBoxRegion(): AiTranslationLocalTextRegion {
     val regions = lines.map { it.region }
+    val sourceLines = regions.flatMap(AiTranslationLocalTextRegion::effectiveSourceLines)
     val sourceMaskColumns = maskRegions
         .map { it.rect }
         .mergeVerticalTextFragmentsIntoSourceColumns(textDirection)
@@ -541,7 +632,9 @@ private fun AiTextBlockCandidate.toLocalTextBoxRegion(): AiTranslationLocalTextR
         textBounds = textBounds,
         renderBounds = textBounds,
         aiCropBounds = textBounds,
-        sourceColumns = sourceMaskColumns
+        sourceColumns = sourceMaskColumns,
+        sourceLines = sourceLines,
+        horizontalLayoutVersion = regions.maxOfOrNull { it.horizontalLayoutVersion } ?: 0
     )
 }
 
@@ -813,11 +906,13 @@ private fun AiTranslationRect.fitsMergedTextBoxLimits(direction: AiTranslationTe
 private fun List<AiTranslationLocalTextRegion>.toMergedLocalTextBoxRegion(): AiTranslationLocalTextRegion {
     if (size == 1) return first().copy(
         estimatedFontScale = estimateMergedTextBoxFontScale(first().textDirection, this),
-        sourceColumns = first().effectiveSourceColumns()
+        sourceColumns = first().effectiveSourceColumns(),
+        sourceLines = first().effectiveSourceLines()
     )
     val direction = clusterDirection()
     val ordered = sortedWith(aiLocalRegionReadingOrder(direction))
     val representative = ordered.maxByOrNull { it.confidence } ?: ordered.first()
+    val sourceLines = ordered.flatMap(AiTranslationLocalTextRegion::effectiveSourceLines)
     return representative.copy(
         id = ordered.first().id,
         rect = boundingRect(),
@@ -826,7 +921,9 @@ private fun List<AiTranslationLocalTextRegion>.toMergedLocalTextBoxRegion(): AiT
         backgroundColor = dominantColor(ordered.map { it.backgroundColor }),
         confidence = ordered.map { it.confidence }.average().toFloat().coerceIn(0f, 1f),
         estimatedFontScale = estimateMergedTextBoxFontScale(direction, ordered),
-        sourceColumns = ordered.flatMap { it.effectiveSourceColumns() }
+        sourceColumns = ordered.flatMap { it.effectiveSourceColumns() },
+        sourceLines = sourceLines,
+        horizontalLayoutVersion = ordered.maxOfOrNull { it.horizontalLayoutVersion } ?: 0
     )
 }
 
@@ -1471,7 +1568,13 @@ private fun AiTranslationLocalTextRegion.inferredSourceMaskBounds(): AiTranslati
 }
 
 private fun AiTranslationLocalTextRegion.inferredAiCropBounds(): AiTranslationRect {
-    val base = sourceColumns
+    val base = sourceLines
+        .takeIf { horizontalLayoutVersion > 0 }
+        .orEmpty()
+        .filter { it.width > 0f && it.height > 0f }
+        .takeIf { it.isNotEmpty() }
+        ?.let { lines -> lines.map { it.toRegion() }.boundingRect() }
+        ?: sourceColumns
         .filter { it.width > 0f && it.height > 0f }
         .takeIf { it.isNotEmpty() }
         ?.let { columns -> columns.map { it.toRegion() }.boundingRect() }
@@ -1493,6 +1596,14 @@ internal fun AiTranslationLocalTextRegion.effectiveSourceColumns(): List<AiTrans
     val explicitColumns = sourceColumns.filter { it.width > 0f && it.height > 0f }
     if (explicitColumns.isNotEmpty()) return explicitColumns
     return listOf(effectiveTextBounds())
+}
+
+internal fun AiTranslationLocalTextRegion.effectiveSourceLines(): List<AiTranslationRect> {
+    if (horizontalLayoutVersion <= 0) return emptyList()
+    val explicitLines = sourceLines.filter { it.width > 0f && it.height > 0f }
+    if (explicitLines.isNotEmpty()) return explicitLines
+    val columns = sourceColumns.filter { it.width > 0f && it.height > 0f }
+    return columns.ifEmpty { listOf(effectiveTextBounds()) }
 }
 
 private fun AiTranslationRect.expandNormalized(extraWidth: Float, extraHeight: Float): AiTranslationRect {
@@ -1520,6 +1631,8 @@ internal fun AiTranslationBlock.correctWithLocalRegion(region: AiTranslationLoca
         rotationDegrees = if (region.rotationDegrees != 0f) region.rotationDegrees else rotationDegrees,
         fontScale = region.estimatedFontScale,
         sourceColumns = region.effectiveSourceColumns(),
+        sourceLines = region.effectiveSourceLines(),
+        horizontalLayoutVersion = region.horizontalLayoutVersion,
         bubbleOutline = region.bubbleOutline,
         bubbleSolidFill = region.bubbleSolidFill
     )
