@@ -149,7 +149,11 @@ fun AiTranslationOverlay(
                 pageHeightDp = bounds.height.value
             )
             val sourceGapMetrics = aiTranslationSourceColumnMetrics(
-                columns = safe.sourceColumns,
+                columns = if (safe.horizontalLayoutVersion > 0 && safe.sourceLines.isNotEmpty()) {
+                    safe.sourceLines
+                } else {
+                    safe.sourceColumns
+                },
                 pageWidthDp = bounds.width.value,
                 pageHeightDp = bounds.height.value
             )
@@ -380,11 +384,14 @@ fun AiTranslationOverlay(
                                 rectHeightDp = (blockHeight.value - highAccuracySafetyPadding.value * 2f).coerceAtLeast(0.5f),
                                 baseFontSizeSp = fittedFontSizeSp,
                                 kind = safe.kind,
-                                lineGapDp = textGroupGap.value,
-                                measureText = { text, fontSize ->
-                                    measureText(text, fontSize, AI_TRANSLATION_HORIZONTAL_LINE_HEIGHT_MULTIPLIER)
-                                }
-                            )
+                                    lineGapDp = textGroupGap.value,
+                                    measureText = { text, fontSize ->
+                                        measureText(text, fontSize, AI_TRANSLATION_HORIZONTAL_LINE_HEIGHT_MULTIPLIER)
+                                    },
+                                    targetLocale = safe.horizontalTargetLocale.takeIf {
+                                        safe.horizontalLayoutVersion > 0
+                                    }.orEmpty()
+                                )
                         } else fitHorizontalAiTranslationText(
                             lines = safe.translatedLines,
                             rectWidthDp = aiTranslationFitExtentDp(
@@ -399,7 +406,10 @@ fun AiTranslationOverlay(
                             ),
                             baseFontSizeSp = fittedFontSizeSp,
                             kind = safe.kind,
-                            lineGapDp = textGroupGap.value / layoutFontScale
+                            lineGapDp = textGroupGap.value / layoutFontScale,
+                            targetLocale = safe.horizontalTargetLocale.takeIf {
+                                safe.horizontalLayoutVersion > 0
+                            }.orEmpty()
                         )
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1104,22 +1114,53 @@ internal fun fitMeasuredHorizontalAiTranslationText(
     kind: AiTranslationBlockKind,
     lineGapDp: Float,
     measureText: (String, Float) -> AiMeasuredGlyphSize
+): AiHorizontalTextLayout = fitMeasuredHorizontalAiTranslationText(
+    lines = lines,
+    rectWidthDp = rectWidthDp,
+    rectHeightDp = rectHeightDp,
+    baseFontSizeSp = baseFontSizeSp,
+    kind = kind,
+    lineGapDp = lineGapDp,
+    targetLocale = "",
+    measureText = measureText
+)
+
+internal fun fitMeasuredHorizontalAiTranslationText(
+    lines: List<String>,
+    rectWidthDp: Float,
+    rectHeightDp: Float,
+    baseFontSizeSp: Float,
+    kind: AiTranslationBlockKind,
+    lineGapDp: Float,
+    targetLocale: String,
+    measureText: (String, Float) -> AiMeasuredGlyphSize
 ): AiHorizontalTextLayout {
     val safeWidth = rectWidthDp.coerceAtLeast(0.5f)
     val safeHeight = rectHeightDp.coerceAtLeast(0.5f)
     val fullText = lines.map(String::trim).filter(String::isNotBlank)
-        .reduceOrNull(::joinTranslatedLine)
+        .reduceOrNull { left, right -> joinTranslatedLine(left, right, targetLocale) }
         .orEmpty()
         .ifBlank { " " }
     fun layout(fontSizeSp: Float, textValue: String = fullText): AiHorizontalTextLayout = AiHorizontalTextLayout(
         fontSizeSp = fontSizeSp,
-        lines = balancedHorizontalLines(listOf(textValue), safeWidth, fontSizeSp),
+        lines = horizontalTargetTextLines(listOf(textValue), safeWidth, fontSizeSp, targetLocale),
         maxLineWidth = Dp(safeWidth)
     )
     val completeTextMinimum = absoluteFitMinimumFontSize(kind)
     var low = completeTextMinimum
     var high = baseFontSizeSp.coerceAtLeast(low)
     var best = layout(low)
+    if (targetLocale.isNotBlank()) {
+        // Establish a measured lower bound that fits small text regions.
+        for (attempt in 0 until AI_TRANSLATION_FIT_ITERATIONS * 2) {
+            val bounds = measuredHorizontalLayoutBounds(best, lineGapDp, measureText)
+            if (bounds.widthDp <= safeWidth && bounds.heightDp <= safeHeight) break
+            val widthScale = if (bounds.widthDp > safeWidth) safeWidth / bounds.widthDp else 1f
+            val heightScale = if (bounds.heightDp > safeHeight) safeHeight / bounds.heightDp else 1f
+            low *= min(widthScale, heightScale) * 0.95f
+            best = layout(low)
+        }
+    }
     repeat(AI_TRANSLATION_FIT_ITERATIONS * 2) {
         val candidate = layout((low + high) / 2f)
         val bounds = measuredHorizontalLayoutBounds(candidate, lineGapDp, measureText)
@@ -1166,6 +1207,10 @@ internal fun aiTranslationRenderTextDirection(block: AiTranslationBlock): AiTran
         return block.textDirection
     }
     val columns = block.sourceColumns.filter { it.width > 0f && it.height > 0f }
+    val sourceLines = block.sourceLines.filter { it.width > 0f && it.height > 0f }
+    if (block.horizontalLayoutVersion > 0 && sourceLines.isNotEmpty()) {
+        return AiTranslationTextDirection.HORIZONTAL
+    }
     if (columns.isEmpty()) return block.textDirection
     val horizontalLines = columns.count { it.width >= it.height * 1.15f }
     val verticalColumns = columns.count { it.height > it.width * 1.35f }
@@ -1186,9 +1231,16 @@ internal fun aiTranslationSourceMaskRects(
     pageHeightDp: Float = 0f,
     translationMode: AiTranslationMode = AiTranslationMode.LOCAL_DETECTION
 ): List<AiTranslationRect> {
+    val sourceLines = block.sourceLines.filter { it.width > 0f && it.height > 0f }
     val sourceColumns = block.sourceColumns.filter { it.width > 0f && it.height > 0f }
-    val rects = sourceColumns.ifEmpty { listOf(block.rect) }
-    val paddedRects = if (sourceColumns.isEmpty() || pageWidthDp <= 0f || pageHeightDp <= 0f) {
+    val useVersionedSourceLines = block.horizontalLayoutVersion > 0 && sourceLines.isNotEmpty()
+    val rects = when {
+        useVersionedSourceLines -> sourceLines
+        sourceColumns.isNotEmpty() -> sourceColumns
+        else -> listOf(block.rect)
+    }
+    val hasSourceGeometry = useVersionedSourceLines || sourceColumns.isNotEmpty()
+    val paddedRects = if (!hasSourceGeometry || pageWidthDp <= 0f || pageHeightDp <= 0f) {
         rects
     } else {
         val minimumPaddingDp = if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
@@ -1218,7 +1270,9 @@ internal fun aiTranslationSourceMaskRects(
     }
     val horizontalBlock = aiTranslationRenderTextDirection(block) == AiTranslationTextDirection.HORIZONTAL
     return if (horizontalBlock && paddedRects.size > 1) {
-        if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
+        if (useVersionedSourceLines) {
+            paddedRects
+        } else if (translationMode == AiTranslationMode.HIGH_ACCURACY) {
             mergeNearbyHorizontalMaskRects(paddedRects)
         } else {
             listOfNotNull(paddedRects.boundingRectOrNull())
@@ -1526,10 +1580,11 @@ internal fun fitHorizontalAiTranslationText(
     rectHeightDp: Float,
     baseFontSizeSp: Float,
     kind: AiTranslationBlockKind = AiTranslationBlockKind.DIALOGUE,
-    lineGapDp: Float = 0f
+    lineGapDp: Float = 0f,
+    targetLocale: String = ""
 ): AiHorizontalTextLayout {
     var fontSize = baseFontSizeSp.coerceAtLeast(absoluteFitMinimumFontSize(kind))
-    var layout = horizontalTextLayout(lines, rectWidthDp, fontSize)
+    var layout = horizontalTextLayout(lines, rectWidthDp, fontSize, targetLocale)
     repeat(AI_TRANSLATION_FIT_ITERATIONS) {
         val width = horizontalTextLayoutWidthDp(layout.lines, layout.fontSizeSp)
         val height = horizontalTextLayoutHeightDp(layout.lines.size, layout.fontSizeSp, lineGapDp)
@@ -1539,7 +1594,7 @@ internal fun fitHorizontalAiTranslationText(
         if (fitScale >= 0.995f) return layout
         fontSize = (layout.fontSizeSp * fitScale * 0.98f)
             .coerceAtLeast(absoluteFitMinimumFontSize(kind))
-        layout = horizontalTextLayout(lines, rectWidthDp, fontSize)
+        layout = horizontalTextLayout(lines, rectWidthDp, fontSize, targetLocale)
     }
     return layout
 }
@@ -1547,12 +1602,13 @@ internal fun fitHorizontalAiTranslationText(
 private fun horizontalTextLayout(
     lines: List<String>,
     rectWidthDp: Float,
-    fontSizeSp: Float
+    fontSizeSp: Float,
+    targetLocale: String = ""
 ): AiHorizontalTextLayout {
     val maxLineWidth = preferredHorizontalLineWidthDp(Dp(rectWidthDp), fontSizeSp)
     return AiHorizontalTextLayout(
         fontSizeSp = fontSizeSp,
-        lines = balancedHorizontalLines(lines, maxLineWidth.value, fontSizeSp),
+        lines = horizontalTargetTextLines(lines, maxLineWidth.value, fontSizeSp, targetLocale),
         maxLineWidth = maxLineWidth
     )
 }
@@ -1665,8 +1721,15 @@ internal fun balancedHorizontalLines(
     return merged.flatMap { wrapTranslatedLine(it, charsPerLine) }
 }
 
-private fun joinTranslatedLine(left: String, right: String): String =
-    if (left.lastOrNull()?.isLetterOrDigit() == true && right.firstOrNull()?.isLetterOrDigit() == true) {
+private fun joinTranslatedLine(
+    left: String,
+    right: String,
+    targetLocale: String = ""
+): String =
+    if (horizontalTargetLocaleUsesWordSpaces(targetLocale) &&
+        left.lastOrNull()?.isLetterOrDigit() == true &&
+        right.firstOrNull()?.isLetterOrDigit() == true
+    ) {
         "$left $right"
     } else {
         left + right
@@ -1717,6 +1780,7 @@ private fun visualTextUnits(value: String): Float =
             char.isWhitespace() -> 1.0
             char.isHangulSyllable() -> 1.0
             char.code in 0x3040..0x30FF -> 1.0
+            char.code in 0x3400..0x4DBF -> 1.0
             char.code in 0x4E00..0x9FFF -> 1.0
             else -> 0.58
         }
