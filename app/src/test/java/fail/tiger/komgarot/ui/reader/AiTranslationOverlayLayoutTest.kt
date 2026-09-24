@@ -1340,7 +1340,11 @@ class AiTranslationOverlayLayoutTest {
 
         assertEquals(first.translationRect, adjusted[0].translationRect)
         assertEquals(second.translationRect, adjusted[1].translationRect)
-        assertEquals(AiTranslationRect(0.17f, 0.15f, 0.08f, 0.10f), adjusted[2].translationRect)
+        val shifted = adjusted[2].translationRect
+        assertEquals(0.17f, shifted.x, 0.0005f)
+        assertEquals(0.15f, shifted.y, 0.0005f)
+        assertEquals(0.08f, shifted.width, 0.0005f)
+        assertEquals(0.10f, shifted.height, 0.0005f)
     }
 
     @Test

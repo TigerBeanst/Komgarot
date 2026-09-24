@@ -585,6 +585,8 @@ private fun AiTranslationRect.shiftAwayFromPlacedRects(
     bubbleOutline: List<AiTranslationPoint>
 ): AiTranslationRect {
     var candidate = this
+    var best = this
+    var bestDistance = Float.MAX_VALUE
     repeat(AI_TRANSLATION_OVERLAP_SHIFT_ATTEMPTS) {
         if (placed.none { candidate.overlapsAiTranslationRect(it, gap) }) return candidate
         val shifted = candidate.bestShiftAwayFromPlacedRects(
@@ -596,9 +598,19 @@ private fun AiTranslationRect.shiftAwayFromPlacedRects(
         )
         if (shifted == candidate) return candidate
         candidate = shifted
+        val distance = candidate.shiftDistanceFrom(this)
+        if (distance < bestDistance) {
+            bestDistance = distance
+            best = candidate
+        }
     }
-    return candidate
+    // Two neighbours can trade the candidate back and forth until the attempt budget runs
+    // out, so fall back to the smallest shift visited instead of the last one.
+    return best
 }
+
+private fun AiTranslationRect.shiftDistanceFrom(origin: AiTranslationRect): Float =
+    abs(x - origin.x) + abs(y - origin.y)
 
 private fun AiTranslationRect.bestShiftAwayFromPlacedRects(
     original: AiTranslationRect,
