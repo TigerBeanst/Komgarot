@@ -1150,6 +1150,79 @@ class AiTranslationOverlayLayoutTest {
     }
 
     @Test
+    fun overlappingTranslationMovesWithinItsOwnBubbleBounds() {
+        val first = AiTranslationBlock(
+            localRegionId = "r1",
+            translatedLines = listOf("甲"),
+            rect = AiTranslationRect(0.10f, 0.10f, 0.10f, 0.10f),
+            translationRect = AiTranslationRect(0.10f, 0.10f, 0.10f, 0.10f)
+        )
+        val second = AiTranslationBlock(
+            localRegionId = "r2",
+            translatedLines = listOf("乙"),
+            rect = AiTranslationRect(0.15f, 0.10f, 0.10f, 0.10f),
+            translationRect = AiTranslationRect(0.15f, 0.10f, 0.10f, 0.10f),
+            bubbleOutline = listOf(
+                AiTranslationPoint(0.14f, 0.08f),
+                AiTranslationPoint(0.34f, 0.08f),
+                AiTranslationPoint(0.34f, 0.24f),
+                AiTranslationPoint(0.14f, 0.24f)
+            )
+        )
+
+        val adjusted = listOf(first, second).withNonOverlappingTranslationRects(gap = 0.01f, maxShift = 0.12f)
+
+        assertEquals(first.translationRect, adjusted[0].translationRect)
+        assertFalse(adjusted[0].translationRect.overlapsAiTranslationRect(adjusted[1].translationRect, gap = 0.01f))
+        assertTrue(adjusted[1].translationRect.x >= 0.14f)
+        assertTrue(adjusted[1].translationRect.x + adjusted[1].translationRect.width <= 0.34f)
+        assertTrue(adjusted[1].translationRect.y >= 0.08f)
+        assertTrue(adjusted[1].translationRect.y + adjusted[1].translationRect.height <= 0.24f)
+    }
+
+    @Test
+    fun concaveBubbleRejectsRectWhoseEdgesCrossOutsideTheOutline() {
+        val outline = listOf(
+            AiTranslationPoint(0.00f, 0.00f),
+            AiTranslationPoint(0.40f, 0.00f),
+            AiTranslationPoint(0.40f, 0.40f),
+            AiTranslationPoint(0.30f, 0.40f),
+            AiTranslationPoint(0.30f, 0.10f),
+            AiTranslationPoint(0.10f, 0.10f),
+            AiTranslationPoint(0.10f, 0.40f),
+            AiTranslationPoint(0.00f, 0.40f)
+        )
+        val crossingRect = AiTranslationRect(0.05f, 0.05f, 0.30f, 0.30f)
+        val overlayClass = Class.forName("fail.tiger.komgarot.ui.reader.AiTranslationOverlayKt")
+        val method = overlayClass.getDeclaredMethod(
+            "isInsideBubbleOutline",
+            AiTranslationRect::class.java,
+            List::class.java
+        ).apply { isAccessible = true }
+
+        assertFalse(method.invoke(null, crossingRect, outline) as Boolean)
+    }
+
+    @Test
+    fun bubbleContainmentRejectsCandidateThatTouchesTheOutlineBoundary() {
+        val outline = listOf(
+            AiTranslationPoint(0.10f, 0.10f),
+            AiTranslationPoint(0.30f, 0.10f),
+            AiTranslationPoint(0.30f, 0.30f),
+            AiTranslationPoint(0.10f, 0.30f)
+        )
+        val touchingRect = AiTranslationRect(0.10f, 0.12f, 0.10f, 0.10f)
+        val overlayClass = Class.forName("fail.tiger.komgarot.ui.reader.AiTranslationOverlayKt")
+        val method = overlayClass.getDeclaredMethod(
+            "isInsideBubbleOutline",
+            AiTranslationRect::class.java,
+            List::class.java
+        ).apply { isAccessible = true }
+
+        assertFalse(method.invoke(null, touchingRect, outline) as Boolean)
+    }
+
+    @Test
     fun defaultOverlapHandlingKeepsTightBubbleTextAtOriginalPlacement() {
         val first = AiTranslationBlock(
             localRegionId = "r1",
@@ -1233,6 +1306,41 @@ class AiTranslationOverlayLayoutTest {
         val adjusted = listOf(first, second).withNonOverlappingTranslationRects(gap = 0.01f)
         assertEquals(first.translationRect, adjusted[0].translationRect)
         assertEquals(second.translationRect, adjusted[1].translationRect)
+    }
+
+    @Test
+    fun overlapAvoidanceFallsBackToClosestLegalShiftWhenNoClearSpotExists() {
+        val outline = listOf(
+            AiTranslationPoint(0.10f, 0.10f),
+            AiTranslationPoint(0.40f, 0.10f),
+            AiTranslationPoint(0.40f, 0.40f),
+            AiTranslationPoint(0.10f, 0.40f)
+        )
+        val first = AiTranslationBlock(
+            localRegionId = "r1",
+            translatedLines = listOf("甲"),
+            rect = AiTranslationRect(0.10f, 0.10f, 0.14f, 0.30f),
+            translationRect = AiTranslationRect(0.10f, 0.10f, 0.14f, 0.30f)
+        )
+        val second = AiTranslationBlock(
+            localRegionId = "r2",
+            translatedLines = listOf("乙"),
+            rect = AiTranslationRect(0.26f, 0.10f, 0.14f, 0.30f),
+            translationRect = AiTranslationRect(0.26f, 0.10f, 0.14f, 0.30f)
+        )
+        val third = AiTranslationBlock(
+            localRegionId = "r3",
+            translatedLines = listOf("丙"),
+            rect = AiTranslationRect(0.20f, 0.15f, 0.08f, 0.10f),
+            translationRect = AiTranslationRect(0.20f, 0.15f, 0.08f, 0.10f),
+            bubbleOutline = outline
+        )
+
+        val adjusted = listOf(first, second, third).withNonOverlappingTranslationRects(gap = 0.01f)
+
+        assertEquals(first.translationRect, adjusted[0].translationRect)
+        assertEquals(second.translationRect, adjusted[1].translationRect)
+        assertEquals(AiTranslationRect(0.17f, 0.15f, 0.08f, 0.10f), adjusted[2].translationRect)
     }
 
     @Test

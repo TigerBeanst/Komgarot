@@ -116,7 +116,11 @@ fun AiTranslationOverlay(
             imageHeight = page.imageHeight,
             fillWidth = fillWidth
         )
-        val displayBlocks = remember(page.blocks) { page.blocks.suppressDuplicateRenderedTranslations() }
+        val displayBlocks = remember(page.blocks) {
+            page.blocks
+                .suppressDuplicateRenderedTranslations()
+                .withNonOverlappingTranslationRects()
+        }
         displayBlocks.forEach { block ->
             val safe = block.renderSafe()
             val renderTextDirection = aiTranslationRenderTextDirection(safe)
@@ -543,7 +547,25 @@ internal fun normalAiTranslationMaskAlpha(savedAlpha: Float): Float = 1f
 internal fun List<AiTranslationBlock>.withNonOverlappingTranslationRects(
     gap: Float = AI_TRANSLATION_MIN_OVERLAP_GAP,
     maxShift: Float = AI_TRANSLATION_MAX_OVERLAP_SHIFT
-): List<AiTranslationBlock> = this
+): List<AiTranslationBlock> {
+    if (size < 2) return this
+    val placed = mutableListOf<AiTranslationRect>()
+    return map { block ->
+        val original = block.translationRect.takeUnless { it == AiTranslationRect() } ?: block.rect
+        val adjusted = if (block.bubbleOutline.size >= 3) {
+            original.shiftAwayFromPlacedRects(
+                placed = placed,
+                gap = gap,
+                maxShift = maxShift,
+                bubbleOutline = block.bubbleOutline
+            )
+        } else {
+            original
+        }
+        placed += adjusted
+        if (adjusted == original) block else block.copy(translationRect = adjusted)
+    }
+}
 
 internal fun AiTranslationRect.overlapsAiTranslationRect(
     other: AiTranslationRect,
@@ -559,7 +581,8 @@ internal fun AiTranslationRect.overlapsAiTranslationRect(
 private fun AiTranslationRect.shiftAwayFromPlacedRects(
     placed: List<AiTranslationRect>,
     gap: Float,
-    maxShift: Float
+    maxShift: Float,
+    bubbleOutline: List<AiTranslationPoint>
 ): AiTranslationRect {
     var candidate = this
     repeat(AI_TRANSLATION_OVERLAP_SHIFT_ATTEMPTS) {
@@ -568,7 +591,8 @@ private fun AiTranslationRect.shiftAwayFromPlacedRects(
             original = this,
             placed = placed,
             gap = gap,
-            maxShift = maxShift
+            maxShift = maxShift,
+            bubbleOutline = bubbleOutline
         )
         if (shifted == candidate) return candidate
         candidate = shifted
@@ -580,7 +604,8 @@ private fun AiTranslationRect.bestShiftAwayFromPlacedRects(
     original: AiTranslationRect,
     placed: List<AiTranslationRect>,
     gap: Float,
-    maxShift: Float
+    maxShift: Float,
+    bubbleOutline: List<AiTranslationPoint>
 ): AiTranslationRect {
     val overlapping = placed.filter { overlapsAiTranslationRect(it, gap) }
     if (overlapping.isEmpty()) return this
@@ -591,16 +616,18 @@ private fun AiTranslationRect.bestShiftAwayFromPlacedRects(
             copy(x = rect.right + gap),
             copy(x = rect.x - width - gap)
         )
-    }.map { it.coerceForOverlayPlacement() }
-        .filter { it.withinShiftLimit(original, maxShift) }
+    }.filter { candidate ->
+        candidate.withinShiftLimit(original, maxShift) &&
+            candidate.isInsideOverlayPage() &&
+            candidate.isInsideBubbleOutline(bubbleOutline)
+    }
     if (candidates.isEmpty()) return this
     val clearCandidates = candidates.filter { candidate ->
         placed.none { candidate.overlapsAiTranslationRect(it, gap) }
     }
     val pool = clearCandidates.ifEmpty { candidates }
     return pool.minBy { candidate ->
-        val overlapPenalty = placed.count { candidate.overlapsAiTranslationRect(it, gap) } * 10f
-        overlapPenalty + abs(candidate.x - x) + abs(candidate.y - y)
+        abs(candidate.x - x) + abs(candidate.y - y)
     }
 }
 
@@ -610,17 +637,90 @@ private fun AiTranslationRect.withinShiftLimit(
 ): Boolean =
     abs(x - original.x) <= maxShift && abs(y - original.y) <= maxShift
 
+private fun AiTranslationRect.isInsideOverlayPage(): Boolean =
+    x >= 0f && y >= 0f && width >= 0f && height >= 0f && right <= 1f && bottom <= 1f
+
+internal fun AiTranslationRect.isInsideBubbleOutline(outline: List<AiTranslationPoint>): Boolean {
+    val corners = listOf(
+        AiTranslationPoint(x, y),
+        AiTranslationPoint(right, y),
+        AiTranslationPoint(right, bottom),
+        AiTranslationPoint(x, bottom)
+    )
+    if (corners.any { point -> !outline.containsOverlayPoint(point) }) return false
+    val rectEdges = corners.indices.map { index -> corners[index] to corners[(index + 1) % corners.size] }
+    val outlineEdges = outline.indices.map { index -> outline[index] to outline[(index + 1) % outline.size] }
+    return rectEdges.none { (rectStart, rectEnd) ->
+        outlineEdges.any { (outlineStart, outlineEnd) ->
+            overlaySegmentsIntersect(rectStart, rectEnd, outlineStart, outlineEnd)
+        }
+    }
+}
+
+private fun List<AiTranslationPoint>.containsOverlayPoint(point: AiTranslationPoint): Boolean {
+    if (size < 3) return false
+    if (indices.any { index ->
+            point.isOnOverlaySegment(this[index], this[(index + 1) % size])
+        }
+    ) return true
+    var inside = false
+    var previous = last()
+    for (current in this) {
+        val crosses = (current.y > point.y) != (previous.y > point.y)
+        if (crosses) {
+            val edgeX = (previous.x - current.x) * (point.y - current.y) /
+                (previous.y - current.y) + current.x
+            if (point.x <= edgeX + AI_TRANSLATION_POLYGON_EDGE_EPSILON) inside = !inside
+        }
+        previous = current
+    }
+    return inside
+}
+
+private fun AiTranslationPoint.isOnOverlaySegment(
+    start: AiTranslationPoint,
+    end: AiTranslationPoint
+): Boolean {
+    val cross = overlayCross(start, end, this)
+    if (abs(cross) > AI_TRANSLATION_POLYGON_EDGE_EPSILON) return false
+    return x >= minOf(start.x, end.x) - AI_TRANSLATION_POLYGON_EDGE_EPSILON &&
+        x <= maxOf(start.x, end.x) + AI_TRANSLATION_POLYGON_EDGE_EPSILON &&
+        y >= minOf(start.y, end.y) - AI_TRANSLATION_POLYGON_EDGE_EPSILON &&
+        y <= maxOf(start.y, end.y) + AI_TRANSLATION_POLYGON_EDGE_EPSILON
+}
+
+private fun overlaySegmentsIntersect(
+    firstStart: AiTranslationPoint,
+    firstEnd: AiTranslationPoint,
+    secondStart: AiTranslationPoint,
+    secondEnd: AiTranslationPoint
+): Boolean {
+    val firstSideA = overlayCross(firstStart, firstEnd, secondStart)
+    val firstSideB = overlayCross(firstStart, firstEnd, secondEnd)
+    val secondSideA = overlayCross(secondStart, secondEnd, firstStart)
+    val secondSideB = overlayCross(secondStart, secondEnd, firstEnd)
+    if (firstSideA * firstSideB < -AI_TRANSLATION_POLYGON_EDGE_EPSILON &&
+        secondSideA * secondSideB < -AI_TRANSLATION_POLYGON_EDGE_EPSILON
+    ) return true
+    return (abs(firstSideA) <= AI_TRANSLATION_POLYGON_EDGE_EPSILON && secondStart.isOnOverlaySegment(firstStart, firstEnd)) ||
+        (abs(firstSideB) <= AI_TRANSLATION_POLYGON_EDGE_EPSILON && secondEnd.isOnOverlaySegment(firstStart, firstEnd)) ||
+        (abs(secondSideA) <= AI_TRANSLATION_POLYGON_EDGE_EPSILON && firstStart.isOnOverlaySegment(secondStart, secondEnd)) ||
+        (abs(secondSideB) <= AI_TRANSLATION_POLYGON_EDGE_EPSILON && firstEnd.isOnOverlaySegment(secondStart, secondEnd))
+}
+
+private fun overlayCross(
+    start: AiTranslationPoint,
+    end: AiTranslationPoint,
+    point: AiTranslationPoint
+): Float = (end.x - start.x) * (point.y - start.y) -
+    (end.y - start.y) * (point.x - start.x)
+
 private fun AiTranslationRect.coerceForOverlayPlacement(): AiTranslationRect {
     val safeX = x.coerceIn(0f, 0.999f)
     val safeY = y.coerceIn(0f, 0.999f)
     val safeWidth = width.coerceAtLeast(0f).coerceAtMost(1f - safeX)
     val safeHeight = height.coerceAtLeast(0f).coerceAtMost(1f - safeY)
-    return copy(
-        x = safeX,
-        y = safeY,
-        width = safeWidth,
-        height = safeHeight
-    )
+    return copy(x = safeX, y = safeY, width = safeWidth, height = safeHeight)
 }
 
 private fun Modifier.normalTextBoxMask(
@@ -1976,4 +2076,5 @@ private const val AI_TRANSLATION_FIT_ITERATIONS = 8
 private const val AI_TRANSLATION_MIN_OVERLAP_GAP = 0.0005f
 private const val AI_TRANSLATION_MAX_OVERLAP_SHIFT = 0.06f
 private const val AI_TRANSLATION_OVERLAP_SHIFT_ATTEMPTS = 12
+private const val AI_TRANSLATION_POLYGON_EDGE_EPSILON = 0.00001f
 private const val AI_TRANSLATION_TRAILING_PUNCTUATION = "。！？!?，,、；;：:…︙︱｜︐︒︑︓︔﹂﹄」』)）"
