@@ -385,7 +385,7 @@ class AiTranslationRepositoryStructureTest {
         )
 
         assertEquals(1, rects.size)
-        assertEquals(AiPageContextMaskRect(left = 18, top = 56, right = 32, bottom = 104), rects.single())
+        assertEquals(AiPageContextMaskRect(left = 16, top = 54, right = 34, bottom = 106), rects.single())
     }
 
     @Test

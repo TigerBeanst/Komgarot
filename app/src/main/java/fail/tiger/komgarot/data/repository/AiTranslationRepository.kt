@@ -7,6 +7,7 @@ import android.graphics.BitmapRegionDecoder
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
@@ -28,6 +29,7 @@ import fail.tiger.komgarot.data.local.AiTranslationFailureCategory
 import fail.tiger.komgarot.data.local.AiTranslationPageStatus
 import fail.tiger.komgarot.data.local.AiTranslationRegionStatus
 import fail.tiger.komgarot.data.local.AiTranslationRect
+import fail.tiger.komgarot.data.local.AiTranslationPoint
 import fail.tiger.komgarot.data.local.AiTranslationRequestMode
 import fail.tiger.komgarot.data.local.AiTranslationMode
 import fail.tiger.komgarot.data.local.isTerminal
@@ -83,6 +85,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -2723,7 +2726,10 @@ private const val AI_TRANSLATION_RETRY_BASE_DELAY_MS = 500L
 private const val AI_TRANSLATION_RETRY_MAX_DELAY_MS = 8_000L
 private const val AI_TRANSLATION_TASK_PAUSE_POLL_MS = 500L
 private const val AI_SOURCE_LANGUAGE_METADATA_TIMEOUT_MS = 2_000L
-private const val AI_PAGE_CONTEXT_TEXT_MASK_PADDING_PX = 2
+private const val AI_PAGE_CONTEXT_TEXT_MASK_MIN_PADDING_PX = 2f
+private const val AI_PAGE_CONTEXT_TEXT_MASK_PADDING_RATIO = 0.20f
+private const val AI_PAGE_CONTEXT_TEXT_MASK_MAX_PADDING_RATIO = 0.01f
+private const val AI_PAGE_CONTEXT_MAX_SOLID_BUBBLE_AREA = 0.08f
 
 private data class CompressedAiImage(
     val mimeType: String,
@@ -2737,6 +2743,77 @@ internal data class AiPageContextMaskRect(
     val bottom: Int
 )
 
+internal data class AiPageContextMaskPlan(
+    val rects: List<AiPageContextMaskRect>,
+    val clipOutline: List<AiTranslationPoint> = emptyList()
+)
+
+internal fun pageContextMaskPlansForAi(
+    imageWidth: Int,
+    imageHeight: Int,
+    regions: List<AiTranslationLocalTextRegion>
+): List<AiPageContextMaskPlan> {
+    if (imageWidth <= 0 || imageHeight <= 0) return emptyList()
+    return regions.mapNotNull { region ->
+        val outline = region.bubbleOutline
+        val bubbleBounds = outline.pageContextBubbleBoundsOrNull()
+        val rects = if (bubbleBounds != null && region.bubbleSolidFill &&
+            bubbleBounds.width * bubbleBounds.height <= AI_PAGE_CONTEXT_MAX_SOLID_BUBBLE_AREA
+        ) {
+            listOfNotNull(bubbleBounds.toPageContextMaskRect(imageWidth, imageHeight))
+        } else {
+            pageContextTextMaskRectsForAi(imageWidth, imageHeight, listOf(region))
+        }
+        rects.takeIf { it.isNotEmpty() }?.let {
+            AiPageContextMaskPlan(it, outline.takeIf { bubbleBounds != null }.orEmpty())
+        }
+    }
+}
+
+private fun List<AiTranslationPoint>.pageContextBubbleBoundsOrNull(): AiTranslationRect? {
+    if (size < 3 || any { !it.x.isFinite() || !it.y.isFinite() || it.x !in 0f..1f || it.y !in 0f..1f }) {
+        return null
+    }
+    val doubledArea = indices.sumOf { index ->
+        val next = this[(index + 1) % size]
+        this[index].x.toDouble() * next.y - next.x.toDouble() * this[index].y
+    }
+    if (abs(doubledArea) <= 0.000001 || hasCrossingPageContextEdges()) return null
+    val left = minOf { it.x }
+    val top = minOf { it.y }
+    return AiTranslationRect(left, top, maxOf { it.x } - left, maxOf { it.y } - top)
+}
+
+private fun List<AiTranslationPoint>.hasCrossingPageContextEdges(): Boolean {
+    fun cross(a: AiTranslationPoint, b: AiTranslationPoint, p: AiTranslationPoint): Double =
+        (b.x.toDouble() - a.x) * (p.y.toDouble() - a.y) -
+            (b.y.toDouble() - a.y) * (p.x.toDouble() - a.x)
+
+    fun onSegment(a: AiTranslationPoint, b: AiTranslationPoint, p: AiTranslationPoint): Boolean =
+        abs(cross(a, b, p)) <= 1e-9 &&
+            p.x in min(a.x, b.x)..max(a.x, b.x) && p.y in min(a.y, b.y)..max(a.y, b.y)
+
+    for (index in indices) {
+        val a = this[index]
+        val b = this[(index + 1) % size]
+        if (a == b) return true
+        for (other in index + 1 until size) {
+            if (other == index + 1 || (index == 0 && other == lastIndex)) continue
+            val c = this[other]
+            val d = this[(other + 1) % size]
+            val abC = cross(a, b, c)
+            val abD = cross(a, b, d)
+            val cdA = cross(c, d, a)
+            val cdB = cross(c, d, b)
+            if ((abC * abD < 0.0 && cdA * cdB < 0.0) ||
+                onSegment(a, b, c) || onSegment(a, b, d) ||
+                onSegment(c, d, a) || onSegment(c, d, b)
+            ) return true
+        }
+    }
+    return false
+}
+
 internal fun pageContextTextMaskRectsForAi(
     imageWidth: Int,
     imageHeight: Int,
@@ -2744,17 +2821,24 @@ internal fun pageContextTextMaskRectsForAi(
 ): List<AiPageContextMaskRect> {
     if (imageWidth <= 0 || imageHeight <= 0) return emptyList()
     return regions.flatMap { region ->
+        val sourceLines = region.sourceLines
+            .takeIf { region.horizontalLayoutVersion > 0 }
+            .orEmpty()
+            .filter { it.width > 0f && it.height > 0f }
         val sourceColumns = region.sourceColumns.filter { it.width > 0f && it.height > 0f }
-        if (sourceColumns.isNotEmpty()) {
-            sourceColumns.mapNotNull { column ->
-                column.toPageContextMaskRect(
-                    imageWidth = imageWidth,
-                    imageHeight = imageHeight,
-                    paddingPx = AI_PAGE_CONTEXT_TEXT_MASK_PADDING_PX
-                )
-            }
-        } else {
-            listOfNotNull(region.effectiveSourceMaskBounds().toPageContextMaskRect(imageWidth, imageHeight))
+        val sourceRects = when {
+            sourceLines.isNotEmpty() -> sourceLines
+            sourceColumns.isNotEmpty() -> sourceColumns
+            else -> listOf(region.effectiveSourceMaskBounds())
+        }
+        sourceRects.mapNotNull { rect ->
+            val maxPadding = max(
+                AI_PAGE_CONTEXT_TEXT_MASK_MIN_PADDING_PX,
+                min(imageWidth, imageHeight) * AI_PAGE_CONTEXT_TEXT_MASK_MAX_PADDING_RATIO
+            )
+            val padding = (min(rect.width * imageWidth, rect.height * imageHeight) *
+                AI_PAGE_CONTEXT_TEXT_MASK_PADDING_RATIO).coerceIn(AI_PAGE_CONTEXT_TEXT_MASK_MIN_PADDING_PX, maxPadding)
+            rect.toPageContextMaskRect(imageWidth, imageHeight, ceil(padding).toInt())
         }
     }
 }
@@ -2764,7 +2848,9 @@ private fun AiTranslationRect.toPageContextMaskRect(
     imageHeight: Int,
     paddingPx: Int = 0
 ): AiPageContextMaskRect? {
-    if (width <= 0f || height <= 0f) return null
+    if (!x.isFinite() || !y.isFinite() || !width.isFinite() || !height.isFinite() ||
+        width <= 0f || height <= 0f || x >= 1f || y >= 1f || x + width <= 0f || y + height <= 0f
+    ) return null
     val left = (floor(x * imageWidth).toInt() - paddingPx).coerceIn(0, imageWidth - 1)
     val top = (floor(y * imageHeight).toInt() - paddingPx).coerceIn(0, imageHeight - 1)
     val right = (ceil((x + width) * imageWidth).toInt() + paddingPx).coerceIn(left + 1, imageWidth)
@@ -2833,8 +2919,11 @@ private fun compressLocalPanelContextImageForAi(
         decoder.recycle()
     } ?: return null
     val maskedBitmap = bitmap.withOpaquePageContextPixelMasks(
-        pageContextTextMaskRectsForAi(bounds.outWidth, bounds.outHeight, regions),
-        panelRect
+        sourceMasks = pageContextMaskPlansForAi(bounds.outWidth, bounds.outHeight, regions),
+        sourceWidth = bounds.outWidth,
+        sourceHeight = bounds.outHeight,
+        offsetX = panelRect.left,
+        offsetY = panelRect.top
     )
     val outputBitmap = maskedBitmap.scaledDownToMaxEdge(maxEdge)
     return try {
@@ -2853,23 +2942,13 @@ private fun compressLocalPanelContextImageForAi(
 }
 
 private fun Bitmap.withOpaquePageContextPixelMasks(
-    sourceMasks: List<AiPageContextMaskRect>,
-    panelRect: Rect
+    sourceMasks: List<AiPageContextMaskPlan>,
+    sourceWidth: Int,
+    sourceHeight: Int,
+    offsetX: Int = 0,
+    offsetY: Int = 0
 ): Bitmap {
-    val localMasks = sourceMasks.mapNotNull { mask ->
-        val left = max(mask.left, panelRect.left)
-        val top = max(mask.top, panelRect.top)
-        val right = min(mask.right, panelRect.right)
-        val bottom = min(mask.bottom, panelRect.bottom)
-        if (right <= left || bottom <= top) return@mapNotNull null
-        AiPageContextMaskRect(
-            left = left - panelRect.left,
-            top = top - panelRect.top,
-            right = right - panelRect.left,
-            bottom = bottom - panelRect.top
-        )
-    }
-    if (localMasks.isEmpty()) return this
+    if (sourceMasks.isEmpty()) return this
     val mutableBitmap = copy(Bitmap.Config.ARGB_8888, true) ?: return this
     val paint = Paint().apply {
         style = Paint.Style.FILL
@@ -2877,8 +2956,27 @@ private fun Bitmap.withOpaquePageContextPixelMasks(
         alpha = 255
     }
     val canvas = Canvas(mutableBitmap)
-    localMasks.forEach { mask ->
-        canvas.drawRect(mask.left.toFloat(), mask.top.toFloat(), mask.right.toFloat(), mask.bottom.toFloat(), paint)
+    canvas.translate(-offsetX.toFloat(), -offsetY.toFloat())
+    sourceMasks.forEach { mask ->
+        val saved = canvas.save()
+        try {
+            if (mask.clipOutline.isNotEmpty()) {
+                val path = Path().apply {
+                    mask.clipOutline.forEachIndexed { index, point ->
+                        val x = point.x * sourceWidth
+                        val y = point.y * sourceHeight
+                        if (index == 0) moveTo(x, y) else lineTo(x, y)
+                    }
+                    close()
+                }
+                canvas.clipPath(path)
+            }
+            mask.rects.forEach { rect ->
+                canvas.drawRect(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat(), paint)
+            }
+        } finally {
+            canvas.restoreToCount(saved)
+        }
     }
     return mutableBitmap
 }
@@ -2939,27 +3037,11 @@ private fun compressDecodedPageImage(
 
 private fun Bitmap.withOpaquePageContextTextMasks(
     regions: List<AiTranslationLocalTextRegion>
-): Bitmap {
-    val maskRects = pageContextTextMaskRectsForAi(width, height, regions)
-    if (maskRects.isEmpty()) return this
-    val mutableBitmap = copy(Bitmap.Config.ARGB_8888, true) ?: return this
-    val paint = Paint().apply {
-        style = Paint.Style.FILL
-        color = Color.WHITE
-        alpha = 255
-    }
-    val canvas = Canvas(mutableBitmap)
-    maskRects.forEach { rect ->
-        canvas.drawRect(
-            rect.left.toFloat(),
-            rect.top.toFloat(),
-            rect.right.toFloat(),
-            rect.bottom.toFloat(),
-            paint
-        )
-    }
-    return mutableBitmap
-}
+): Bitmap = withOpaquePageContextPixelMasks(
+    sourceMasks = pageContextMaskPlansForAi(width, height, regions),
+    sourceWidth = width,
+    sourceHeight = height
+)
 
 private fun Bitmap.scaledDownToMaxEdge(targetMaxEdge: Int?): Bitmap {
     val maxEdge = targetMaxEdge ?: return this
